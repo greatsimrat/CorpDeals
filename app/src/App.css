@@ -1,0 +1,75 @@
+/* CorpDeals App Styles */
+
+/* Smooth scroll behavior */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Section z-index stacking */
+section {
+  position: relative;
+}
+
+/* Card hover effects */
+.card-surface {
+  transition: box-shadow 0.3s ease, transform 0.3s ease;
+}
+
+/* Button interactions */
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+/* Category card hover */
+.category-card {
+  transition: transform 0.3s ease;
+}
+
+.category-card:hover {
+  transform: translateY(-4px);
+}
+
+/* Step card hover */
+.step-card {
+  transition: box-shadow 0.3s ease;
+}
+
+.step-card:hover {
+  box-shadow: 0 24px 50px rgba(17, 24, 39, 0.14);
+}
+
+/* Form input focus states */
+input:focus,
+textarea:focus {
+  box-shadow: 0 0 0 2px rgba(45, 107, 255, 0.3);
+}
+
+/* Mobile optimizations */
+@media (max-width: 1024px) {
+  .heading-1 {
+    font-size: clamp(32px, 8vw, 44px);
+  }
+  
+  .heading-2 {
+    font-size: clamp(28px, 6vw, 34px);
+  }
+  
+  .heading-3 {
+    font-size: clamp(20px, 5vw, 22px);
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  
+  html {
+    scroll-behavior: auto;
+  }
+}

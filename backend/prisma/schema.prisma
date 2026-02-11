@@ -1,0 +1,205 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  VENDOR
+  EMPLOYEE
+}
+
+enum VendorStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+  SPECIAL
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  CONVERTED
+  CLOSED
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String    @map("password_hash")
+  name          String?
+  role          UserRole  @default(EMPLOYEE)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  vendor              Vendor?
+  reviewedRequests    VendorRequest[] @relation("ReviewedBy")
+
+  @@map("users")
+}
+
+model Vendor {
+  id            String       @id @default(uuid())
+  userId        String       @unique @map("user_id")
+  companyName   String       @map("company_name")
+  contactName   String       @map("contact_name")
+  email         String
+  phone         String?
+  website       String?
+  logo          String?
+  description   String?
+  businessType  String?      @map("business_type")
+  status        VendorStatus @default(PENDING)
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offers        Offer[]
+  requests      VendorRequest[]
+
+  @@map("vendors")
+}
+
+model VendorRequest {
+  id              String        @id @default(uuid())
+  vendorId        String        @map("vendor_id")
+  businessType    String?       @map("business_type")
+  description     String?
+  additionalInfo  String?       @map("additional_info")
+  status          RequestStatus @default(PENDING)
+  reviewedById    String?       @map("reviewed_by_id")
+  reviewedAt      DateTime?     @map("reviewed_at")
+  reviewNotes     String?       @map("review_notes")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  vendor          Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  reviewedBy      User?         @relation("ReviewedBy", fields: [reviewedById], references: [id])
+
+  @@map("vendor_requests")
+}
+
+model Company {
+  id            String    @id @default(uuid())
+  name          String
+  slug          String    @unique
+  domain        String?
+  logo          String?
+  employeeCount String?   @map("employee_count")
+  headquarters  String?
+  description   String?
+  verified      Boolean   @default(false)
+  bannerImage   String?   @map("banner_image")
+  brandColor    String?   @map("brand_color")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  hrContacts    HRContact[]
+  offers        Offer[]
+  leads         Lead[]
+
+  @@map("companies")
+}
+
+model HRContact {
+  id          String    @id @default(uuid())
+  companyId   String    @map("company_id")
+  name        String
+  email       String
+  phone       String?
+  title       String?
+  isPrimary   Boolean   @default(false) @map("is_primary")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("hr_contacts")
+}
+
+model Category {
+  id          String    @id @default(uuid())
+  name        String
+  slug        String    @unique
+  icon        String?
+  description String?
+  color       String?
+  bgColor     String?   @map("bg_color")
+  image       String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  offers      Offer[]
+
+  @@map("categories")
+}
+
+model Offer {
+  id              String       @id @default(uuid())
+  vendorId        String       @map("vendor_id")
+  companyId       String       @map("company_id")
+  categoryId      String       @map("category_id")
+  title           String
+  description     String?
+  discountValue   String       @map("discount_value")
+  discountType    DiscountType @default(PERCENTAGE) @map("discount_type")
+  originalPrice   String?      @map("original_price")
+  discountedPrice String?      @map("discounted_price")
+  terms           Json?        @default("[]")
+  howToClaim      Json?        @default("[]") @map("how_to_claim")
+  expiryDate      DateTime?    @map("expiry_date")
+  featured        Boolean      @default(false)
+  verified        Boolean      @default(false)
+  active          Boolean      @default(true)
+  location        String?
+  image           String?
+  rating          Float        @default(0)
+  reviewCount     Int          @default(0) @map("review_count")
+  leadCount       Int          @default(0) @map("lead_count")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  vendor          Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  company         Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category        Category     @relation(fields: [categoryId], references: [id])
+  leads           Lead[]
+
+  @@map("offers")
+}
+
+model Lead {
+  id          String     @id @default(uuid())
+  offerId     String     @map("offer_id")
+  companyId   String     @map("company_id")
+  firstName   String     @map("first_name")
+  lastName    String     @map("last_name")
+  email       String
+  phone       String?
+  employeeId  String?    @map("employee_id")
+  message     String?
+  status      LeadStatus @default(NEW)
+  vendorNotes String?    @map("vendor_notes")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  offer       Offer      @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  company     Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("leads")
+}
