@@ -108,16 +108,47 @@ async function main() {
   });
   console.log('Created sample vendor:', vendor.companyName);
 
+  // Create a Kia vendor
+  const kiaPassword = await bcrypt.hash('vendor123', 10);
+  const kiaUser = await prisma.user.upsert({
+    where: { email: 'vendor@kia.com' },
+    update: {},
+    create: {
+      email: 'vendor@kia.com',
+      passwordHash: kiaPassword,
+      name: 'Kia Vendor',
+      role: 'VENDOR',
+    },
+  });
+
+  const kiaVendor = await prisma.vendor.upsert({
+    where: { userId: kiaUser.id },
+    update: {},
+    create: {
+      userId: kiaUser.id,
+      companyName: 'Kia Canada - BC Dealers',
+      contactName: 'Kia Partner Team',
+      email: 'vendor@kia.com',
+      phone: '604-555-0200',
+      website: 'https://www.kia.ca',
+      businessType: 'Automotive',
+      description: 'Kia Canada dealer network for corporate employee programs.',
+      status: 'APPROVED',
+    },
+  });
+  console.log('Created sample vendor:', kiaVendor.companyName);
+
   // Get category and company IDs for offers
   const bankingCategory = await prisma.category.findUnique({ where: { slug: 'banking' } });
+  const automotiveCategory = await prisma.category.findUnique({ where: { slug: 'automotive' } });
   const amazonCompany = await prisma.company.findUnique({ where: { slug: 'amazon' } });
 
   if (bankingCategory && amazonCompany) {
     await prisma.offer.upsert({
-      where: { id: 'sample-offer-1' },
+      where: { id: 'coast-capital-mortgage' },
       update: {},
       create: {
-        id: 'sample-offer-1',
+        id: 'coast-capital-mortgage',
         vendorId: vendor.id,
         companyId: amazonCompany.id,
         categoryId: bankingCategory.id,
@@ -145,7 +176,7 @@ async function main() {
       data: [
         {
           id: 'seed-lead-1',
-          offerId: 'sample-offer-1',
+          offerId: 'coast-capital-mortgage',
           companyId: amazonCompany.id,
           firstName: 'Alice',
           lastName: 'Nguyen',
@@ -156,7 +187,7 @@ async function main() {
         },
         {
           id: 'seed-lead-2',
-          offerId: 'sample-offer-1',
+          offerId: 'coast-capital-mortgage',
           companyId: amazonCompany.id,
           firstName: 'Brian',
           lastName: 'Lee',
@@ -167,7 +198,7 @@ async function main() {
         },
         {
           id: 'seed-lead-3',
-          offerId: 'sample-offer-1',
+          offerId: 'coast-capital-mortgage',
           companyId: amazonCompany.id,
           firstName: 'Carla',
           lastName: 'Singh',
@@ -180,6 +211,44 @@ async function main() {
       skipDuplicates: true,
     });
     console.log('Created sample leads for Coast Capital / Amazon');
+  }
+
+  if (automotiveCategory && amazonCompany) {
+    await prisma.offer.upsert({
+      where: { id: 'kia-bc-discount' },
+      update: {},
+      create: {
+        id: 'kia-bc-discount',
+        vendorId: kiaVendor.id,
+        companyId: amazonCompany.id,
+        categoryId: automotiveCategory.id,
+        title: '$500 CAD Off Any New Kia Vehicle',
+        description: 'Amazon BC employees receive $500 CAD discount on any new Kia vehicle purchase or lease. Valid at participating BC dealerships.',
+        discountValue: '$500 CAD',
+        discountType: 'FIXED',
+        terms: [
+          'Valid for Amazon employees in British Columbia',
+          'Applies to new vehicle purchases and leases',
+          'Cannot be combined with other offers',
+          'Valid ID and proof of employment required',
+        ],
+        howToClaim: [
+          'Visit any participating Kia dealership in BC',
+          'Present your Amazon employee badge or pay stub',
+          'Mention CorpDeals Amazon employee discount',
+          'Discount applied at purchase',
+        ],
+        expiryDate: new Date('2026-06-30'),
+        featured: true,
+        verified: true,
+        active: true,
+        location: 'British Columbia, Canada',
+        image: '/offer_kia.jpg',
+        rating: 4.6,
+        reviewCount: 156,
+      },
+    });
+    console.log('Created Kia offer for Amazon');
   }
 
   console.log('Seeding completed!');

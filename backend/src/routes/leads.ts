@@ -18,10 +18,40 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       message,
     } = req.body;
 
+    if (!offerId || !companyId || !firstName || !lastName || !email) {
+      res.status(400).json({ error: 'Missing required fields' });
+      return;
+    }
+
+    const [offer, company] = await Promise.all([
+      prisma.offer.findUnique({ where: { id: offerId }, select: { id: true, companyId: true } }),
+      prisma.company.findFirst({
+        where: {
+          OR: [{ id: companyId }, { slug: companyId }],
+        },
+        select: { id: true },
+      }),
+    ]);
+
+    if (!offer) {
+      res.status(400).json({ error: 'Offer not found' });
+      return;
+    }
+
+    if (!company) {
+      res.status(400).json({ error: 'Company not found' });
+      return;
+    }
+
+    if (offer.companyId !== company.id) {
+      res.status(400).json({ error: 'Company does not match offer' });
+      return;
+    }
+
     const lead = await prisma.lead.create({
       data: {
-        offerId,
-        companyId,
+        offerId: offer.id,
+        companyId: company.id,
         firstName,
         lastName,
         email,

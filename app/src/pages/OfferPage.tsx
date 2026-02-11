@@ -18,6 +18,8 @@ const OfferPage = () => {
   
   const [showLeadForm, setShowLeadForm] = useState(false);
   const [formSubmitted, setFormSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -42,18 +44,8 @@ const OfferPage = () => {
     e.preventDefault();
     if (!offer) return;
 
-    // Optimistically add to local context for UI stats
-    addLead({
-      offerId: offer.id,
-      companyId: offer.companyId,
-      firstName: formData.firstName,
-      lastName: formData.lastName,
-      email: formData.email,
-      phone: formData.phone,
-      employeeId: formData.employeeId,
-      message: formData.message,
-    });
-
+    setSubmitError('');
+    setIsSubmitting(true);
     try {
       // Persist lead in backend so admin/vendor can see and bill it
       await api.submitLead({
@@ -66,12 +58,26 @@ const OfferPage = () => {
         employeeId: formData.employeeId || undefined,
         message: formData.message || undefined,
       });
-    } catch (err) {
-      console.error('Failed to submit lead to API', err);
-      // Optional: show a toast/error message to user
-    }
 
-    setFormSubmitted(true);
+      // Sync local UI stats after successful save
+      addLead({
+        offerId: offer.id,
+        companyId: offer.companyId,
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        email: formData.email,
+        phone: formData.phone,
+        employeeId: formData.employeeId,
+        message: formData.message,
+      });
+
+      setFormSubmitted(true);
+    } catch (err: any) {
+      console.error('Failed to submit lead to API', err);
+      setSubmitError(err.message || 'Failed to submit your request. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (!offer || !company) {
@@ -387,9 +393,12 @@ const OfferPage = () => {
                             />
                           </div>
                         </div>
-                        <button type="submit" className="btn-primary w-full py-4">
-                          Submit Request
+                        <button type="submit" className="btn-primary w-full py-4 disabled:opacity-70" disabled={isSubmitting}>
+                          {isSubmitting ? 'Submitting...' : 'Submit Request'}
                         </button>
+                        {submitError && (
+                          <p className="text-sm text-red-600">{submitError}</p>
+                        )}
                         <button
                           type="button"
                           onClick={() => setShowLeadForm(false)}
