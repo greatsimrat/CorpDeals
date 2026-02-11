@@ -7,6 +7,7 @@ import {
   Tag,
   Percent,
   FileCheck,
+  ListChecks,
   Menu,
   X,
   LogOut,
@@ -21,6 +22,7 @@ const navItems = [
   { path: '/admin/vendors', label: 'Vendors', icon: Users },
   { path: '/admin/companies', label: 'Companies', icon: Building2 },
   { path: '/admin/offers', label: 'Offers', icon: Percent },
+  { path: '/admin/leads', label: 'Leads', icon: ListChecks },
   { path: '/admin/categories', label: 'Categories', icon: Tag },
   { path: '/admin/users', label: 'Users', icon: UserCircle },
 ];

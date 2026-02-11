@@ -25,6 +25,7 @@ import VendorsPage from './pages/admin/VendorsPage';
 import CompaniesPage from './pages/admin/CompaniesPage';
 import UsersPage from './pages/admin/UsersPage';
 import AdminOffersPage from './pages/AdminOffersPage';
+import AdminLeadsPage from './pages/admin/AdminLeadsPage';
 
 function App() {
   return (
@@ -64,6 +65,7 @@ function App() {
                   <Route path="vendors" element={<VendorsPage />} />
                   <Route path="companies" element={<CompaniesPage />} />
                   <Route path="offers" element={<AdminOffersPage />} />
+                  <Route path="leads" element={<AdminLeadsPage />} />
                   <Route path="categories" element={<AdminOffersPage />} />
                   <Route path="users" element={<UsersPage />} />
                 </Route>

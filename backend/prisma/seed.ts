@@ -139,6 +139,47 @@ async function main() {
       },
     });
     console.log('Created sample offer');
+
+    // Seed a few sample leads for Coast Capital offer so admin/vendor can test reports
+    await prisma.lead.createMany({
+      data: [
+        {
+          id: 'seed-lead-1',
+          offerId: 'sample-offer-1',
+          companyId: amazonCompany.id,
+          firstName: 'Alice',
+          lastName: 'Nguyen',
+          email: 'alice.nguyen@amazon.com',
+          phone: '604-555-1001',
+          employeeId: 'AMZ-1001',
+          status: 'NEW',
+        },
+        {
+          id: 'seed-lead-2',
+          offerId: 'sample-offer-1',
+          companyId: amazonCompany.id,
+          firstName: 'Brian',
+          lastName: 'Lee',
+          email: 'brian.lee@amazon.com',
+          phone: '604-555-1002',
+          employeeId: 'AMZ-1002',
+          status: 'CONTACTED',
+        },
+        {
+          id: 'seed-lead-3',
+          offerId: 'sample-offer-1',
+          companyId: amazonCompany.id,
+          firstName: 'Carla',
+          lastName: 'Singh',
+          email: 'carla.singh@amazon.com',
+          phone: '604-555-1003',
+          employeeId: 'AMZ-1003',
+          status: 'CONVERTED',
+        },
+      ],
+      skipDuplicates: true,
+    });
+    console.log('Created sample leads for Coast Capital / Amazon');
   }
 
   console.log('Seeding completed!');

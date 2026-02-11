@@ -9,6 +9,7 @@ import { getOfferById } from '../data/offers';
 import { getCompanyById } from '../data/companies';
 // import { getCategoryById } from '../data/categories';
 import { useLeads } from '../context/LeadContext';
+import api from '../services/api';
 
 const OfferPage = () => {
   const { offerId } = useParams<{ offerId: string }>();
@@ -37,21 +38,40 @@ const OfferPage = () => {
     window.scrollTo(0, 0);
   }, [offer, offerId, navigate]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (offer) {
-      addLead({
+    if (!offer) return;
+
+    // Optimistically add to local context for UI stats
+    addLead({
+      offerId: offer.id,
+      companyId: offer.companyId,
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      email: formData.email,
+      phone: formData.phone,
+      employeeId: formData.employeeId,
+      message: formData.message,
+    });
+
+    try {
+      // Persist lead in backend so admin/vendor can see and bill it
+      await api.submitLead({
         offerId: offer.id,
         companyId: offer.companyId,
         firstName: formData.firstName,
         lastName: formData.lastName,
         email: formData.email,
-        phone: formData.phone,
-        employeeId: formData.employeeId,
-        message: formData.message,
+        phone: formData.phone || undefined,
+        employeeId: formData.employeeId || undefined,
+        message: formData.message || undefined,
       });
-      setFormSubmitted(true);
+    } catch (err) {
+      console.error('Failed to submit lead to API', err);
+      // Optional: show a toast/error message to user
     }
+
+    setFormSubmitted(true);
   };
 
   if (!offer || !company) {
