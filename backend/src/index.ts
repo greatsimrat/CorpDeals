@@ -14,13 +14,33 @@ import offerRoutes from './routes/offers';
 import hrContactRoutes from './routes/hr-contacts';
 import adminRoutes from './routes/admin';
 import leadRoutes from './routes/leads';
+import employeeVerificationRoutes from './routes/employee-verifications';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
+const explicitOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+].filter(Boolean) as string[];
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    if (explicitOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+    if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
 }));
 app.use(express.json());
@@ -39,6 +59,7 @@ app.use('/api/offers', offerRoutes);
 app.use('/api/hr-contacts', hrContactRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/leads', leadRoutes);
+app.use('/api/employee-verifications', employeeVerificationRoutes);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

@@ -14,7 +14,8 @@
     "db:studio": "prisma studio"
   },
   "dependencies": {
-    "@prisma/client": "^6.9.0",
+    "@prisma/client": "^7.4.0",
+    "@sendgrid/mail": "^8.1.5",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
@@ -28,7 +29,7 @@
     "@types/express": "^5.0.2",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.15.29",
-    "prisma": "^6.9.0",
+    "prisma": "^7.4.0",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3"
   }

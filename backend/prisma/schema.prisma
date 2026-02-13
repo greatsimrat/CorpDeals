@@ -39,17 +39,32 @@ enum LeadStatus {
   CLOSED
 }
 
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  EXPIRED
+  REJECTED
+}
+
+enum VerificationMethod {
+  EMAIL
+}
+
 model User {
   id            String    @id @default(uuid())
   email         String    @unique
   passwordHash  String    @map("password_hash")
   name          String?
   role          UserRole  @default(EMPLOYEE)
+  employeeCompanyId    String?   @map("employee_company_id")
+  employmentVerifiedAt DateTime? @map("employment_verified_at")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
   vendor              Vendor?
   reviewedRequests    VendorRequest[] @relation("ReviewedBy")
+  employeeCompany      Company?              @relation("EmployeeCompany", fields: [employeeCompanyId], references: [id])
+  employeeVerifications EmployeeVerification[]
 
   @@map("users")
 }
@@ -113,6 +128,8 @@ model Company {
   hrContacts    HRContact[]
   offers        Offer[]
   leads         Lead[]
+  employees     User[]                @relation("EmployeeCompany")
+  employeeVerifications EmployeeVerification[]
 
   @@map("companies")
 }
@@ -131,6 +148,26 @@ model HRContact {
   company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@map("hr_contacts")
+}
+
+model EmployeeVerification {
+  id            String             @id @default(uuid())
+  userId        String?            @map("user_id")
+  companyId     String             @map("company_id")
+  email         String
+  status        VerificationStatus @default(PENDING)
+  method        VerificationMethod @default(EMAIL)
+  codeHash      String             @map("code_hash")
+  codeExpiresAt DateTime           @map("code_expires_at")
+  attempts      Int                @default(0)
+  verifiedAt    DateTime?          @map("verified_at")
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+
+  user          User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  company       Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("employee_verifications")
 }
 
 model Category {

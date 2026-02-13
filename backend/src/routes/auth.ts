@@ -32,6 +32,12 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
         name,
         role: role || 'EMPLOYEE',
       },
+      include: {
+        vendor: true,
+        employeeCompany: {
+          select: { id: true, slug: true, name: true, domain: true },
+        },
+      },
     });
 
     // Generate token
@@ -47,6 +53,8 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
         email: user.email,
         name: user.name,
         role: user.role,
+        employmentVerifiedAt: user.employmentVerifiedAt,
+        employeeCompany: user.employeeCompany,
       },
       token,
     });
@@ -64,7 +72,12 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     // Find user
     const user = await prisma.user.findUnique({
       where: { email },
-      include: { vendor: true },
+      include: {
+        vendor: true,
+        employeeCompany: {
+          select: { id: true, slug: true, name: true, domain: true },
+        },
+      },
     });
 
     if (!user) {
@@ -93,6 +106,8 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         name: user.name,
         role: user.role,
         vendor: user.vendor,
+        employmentVerifiedAt: user.employmentVerifiedAt,
+        employeeCompany: user.employeeCompany,
       },
       token,
     });
@@ -107,7 +122,12 @@ router.get('/me', authenticateToken, async (req: Request, res: Response): Promis
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user!.id },
-      include: { vendor: true },
+      include: {
+        vendor: true,
+        employeeCompany: {
+          select: { id: true, slug: true, name: true, domain: true },
+        },
+      },
     });
 
     if (!user) {
@@ -121,6 +141,8 @@ router.get('/me', authenticateToken, async (req: Request, res: Response): Promis
       name: user.name,
       role: user.role,
       vendor: user.vendor,
+      employmentVerifiedAt: user.employmentVerifiedAt,
+      employeeCompany: user.employeeCompany,
     });
   } catch (error) {
     console.error('Get me error:', error);

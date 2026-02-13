@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
-import { authenticateToken, requireVendor, requireAdmin } from '../middleware/auth';
+import { authenticateToken, authenticateTokenOptional, requireVendor, requireAdmin } from '../middleware/auth';
 
 const router = Router();
 
-// Submit a lead (public)
-router.post('/', async (req: Request, res: Response): Promise<void> => {
+// Submit a lead (public, but requires employee verification)
+router.post('/', authenticateTokenOptional, async (req: Request, res: Response): Promise<void> => {
   try {
     const {
       offerId,
@@ -16,12 +16,15 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       phone,
       employeeId,
       message,
+      verificationId,
     } = req.body;
 
     if (!offerId || !companyId || !firstName || !lastName || !email) {
       res.status(400).json({ error: 'Missing required fields' });
       return;
     }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
 
     const [offer, company] = await Promise.all([
       prisma.offer.findUnique({ where: { id: offerId }, select: { id: true, companyId: true } }),
@@ -48,13 +51,50 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    let verified = false;
+    if (req.user) {
+      const user = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { employeeCompanyId: true, employmentVerifiedAt: true, email: true },
+      });
+
+      if (user?.employeeCompanyId === company.id && user.employmentVerifiedAt) {
+        if (user.email !== normalizedEmail) {
+          res.status(400).json({ error: 'Use your verified work email address' });
+          return;
+        }
+        verified = true;
+      }
+    }
+
+    if (!verified && verificationId) {
+      const verification = await prisma.employeeVerification.findUnique({
+        where: { id: verificationId },
+        select: { status: true, companyId: true, email: true },
+      });
+
+      if (
+        verification &&
+        verification.status === 'VERIFIED' &&
+        verification.companyId === company.id &&
+        verification.email === normalizedEmail
+      ) {
+        verified = true;
+      }
+    }
+
+    if (!verified) {
+      res.status(403).json({ error: 'Employment verification required to claim this offer' });
+      return;
+    }
+
     const lead = await prisma.lead.create({
       data: {
         offerId: offer.id,
         companyId: company.id,
         firstName,
         lastName,
-        email,
+        email: normalizedEmail,
         phone,
         employeeId,
         message,
