@@ -3,6 +3,20 @@ import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
+const DEFAULT_OFFER_TERMS_TEMPLATE = `This offer is provided by the participating vendor for verified employees only.
+Offer details, pricing, and availability are subject to change without notice.
+The offer may not be combined with other promotions unless explicitly stated.
+Proof of employment and identity may be required at redemption.
+Misuse, fraud, or unauthorized sharing may result in cancellation.
+Additional product- or service-specific conditions may apply.`;
+
+const DEFAULT_CANCELLATION_TEMPLATE = `Cancellation and refund eligibility is determined by the vendor and may vary by product or service.
+Requests must be submitted through the vendor's published support channels.
+If approved, refunds are issued to the original payment method unless otherwise required by law.
+Processing times may vary based on payment provider timelines.
+Non-refundable fees or partially used services may be excluded where legally permitted.
+Questions should be directed to the vendor first; CorpDeals does not process refunds on the vendor's behalf.`;
+
 async function main() {
   console.log('Seeding database...');
 
@@ -43,14 +57,49 @@ async function main() {
   }
   console.log('Created categories');
 
+  await (prisma as any).platformPolicy.upsert({
+    where: { id: 'policy-default-terms-template' },
+    update: {
+      policyType: 'TERMS_TEMPLATE',
+      title: 'Default Offer Terms template',
+      bodyText: DEFAULT_OFFER_TERMS_TEMPLATE,
+      isDefault: true,
+    },
+    create: {
+      id: 'policy-default-terms-template',
+      policyType: 'TERMS_TEMPLATE',
+      title: 'Default Offer Terms template',
+      bodyText: DEFAULT_OFFER_TERMS_TEMPLATE,
+      isDefault: true,
+    },
+  });
+
+  await (prisma as any).platformPolicy.upsert({
+    where: { id: 'policy-default-cancellation-template' },
+    update: {
+      policyType: 'CANCELLATION_TEMPLATE',
+      title: 'Default Cancellation/Refund template',
+      bodyText: DEFAULT_CANCELLATION_TEMPLATE,
+      isDefault: true,
+    },
+    create: {
+      id: 'policy-default-cancellation-template',
+      policyType: 'CANCELLATION_TEMPLATE',
+      title: 'Default Cancellation/Refund template',
+      bodyText: DEFAULT_CANCELLATION_TEMPLATE,
+      isDefault: true,
+    },
+  });
+  console.log('Seeded default platform policy templates');
+
   // Create companies
   const companies = [
-    { name: 'Amazon', slug: 'amazon', domain: 'amazon.com', employeeCount: '1.5M+', headquarters: 'Seattle, WA', brandColor: '#FF9900', verified: true },
-    { name: 'Google', slug: 'google', domain: 'google.com', employeeCount: '190K+', headquarters: 'Mountain View, CA', brandColor: '#4285F4', verified: true },
-    { name: 'Microsoft', slug: 'microsoft', domain: 'microsoft.com', employeeCount: '220K+', headquarters: 'Redmond, WA', brandColor: '#00A4EF', verified: true },
-    { name: 'Apple', slug: 'apple', domain: 'apple.com', employeeCount: '160K+', headquarters: 'Cupertino, CA', brandColor: '#555555', verified: true },
-    { name: 'Meta', slug: 'meta', domain: 'meta.com', employeeCount: '85K+', headquarters: 'Menlo Park, CA', brandColor: '#0668E1', verified: true },
-    { name: 'Netflix', slug: 'netflix', domain: 'netflix.com', employeeCount: '12K+', headquarters: 'Los Gatos, CA', brandColor: '#E50914', verified: true },
+    { name: 'Amazon', slug: 'amazon', domain: 'amazon.com', allowedDomains: ['amazon.com'], employeeCount: '1.5M+', headquarters: 'Seattle, WA', brandColor: '#FF9900', verified: true },
+    { name: 'Google', slug: 'google', domain: 'google.com', allowedDomains: ['google.com', 'alphabet.com'], employeeCount: '190K+', headquarters: 'Mountain View, CA', brandColor: '#4285F4', verified: true },
+    { name: 'Microsoft', slug: 'microsoft', domain: 'microsoft.com', allowedDomains: ['microsoft.com'], employeeCount: '220K+', headquarters: 'Redmond, WA', brandColor: '#00A4EF', verified: true },
+    { name: 'Apple', slug: 'apple', domain: 'apple.com', allowedDomains: ['apple.com'], employeeCount: '160K+', headquarters: 'Cupertino, CA', brandColor: '#555555', verified: true },
+    { name: 'Meta', slug: 'meta', domain: 'meta.com', allowedDomains: ['meta.com', 'facebook.com'], employeeCount: '85K+', headquarters: 'Menlo Park, CA', brandColor: '#0668E1', verified: true },
+    { name: 'Netflix', slug: 'netflix', domain: 'netflix.com', allowedDomains: ['netflix.com'], employeeCount: '12K+', headquarters: 'Los Gatos, CA', brandColor: '#E50914', verified: true },
   ];
 
   for (const company of companies) {
@@ -107,6 +156,52 @@ async function main() {
     },
   });
   console.log('Created sample vendor:', vendor.companyName);
+
+  const bmoPassword = await bcrypt.hash('vendor123', 10);
+  const bmoUser = await prisma.user.upsert({
+    where: { email: 'vendor@bmo.com' },
+    update: {
+      role: 'VENDOR',
+      name: 'BMO Vendor',
+      passwordHash: bmoPassword,
+    },
+    create: {
+      email: 'vendor@bmo.com',
+      passwordHash: bmoPassword,
+      name: 'BMO Vendor',
+      role: 'VENDOR',
+    },
+  });
+
+  const bmoVendor = await prisma.vendor.upsert({
+    where: { userId: bmoUser.id },
+    update: {
+      companyName: 'BMO',
+      contactName: 'BMO Partnerships',
+      email: 'vendor@bmo.com',
+      phone: '604-555-0950',
+      website: 'https://www.bmo.com',
+      businessType: 'Banking & Finance',
+      city: 'Toronto',
+      status: 'APPROVED',
+    } as any,
+    create: {
+      userId: bmoUser.id,
+      companyName: 'BMO',
+      contactName: 'BMO Partnerships',
+      email: 'vendor@bmo.com',
+      phone: '604-555-0950',
+      website: 'https://www.bmo.com',
+      businessType: 'Banking & Finance',
+      city: 'Toronto',
+      status: 'APPROVED',
+    } as any,
+  });
+  await prisma.user.update({
+    where: { id: bmoUser.id },
+    data: { vendorId: bmoVendor.id } as any,
+  });
+  console.log('Created sample vendor:', bmoVendor.companyName);
 
   // Create a Kia vendor
   const kiaPassword = await bcrypt.hash('vendor123', 10);
@@ -356,6 +451,43 @@ async function main() {
   const microsoftCompany = await prisma.company.findUnique({ where: { slug: 'microsoft' } });
 
   if (bankingCategory && amazonCompany) {
+    await prisma.offer.upsert({
+      where: { id: 'bmo-amazon-lead-offer' },
+      update: {
+        vendorId: bmoVendor.id,
+        companyId: amazonCompany.id,
+        categoryId: bankingCategory.id,
+        title: 'BMO Personal Banking Offer for Amazon Employees',
+        description:
+          'Amazon employees can submit a lead request for BMO banking specialists.',
+        offerType: 'lead',
+        productName: 'BMO Preferred Chequing',
+        productModel: 'Lead Intake',
+        productUrl: 'https://www.bmo.com',
+        active: true,
+      } as any,
+      create: {
+        id: 'bmo-amazon-lead-offer',
+        vendorId: bmoVendor.id,
+        companyId: amazonCompany.id,
+        categoryId: bankingCategory.id,
+        title: 'BMO Personal Banking Offer for Amazon Employees',
+        description:
+          'Amazon employees can submit a lead request for BMO banking specialists.',
+        offerType: 'lead',
+        productName: 'BMO Preferred Chequing',
+        productModel: 'Lead Intake',
+        productUrl: 'https://www.bmo.com',
+        discountValue: 'Lead submission',
+        discountType: 'SPECIAL',
+        terms: ['Lead-only offer'],
+        howToClaim: ['Submit request form'],
+        active: true,
+        verified: true,
+      } as any,
+    });
+    console.log('Created BMO -> Amazon lead offer');
+
     await prisma.offer.upsert({
       where: { id: 'coast-capital-mortgage' },
       update: {},
@@ -773,10 +905,26 @@ async function main() {
     console.log('Created Marriott offer for Microsoft');
   }
 
+  await (prisma as any).offer.updateMany({
+    where: { active: true },
+    data: {
+      complianceStatus: 'APPROVED',
+      termsText: DEFAULT_OFFER_TERMS_TEMPLATE,
+      cancellationPolicyText: DEFAULT_CANCELLATION_TEMPLATE,
+      usePlatformDefaultTerms: true,
+      usePlatformDefaultCancellationPolicy: true,
+      vendorAttestationAcceptedAt: new Date(),
+      vendorAttestationAcceptedIp: 'seed-script',
+      complianceNotes: null,
+    },
+  });
+  console.log('Marked active offers as compliance-approved');
+
   console.log('Seeding completed!');
   console.log('\nTest credentials:');
   console.log('Admin: admin@corpdeals.io / admin123');
   console.log('Vendor: vendor@coastcapital.com / vendor123');
+  console.log('Vendor (BMO): vendor@bmo.com / vendor123');
 }
 
 main()

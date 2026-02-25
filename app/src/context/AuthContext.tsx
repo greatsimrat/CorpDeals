@@ -1,16 +1,52 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
+import type { ReactNode } from 'react';
 import api from '../services/api';
 
 interface User {
   id: string;
   email: string;
   name: string | null;
-  role: 'ADMIN' | 'VENDOR' | 'EMPLOYEE';
+  role: 'ADMIN' | 'FINANCE' | 'VENDOR' | 'EMPLOYEE';
+  employmentVerifiedAt?: string | null;
+  employeeCompany?: {
+    id: string;
+    slug: string;
+    name: string;
+    domain?: string | null;
+  } | null;
   vendor?: {
     id: string;
     companyName: string;
     status: string;
   };
+  activeVerification?: {
+    id: string;
+    status: string;
+    verifiedAt: string;
+    expiresAt: string;
+    verificationMethod: string;
+    company: {
+      id: string;
+      slug: string;
+      name: string;
+      domain?: string | null;
+      logo?: string | null;
+    };
+  } | null;
+  latestVerification?: {
+    id: string;
+    status: string;
+    verifiedAt: string;
+    expiresAt: string;
+    verificationMethod: string;
+    company: {
+      id: string;
+      slug: string;
+      name: string;
+      domain?: string | null;
+      logo?: string | null;
+    };
+  } | null;
 }
 
 interface AuthContextType {
@@ -18,6 +54,8 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
+  isFinance: boolean;
+  isAdminOrFinance: boolean;
   isVendor: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (data: { email: string; password: string; name?: string }) => Promise<void>;
@@ -84,7 +122,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isAuthenticated: !!user,
         isAdmin: user?.role === 'ADMIN',
-        isVendor: user?.role === 'VENDOR' || user?.role === 'ADMIN',
+        isFinance: user?.role === 'FINANCE',
+        isAdminOrFinance: user?.role === 'ADMIN' || user?.role === 'FINANCE',
+        isVendor: user?.role === 'VENDOR',
         login,
         register,
         logout,

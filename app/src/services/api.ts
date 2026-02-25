@@ -38,15 +38,44 @@ class ApiService {
       requestHeaders['Authorization'] = `Bearer ${this.token}`;
     }
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      method,
-      headers: requestHeaders,
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        method,
+        headers: requestHeaders,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    } catch (networkError: any) {
+      const err: any = new Error(
+        `Unable to connect to backend API at ${API_BASE_URL}. Please start/restart the backend server.`
+      );
+      err.code = 'NETWORK_ERROR';
+      err.endpoint = endpoint;
+      err.cause = networkError;
+      throw err;
+    }
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Request failed' }));
-      throw new Error(error.error || 'Request failed');
+      const rawBody = await response.text();
+      let error: any = { error: 'Request failed' };
+      if (rawBody) {
+        try {
+          error = JSON.parse(rawBody);
+        } catch {
+          error = { error: rawBody };
+        }
+      }
+
+      const err: any = new Error(error.error || 'Request failed');
+      err.status = response.status;
+      err.responseBody = error;
+      err.endpoint = endpoint;
+      if (error.code) err.code = error.code;
+      if (!err.code && typeof error.error === 'string') err.code = error.error;
+      if (error.company) err.company = error.company;
+      if (error.company_id) err.companyId = error.company_id;
+      if (error.verification) err.verification = error.verification;
+      throw err;
     }
 
     return response.json();
@@ -75,25 +104,134 @@ class ApiService {
     return this.request<any>('/auth/me');
   }
 
+  async getMe() {
+    return this.request<{
+      logged_in?: boolean;
+      loggedIn?: boolean;
+      user: any | null;
+      verified_companies?: any[];
+      verifiedCompanies?: any[];
+      active_company_id?: string | null;
+      activeCompanyId?: string | null;
+    }>('/me');
+  }
+
   logout() {
     this.setToken(null);
   }
 
-  // Vendor Applications
-  async submitVendorApplication(data: {
-    companyName: string;
-    contactName: string;
-    email: string;
-    phone?: string;
-    website?: string;
-    businessType?: string;
-    description?: string;
-    additionalInfo?: string;
-    password: string;
-  }) {
-    return this.request<{ message: string; vendorId: string; requestId: string }>('/vendors/apply', {
+  // Employee Verification
+  async startVerification(data: { companyId: string; workEmail: string }) {
+    return this.request<{
+      verificationId: string;
+      expiresAt: string;
+      devCode?: string;
+      delivery: string;
+      company: { id: string; slug: string; name: string; domain?: string | null };
+    }>('/verify/start', {
       method: 'POST',
       body: data,
+    });
+  }
+
+  async confirmVerification(data: {
+    companyId: string;
+    workEmail: string;
+    otp: string;
+    name?: string;
+    verificationId?: string;
+  }) {
+    const result = await this.request<{ user: any; token: string }>('/verify/confirm', {
+      method: 'POST',
+      body: data,
+    });
+    this.setToken(result.token);
+    return result;
+  }
+
+  async startEmployeeVerification(data: { companyIdOrSlug: string; email: string }) {
+    return this.request<{
+      verificationId: string;
+      expiresAt: string;
+      devCode?: string;
+      delivery: string;
+      company: { id: string; slug: string; name: string; domain?: string | null };
+    }>('/employee-verifications/start', {
+      method: 'POST',
+      body: data,
+    });
+  }
+
+  async verifyEmployeeCode(data: { verificationId: string; code: string; name?: string }) {
+    const result = await this.request<{ user: any; token: string }>('/employee-verifications/verify', {
+      method: 'POST',
+      body: data,
+    });
+    this.setToken(result.token);
+    return result;
+  }
+
+  async getEmployeeVerificationStatus() {
+    return this.request<any>('/employee-verifications/status');
+  }
+
+  async getVerificationForCompany(companyIdOrSlug: string) {
+    return this.request<any>(
+      `/employee-verifications/company/${encodeURIComponent(companyIdOrSlug)}/status`
+    );
+  }
+
+  async getMyVerifications() {
+    return this.request<any[]>('/employee-verifications/my');
+  }
+
+  // Vendor Applications
+  async submitVendorApplication(data: {
+    businessName?: string;
+    companyName?: string;
+    contactName: string;
+    contactEmail?: string;
+    email?: string;
+    phone?: string;
+    website?: string;
+    category?: string;
+    businessType?: string;
+    city?: string;
+    notes?: string;
+    description?: string;
+    additionalInfo?: string;
+    password?: string;
+    confirmPassword?: string;
+  }) {
+    const payload = {
+      businessName: data.businessName || data.companyName || '',
+      contactName: data.contactName,
+      contactEmail: data.contactEmail || data.email || '',
+      phone: data.phone,
+      website: data.website,
+      category: data.category || data.businessType,
+      city: data.city,
+      notes: data.notes || data.description || data.additionalInfo,
+    };
+    return this.request<{ ok: boolean; message: string; vendorId: string }>('/vendor/apply', {
+      method: 'POST',
+      body: payload,
+    });
+  }
+
+  async vendorLogin(email: string, password: string) {
+    const result = await this.request<{ user: any; token: string }>('/vendor/login', {
+      method: 'POST',
+      body: { email, password },
+    });
+    this.setToken(result.token);
+    return result;
+  }
+
+  async setVendorPassword(token: string, password: string) {
+    return this.request<{ ok: boolean }>('/vendor/set-password', {
+      method: 'POST',
+      body: { token, password },
     });
   }
 
@@ -111,6 +249,86 @@ class ApiService {
     return this.request<any>('/vendors/me/profile');
   }
 
+  async getVendorDashboard() {
+    return this.request<any>('/vendor/dashboard');
+  }
+
+  async getVendorDashboardSummary() {
+    return this.request<{
+      leads_today: number;
+      leads_month: number;
+      active_offers: number;
+      qualified_leads: number;
+      leads_sent: number;
+    }>('/vendor/dashboard/summary');
+  }
+
+  async getVendorDashboardCompanyBreakdown() {
+    return this.request<
+      Array<{
+        company_id: string;
+        company_name: string;
+        leads_30_days: number;
+        total_leads: number;
+        qualified_leads: number;
+      }>
+    >('/vendor/dashboard/company-breakdown');
+  }
+
+  async getVendorDashboardOfferPerformance() {
+    return this.request<
+      Array<{
+        offer_id: string;
+        offer_title: string;
+        company_id: string;
+        company_name: string;
+        leads_30_days: number;
+        total_leads: number;
+        status: 'Active' | 'Inactive';
+      }>
+    >('/vendor/dashboard/offer-performance');
+  }
+
+  async getVendorDashboardLeadTrend(days = 14) {
+    const query = new URLSearchParams({ days: String(days) }).toString();
+    return this.request<{
+      days: number;
+      series: Array<{ date: string; leads: number }>;
+    }>(`/vendor/dashboard/lead-trend?${query}`);
+  }
+
+  async getVendorOffers() {
+    return this.request<any[]>('/vendor/offers');
+  }
+
+  async getVendorPolicyDefaults() {
+    return this.request<{
+      termsTemplate: { title: string; bodyText: string };
+      cancellationTemplate: { title: string; bodyText: string };
+    }>('/vendor/policies/defaults');
+  }
+
+  async createVendorOffer(data: any) {
+    return this.request<any>('/vendor/offers', {
+      method: 'POST',
+      body: data,
+    });
+  }
+
+  async updateVendorOffer(id: string, data: any) {
+    return this.request<any>(`/vendor/offers/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: data,
+    });
+  }
+
+  async submitVendorOfferForReview(id: string, data: any) {
+    return this.request<any>(`/vendor/offers/${encodeURIComponent(id)}/submit`, {
+      method: 'POST',
+      body: data,
+    });
+  }
+
   async updateVendor(id: string, data: any) {
     return this.request<any>(`/vendors/${id}`, {
       method: 'PATCH',
@@ -119,13 +337,39 @@ class ApiService {
   }
 
   // Companies
-  async getCompanies(params?: { search?: string; verified?: string }) {
-    const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
-    return this.request<any[]>(`/companies${query}`);
+  async getCompanies(params?: { q?: string; query?: string; search?: string; verified?: string }) {
+    const searchParams = new URLSearchParams();
+    const q = params?.q || params?.query || params?.search;
+    if (q) searchParams.set('q', q);
+    if (params?.verified) searchParams.set('verified', params.verified);
+
+    const query = searchParams.toString();
+    const data = await this.request<any>(`/companies${query ? `?${query}` : ''}`);
+    const companies = Array.isArray(data) ? data : data?.companies || [];
+    return companies.map((company: any) => ({
+      ...company,
+      domain: company.domain ?? company.domains?.[0] ?? null,
+      domains: Array.isArray(company.domains)
+        ? company.domains
+        : company.domain
+        ? [company.domain]
+        : [],
+    }));
+  }
+
+  async resolveCompanyFromSearch(query: string) {
+    const params = new URLSearchParams({ q: query });
+    return this.request<{ query: string; company: any | null; matches: any[] }>(
+      `/companies/resolve/search?${params.toString()}`
+    );
   }
 
   async getCompany(idOrSlug: string) {
-    return this.request<any>(`/companies/${idOrSlug}`);
+    return this.request<any>(`/companies/${encodeURIComponent(idOrSlug)}`);
+  }
+
+  async getCompanyDeals(idOrSlug: string) {
+    return this.request<any>(`/companies/${encodeURIComponent(idOrSlug)}/deals`);
   }
 
   async createCompany(data: any) {
@@ -184,7 +428,31 @@ class ApiService {
   }
 
   async getOffer(id: string) {
-    return this.request<any>(`/offers/${id}`);
+    return this.request<any>(`/offers/${encodeURIComponent(id)}`);
+  }
+
+  async getOfferAccess(id: string) {
+    return this.request<any>(`/offers/${encodeURIComponent(id)}/access`);
+  }
+
+  async getOfferClaimStatus(id: string) {
+    return this.request<any>(`/offers/${encodeURIComponent(id)}/claim-status`);
+  }
+
+  async claimOffer(id: string) {
+    return this.request<any>(`/offers/${encodeURIComponent(id)}/claim`, {
+      method: 'POST',
+    });
+  }
+
+  async performOfferAction(
+    id: string,
+    payload?: Record<string, any>
+  ): Promise<{ ok: true; lead_id: string; message: string }> {
+    return this.request(`/offers/${encodeURIComponent(id)}/apply`, {
+      method: 'POST',
+      body: payload || {},
+    });
   }
 
   async createOffer(data: any) {
@@ -258,9 +526,23 @@ class ApiService {
     });
   }
 
-  async getVendorLeads(params?: { status?: string; offerId?: string }) {
-    const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
-    return this.request<any[]>(`/leads/vendor${query}`);
+  async getVendorLeads(params?: {
+    status?: string;
+    offerId?: string;
+    date_from?: string;
+    date_to?: string;
+  }) {
+    const searchParams = new URLSearchParams();
+    if (params?.status) searchParams.set('status', params.status);
+    if (params?.offerId) searchParams.set('offerId', params.offerId);
+    if (params?.date_from) searchParams.set('date_from', params.date_from);
+    if (params?.date_to) searchParams.set('date_to', params.date_to);
+    const query = searchParams.toString();
+    return this.request<any[]>(`/vendor/leads${query ? `?${query}` : ''}`);
+  }
+
+  async getVendorLead(id: string) {
+    return this.request<any>(`/vendor/leads/${encodeURIComponent(id)}`);
   }
 
   async getLeads(params?: { status?: string; companyId?: string; offerId?: string }) {
@@ -269,10 +551,44 @@ class ApiService {
   }
 
   async updateLead(id: string, data: { status?: string; vendorNotes?: string }) {
-    return this.request<any>(`/leads/${id}`, {
+    return this.request<any>(`/vendor/leads/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: data,
     });
+  }
+
+  async exportVendorLeadsCsv(params?: { status?: string; date_from?: string; date_to?: string }) {
+    const searchParams = new URLSearchParams({ export: 'csv' });
+    if (params?.status) searchParams.set('status', params.status);
+    if (params?.date_from) searchParams.set('date_from', params.date_from);
+    if (params?.date_to) searchParams.set('date_to', params.date_to);
+
+    const headers: Record<string, string> = {};
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+    const response = await fetch(`${API_BASE_URL}/vendor/leads?${searchParams.toString()}`, {
+      method: 'GET',
+      headers,
+    });
+    if (!response.ok) {
+      throw new Error('Failed to export leads CSV');
+    }
+    return response.text();
+  }
+
+  async getMyApplications() {
+    return this.request<{
+      leads: Array<{
+        id: string;
+        offer_id: string;
+        offer_title: string;
+        company: { id: string; slug: string; name: string };
+        vendor_name: string;
+        status: string;
+        created_at: string;
+      }>;
+    }>('/my-applications');
   }
 
   // Admin
@@ -283,6 +599,36 @@ class ApiService {
   async getVendorRequests(params?: { status?: string }) {
     const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
     return this.request<any[]>(`/admin/vendor-requests${query}`);
+  }
+
+  async getAdminVendors(params?: { status?: string }) {
+    const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
+    return this.request<any[]>(`/admin/vendors${query}`);
+  }
+
+  async reviewAdminVendor(id: string, status: 'APPROVED' | 'REJECTED') {
+    return this.request<any>(`/admin/vendors/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: { status },
+    });
+  }
+
+  async getAdminOffersReview(params?: { status?: string }) {
+    const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
+    return this.request<any[]>(`/admin/offers-review${query}`);
+  }
+
+  async approveAdminOfferReview(id: string) {
+    return this.request<any>(`/admin/offers-review/${encodeURIComponent(id)}/approve`, {
+      method: 'POST',
+    });
+  }
+
+  async rejectAdminOfferReview(id: string, complianceNotes: string) {
+    return this.request<any>(`/admin/offers-review/${encodeURIComponent(id)}/reject`, {
+      method: 'POST',
+      body: { complianceNotes },
+    });
   }
 
   async getVendorRequest(id: string) {
@@ -313,6 +659,29 @@ class ApiService {
       method: 'POST',
       body: data,
     });
+  }
+
+  // Finance
+  async getFinanceVendorsSummary(params?: { start?: string; end?: string; vendorId?: string }) {
+    const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
+    return this.request<any>(`/finance/vendors/summary${query}`);
+  }
+
+  async getFinanceVendorCharges(vendorId: string, params?: { start?: string; end?: string; status?: string }) {
+    const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
+    return this.request<any>(`/finance/vendors/${vendorId}/charges${query}`);
+  }
+
+  async updateVendorBilling(vendorId: string, data: any) {
+    return this.request<any>(`/finance/vendors/${vendorId}/billing`, {
+      method: 'PATCH',
+      body: data,
+    });
+  }
+
+  async getFinanceInvoices(params?: { month?: string }) {
+    const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
+    return this.request<any>(`/finance/invoices${query}`);
   }
 }
 

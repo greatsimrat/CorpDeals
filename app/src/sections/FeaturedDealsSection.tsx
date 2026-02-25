@@ -1,4 +1,5 @@
 import { useRef, useLayoutEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { ArrowRight, Star } from 'lucide-react';
@@ -58,9 +59,9 @@ const FeaturedDealsSection = () => {
 
           <div ref={cardsRef} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {featuredOffers.map((offer) => (
-              <a
+              <Link
                 key={offer.id}
-                href={`/offer/${offer.id}`}
+                to={`/c/${encodeURIComponent(offer.companyId)}`}
                 className="deal-card group bg-white rounded-2xl shadow-card overflow-hidden hover:shadow-card-hover transition-all duration-300"
               >
                 <div className="relative h-48 overflow-hidden">
@@ -96,7 +97,7 @@ const FeaturedDealsSection = () => {
                     </span>
                   </div>
                 </div>
-              </a>
+              </Link>
             ))}
           </div>
         </div>

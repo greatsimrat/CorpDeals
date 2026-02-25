@@ -1,19 +1,34 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Mail, Lock, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import Seo from '../../components/Seo';
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login, isLoading: authLoading } = useAuth();
+  const { user, login, isLoading: authLoading } = useAuth();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const from = (location.state as any)?.from?.pathname || '/admin';
+  const fromState = (location.state as any)?.from;
+  const from = fromState?.pathname
+    ? `${fromState.pathname}${fromState.search || ''}`
+    : '/';
+  const lastActiveCompanyPath = useMemo(() => {
+    const slug = user?.employeeCompany?.slug || user?.activeVerification?.company?.slug;
+    return slug ? `/c/${slug}` : '/';
+  }, [user]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) return;
+    if (fromState?.pathname) return;
+    navigate(lastActiveCompanyPath, { replace: true });
+  }, [authLoading, fromState?.pathname, lastActiveCompanyPath, navigate, user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,8 +46,15 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+    <>
+      <Seo
+        title="Employee Login | CorpDeals"
+        description="Sign in to access verified employee perks and company-specific lead offers on CorpDeals."
+        keywords="employee login, corpdeals account, corporate discount login"
+        path="/login"
+      />
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20 flex items-center justify-center p-4">
+        <div className="w-full max-w-md">
         {/* Back Link */}
         <Link
           to="/"
@@ -129,7 +151,8 @@ export default function LoginPage() {
           <p className="text-sm text-amber-700">Admin: admin@corpdeals.io / admin123</p>
           <p className="text-sm text-amber-700">Vendor: vendor@coastcapital.com / vendor123</p>
         </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

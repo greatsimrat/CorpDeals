@@ -6,14 +6,16 @@ interface ProtectedRouteProps {
   children: React.ReactNode;
   requireAdmin?: boolean;
   requireVendor?: boolean;
+  requireFinance?: boolean;
 }
 
 export default function ProtectedRoute({ 
   children, 
   requireAdmin = false,
-  requireVendor = false 
+  requireVendor = false,
+  requireFinance = false
 }: ProtectedRouteProps) {
-  const { isAuthenticated, isAdmin, isVendor, isLoading } = useAuth();
+  const { isAuthenticated, isAdmin, isVendor, isAdminOrFinance, isLoading } = useAuth();
   const location = useLocation();
 
   if (isLoading) {
@@ -25,7 +27,13 @@ export default function ProtectedRoute({
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    return (
+      <Navigate
+        to={requireVendor ? '/vendor/login' : '/login'}
+        state={{ from: location }}
+        replace
+      />
+    );
   }
 
   if (requireAdmin && !isAdmin) {
@@ -33,6 +41,10 @@ export default function ProtectedRoute({
   }
 
   if (requireVendor && !isVendor) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (requireFinance && !isAdminOrFinance) {
     return <Navigate to="/" replace />;
   }
 

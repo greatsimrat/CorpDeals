@@ -9,6 +9,7 @@ datasource db {
 
 enum UserRole {
   ADMIN
+  FINANCE
   VENDOR
   EMPLOYEE
 }
@@ -17,6 +18,7 @@ enum VendorStatus {
   PENDING
   APPROVED
   REJECTED
+  SUSPENDED
 }
 
 enum RequestStatus {
@@ -33,10 +35,24 @@ enum DiscountType {
 
 enum LeadStatus {
   NEW
+  SENT
+  FAILED
   CONTACTED
   QUALIFIED
   CONVERTED
   CLOSED
+}
+
+enum ComplianceStatus {
+  DRAFT      @map("draft")
+  SUBMITTED  @map("submitted")
+  APPROVED   @map("approved")
+  REJECTED   @map("rejected")
+}
+
+enum PlatformPolicyType {
+  TERMS_TEMPLATE         @map("terms_template")
+  CANCELLATION_TEMPLATE  @map("cancellation_template")
 }
 
 enum VerificationStatus {
@@ -50,12 +66,42 @@ enum VerificationMethod {
   EMAIL
 }
 
+enum BillingMode {
+  TRIAL
+  FREE
+  PAY_PER_LEAD
+  MONTHLY
+  HYBRID
+}
+
+enum LeadChargeStatus {
+  PENDING
+  BILLED
+  WAIVED
+  REFUNDED
+}
+
+enum LeadChargeReason {
+  TRIAL
+  FREE
+  INVALID
+  DUPLICATE
+  MANUAL
+}
+
+enum PaymentMethod {
+  MANUAL
+  STRIPE
+}
+
 model User {
   id            String    @id @default(uuid())
   email         String    @unique
-  passwordHash  String    @map("password_hash")
+  passwordHash  String?   @map("password_hash")
   name          String?
   role          UserRole  @default(EMPLOYEE)
+  vendorId      String?   @map("vendor_id")
+  activeCompanyId String? @map("active_company_id")
   employeeCompanyId    String?   @map("employee_company_id")
   employmentVerifiedAt DateTime? @map("employment_verified_at")
   createdAt     DateTime  @default(now()) @map("created_at")
@@ -64,7 +110,13 @@ model User {
   vendor              Vendor?
   reviewedRequests    VendorRequest[] @relation("ReviewedBy")
   employeeCompany      Company?              @relation("EmployeeCompany", fields: [employeeCompanyId], references: [id])
+  activeCompany        Company?              @relation("ActiveCompany", fields: [activeCompanyId], references: [id])
   employeeVerifications EmployeeVerification[]
+  companyVerifications UserCompanyVerification[]
+  offerClaims          OfferClaim[]
+  leads                Lead[]                    @relation("UserLeads")
+  redemptions          Redemption[]
+  offerClicks          OfferClick[]
 
   @@map("users")
 }
@@ -77,6 +129,8 @@ model Vendor {
   email         String
   phone         String?
   website       String?
+  city          String?
+  notes         String?
   logo          String?
   description   String?
   businessType  String?      @map("business_type")
@@ -87,6 +141,9 @@ model Vendor {
   user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   offers        Offer[]
   requests      VendorRequest[]
+  billing       VendorBilling?
+  leadCharges   LeadCharge[]
+  leads         Lead[]         @relation("VendorLeads")
 
   @@map("vendors")
 }
@@ -115,6 +172,7 @@ model Company {
   name          String
   slug          String    @unique
   domain        String?
+  allowedDomains String[] @default([]) @map("allowed_domains")
   logo          String?
   employeeCount String?   @map("employee_count")
   headquarters  String?
@@ -129,7 +187,11 @@ model Company {
   offers        Offer[]
   leads         Lead[]
   employees     User[]                @relation("EmployeeCompany")
+  activeUsers   User[]                @relation("ActiveCompany")
   employeeVerifications EmployeeVerification[]
+  userVerifications     UserCompanyVerification[]
+  redemptions           Redemption[]
+  offerClicks           OfferClick[]
 
   @@map("companies")
 }
@@ -192,6 +254,11 @@ model Offer {
   vendorId        String       @map("vendor_id")
   companyId       String       @map("company_id")
   categoryId      String       @map("category_id")
+  offerType       String       @default("lead") @map("offer_type")
+  configJson      Json?        @map("config_json")
+  productName     String?      @map("product_name")
+  productModel    String?      @map("product_model")
+  productUrl      String?      @map("product_url")
   title           String
   description     String?
   discountValue   String       @map("discount_value")
@@ -209,6 +276,16 @@ model Offer {
   rating          Float        @default(0)
   reviewCount     Int          @default(0) @map("review_count")
   leadCount       Int          @default(0) @map("lead_count")
+  termsText       String       @default("") @map("terms_text")
+  cancellationPolicyText String @default("") @map("cancellation_policy_text")
+  redemptionInstructionsText String? @map("redemption_instructions_text")
+  restrictionsText String?     @map("restrictions_text")
+  usePlatformDefaultTerms Boolean @default(true) @map("use_platform_default_terms")
+  usePlatformDefaultCancellationPolicy Boolean @default(true) @map("use_platform_default_cancellation_policy")
+  vendorAttestationAcceptedAt DateTime? @map("vendor_attestation_accepted_at")
+  vendorAttestationAcceptedIp String? @map("vendor_attestation_accepted_ip")
+  complianceStatus ComplianceStatus @default(DRAFT) @map("compliance_status")
+  complianceNotes String?      @map("compliance_notes")
   createdAt       DateTime     @default(now()) @map("created_at")
   updatedAt       DateTime     @updatedAt @map("updated_at")
 
@@ -216,17 +293,40 @@ model Offer {
   company         Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   category        Category     @relation(fields: [categoryId], references: [id])
   leads           Lead[]
+  claims          OfferClaim[]
+  redemptions     Redemption[]
+  offerClicks     OfferClick[]
 
   @@map("offers")
 }
 
+model PlatformPolicy {
+  id          String             @id @default(uuid())
+  policyType  PlatformPolicyType @map("policy_type")
+  title       String
+  bodyText    String             @map("body_text")
+  isDefault   Boolean            @default(false) @map("is_default")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+
+  @@index([policyType, isDefault])
+  @@map("platform_policies")
+}
+
 model Lead {
   id          String     @id @default(uuid())
+  userId      String?    @map("user_id")
   offerId     String     @map("offer_id")
   companyId   String     @map("company_id")
+  vendorId    String?    @map("vendor_id")
+  payloadJson Json?      @map("payload_json")
+  consent     Boolean    @default(false)
+  consentAt   DateTime?  @map("consent_at")
+  consentIp   String?    @map("consent_ip")
   firstName   String     @map("first_name")
   lastName    String     @map("last_name")
   email       String
+  vendorNotificationEmail String? @map("vendor_notification_email")
   phone       String?
   employeeId  String?    @map("employee_id")
   message     String?
@@ -235,8 +335,129 @@ model Lead {
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @updatedAt @map("updated_at")
 
+  user        User?      @relation("UserLeads", fields: [userId], references: [id], onDelete: SetNull)
   offer       Offer      @relation(fields: [offerId], references: [id], onDelete: Cascade)
   company     Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor      Vendor?    @relation("VendorLeads", fields: [vendorId], references: [id], onDelete: SetNull)
+  leadCharge  LeadCharge?
 
   @@map("leads")
+}
+
+model VendorBilling {
+  id              String       @id @default(uuid())
+  vendorId        String       @unique @map("vendor_id")
+  billingMode     BillingMode  @default(TRIAL) @map("billing_mode")
+  postTrialMode   BillingMode? @map("post_trial_mode")
+  trialEndsAt     DateTime?    @map("trial_ends_at")
+  leadPriceCents  Int          @default(0) @map("lead_price_cents")
+  monthlyFeeCents Int          @default(0) @map("monthly_fee_cents")
+  paymentMethod   PaymentMethod @default(MANUAL) @map("payment_method")
+  stripeCustomerId String?      @map("stripe_customer_id")
+  stripeSubscriptionId String?  @map("stripe_subscription_id")
+  currency        String       @default("USD")
+  billingDay      Int          @default(1) @map("billing_day")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  vendor      Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@map("vendor_billing")
+}
+
+model LeadCharge {
+  id           String            @id @default(uuid())
+  leadId       String            @unique @map("lead_id")
+  vendorId     String            @map("vendor_id")
+  amountCents  Int               @default(0) @map("amount_cents")
+  currency     String            @default("USD")
+  status       LeadChargeStatus  @default(PENDING)
+  reason       LeadChargeReason?
+  chargeableAt DateTime          @default(now()) @map("chargeable_at")
+  billedAt     DateTime?         @map("billed_at")
+  notes        String?
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId, chargeableAt])
+  @@map("lead_charges")
+}
+
+model UserCompanyVerification {
+  id                 String   @id @default(uuid())
+  userId             String   @map("user_id")
+  companyId          String   @map("company_id")
+  verificationMethod String   @default("work_email") @map("verification_method")
+  verifiedAt         DateTime @map("verified_at")
+  expiresAt          DateTime @map("expires_at")
+  status             String   @default("verified")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyId])
+  @@index([userId, status, expiresAt])
+  @@index([companyId, status])
+  @@map("user_company_verifications")
+}
+
+model OfferClaim {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  offerId   String   @map("offer_id")
+  claimedAt DateTime @default(now()) @map("claimed_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offer     Offer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, offerId])
+  @@index([offerId])
+  @@map("offer_claims")
+}
+
+model Redemption {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  offerId    String    @map("offer_id")
+  companyId  String    @map("company_id")
+  code       String
+  redeemedAt DateTime? @map("redeemed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offer      Offer     @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, offerId])
+  @@index([offerId])
+  @@index([companyId])
+  @@map("redemptions")
+}
+
+model OfferClick {
+  id        String    @id @default(uuid())
+  userId    String?   @map("user_id")
+  offerId   String    @map("offer_id")
+  companyId String    @map("company_id")
+  clickedAt DateTime  @default(now()) @map("clicked_at")
+  referrer  String?
+  userAgent String?   @map("user_agent")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  offer     Offer     @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([offerId, clickedAt])
+  @@index([companyId, clickedAt])
+  @@index([userId, clickedAt])
+  @@map("offer_clicks")
 }

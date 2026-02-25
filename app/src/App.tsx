@@ -1,21 +1,34 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { LeadProvider } from './context/LeadContext';
 import { OffersProvider } from './context/OffersContext';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import CompanyRouteGuard from './components/CompanyRouteGuard';
 import './App.css';
 
 // Pages
 import HomePage from './pages/HomePage';
 import CompanyPage from './pages/CompanyPage';
+import CompanyDealsPage from './pages/CompanyDealsPage';
 import CategoryPage from './pages/CategoryPage';
-import OfferPage from './pages/OfferPage';
-import VendorPortal from './pages/VendorPortal';
+import ConfirmationPage from './pages/ConfirmationPage';
+import MyApplicationsPage from './pages/MyApplicationsPage';
 import NotFoundPage from './pages/NotFoundPage';
+import VerifyEmployeePage from './pages/VerifyEmployeePage';
+import VendorApplyPage from './pages/vendor/VendorApplyPage';
+import VendorLoginPage from './pages/vendor/VendorLoginPage';
+import VendorSetPasswordPage from './pages/vendor/VendorSetPasswordPage';
+import VendorLayout from './pages/vendor/VendorLayout';
+import VendorDashboardPage from './pages/vendor/VendorDashboardPage';
+import VendorOffersPage from './pages/vendor/VendorOffersPage';
+import VendorOfferFormPage from './pages/vendor/VendorOfferFormPage';
+import VendorLeadsPage from './pages/vendor/VendorLeadsPage';
+import VendorLeadDetailPage from './pages/vendor/VendorLeadDetailPage';
+import VendorTermsPage from './pages/vendor/VendorTermsPage';
+import OfferPage from './pages/OfferPage';
 
 // Auth Pages
 import LoginPage from './pages/auth/LoginPage';
-import BecomePartnerPage from './pages/BecomePartnerPage';
 
 // Admin Pages
 import AdminLayout from './pages/admin/AdminLayout';
@@ -26,6 +39,21 @@ import CompaniesPage from './pages/admin/CompaniesPage';
 import UsersPage from './pages/admin/UsersPage';
 import AdminOffersPage from './pages/AdminOffersPage';
 import AdminLeadsPage from './pages/admin/AdminLeadsPage';
+import OffersReviewPage from './pages/admin/OffersReviewPage';
+import FinanceLayout from './pages/finance/FinanceLayout';
+import FinanceDashboard from './pages/finance/FinanceDashboard';
+import SeoContentPage from './pages/SeoContentPage';
+import PolicyTypesPage from './pages/PolicyTypesPage';
+
+function LegacyCompanyRedirect() {
+  const { companyId } = useParams<{ companyId: string }>();
+  return <Navigate to={`/c/${companyId}`} replace />;
+}
+
+function LegacyCompanyDealsRedirect() {
+  const { companyId } = useParams<{ companyId: string }>();
+  return <Navigate to={`/c/${companyId}`} replace />;
+}
 
 function App() {
   return (
@@ -41,18 +69,86 @@ function App() {
               <Routes>
                 {/* Public Routes */}
                 <Route path="/" element={<HomePage />} />
-                <Route path="/company/:companyId" element={<CompanyPage />} />
+                <Route path="/company/:companyId" element={<LegacyCompanyRedirect />} />
+                <Route path="/company/:companyId/deals" element={<LegacyCompanyDealsRedirect />} />
+                <Route path="/company/:companyId/overview" element={<CompanyPage />} />
+                <Route
+                  path="/c/:companySlug"
+                  element={
+                    <CompanyRouteGuard>
+                      <CompanyDealsPage />
+                    </CompanyRouteGuard>
+                  }
+                />
                 <Route path="/company/:companyId/category/:categoryId" element={<CategoryPage />} />
                 <Route path="/offer/:offerId" element={<OfferPage />} />
+                <Route path="/offers/:offerId" element={<OfferPage />} />
+                <Route path="/offers/:offerId/claim" element={<Navigate to="/" replace />} />
+                <Route
+                  path="/confirmation"
+                  element={
+                    <ProtectedRoute>
+                      <ConfirmationPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/my-applications"
+                  element={
+                    <ProtectedRoute>
+                      <MyApplicationsPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route path="/verify" element={<VerifyEmployeePage />} />
+                <Route path="/verify/:companyId" element={<VerifyEmployeePage />} />
                 <Route path="/login" element={<LoginPage />} />
-                <Route path="/become-partner" element={<BecomePartnerPage />} />
+                <Route path="/become-partner" element={<Navigate to="/vendor/apply" replace />} />
+                <Route path="/vendor/apply" element={<VendorApplyPage />} />
+                <Route path="/vendor/login" element={<VendorLoginPage />} />
+                <Route path="/vendor/set-password" element={<VendorSetPasswordPage />} />
+                <Route path="/vendor/terms" element={<VendorTermsPage />} />
+                <Route path="/for-employees" element={<SeoContentPage pageKey="forEmployees" />} />
+                <Route path="/for-vendors" element={<SeoContentPage pageKey="forVendors" />} />
+                <Route path="/for-hr-teams" element={<SeoContentPage pageKey="forHrTeams" />} />
+                <Route path="/pricing" element={<SeoContentPage pageKey="pricing" />} />
+                <Route path="/about" element={<SeoContentPage pageKey="about" />} />
+                <Route path="/careers" element={<SeoContentPage pageKey="careers" />} />
+                <Route path="/press" element={<SeoContentPage pageKey="press" />} />
+                <Route path="/blog" element={<SeoContentPage pageKey="blog" />} />
+                <Route path="/help-center" element={<SeoContentPage pageKey="helpCenter" />} />
+                <Route path="/api-docs" element={<SeoContentPage pageKey="apiDocs" />} />
+                <Route path="/partner-portal" element={<SeoContentPage pageKey="partnerPortal" />} />
+                <Route path="/case-studies" element={<SeoContentPage pageKey="caseStudies" />} />
+                <Route path="/privacy-policy" element={<SeoContentPage pageKey="privacyPolicy" />} />
+                <Route path="/terms-of-service" element={<SeoContentPage pageKey="termsOfService" />} />
+                <Route path="/cookie-policy" element={<SeoContentPage pageKey="cookiePolicy" />} />
+                <Route path="/security" element={<SeoContentPage pageKey="security" />} />
+                <Route path="/policies" element={<PolicyTypesPage />} />
+                <Route path="/privacy" element={<Navigate to="/privacy-policy" replace />} />
+                <Route path="/terms" element={<Navigate to="/terms-of-service" replace />} />
+                <Route path="/cookies" element={<Navigate to="/cookie-policy" replace />} />
 
                 {/* Vendor Routes */}
                 <Route path="/vendor-portal" element={
-                  <ProtectedRoute requireVendor>
-                    <VendorPortal />
-                  </ProtectedRoute>
+                  <Navigate to="/vendor/dashboard" replace />
                 } />
+                <Route
+                  path="/vendor"
+                  element={
+                    <ProtectedRoute requireVendor>
+                      <VendorLayout />
+                    </ProtectedRoute>
+                  }
+                >
+                  <Route index element={<Navigate to="/vendor/dashboard" replace />} />
+                  <Route path="dashboard" element={<VendorDashboardPage />} />
+                  <Route path="offers" element={<VendorOffersPage />} />
+                  <Route path="offers/new" element={<VendorOfferFormPage />} />
+                  <Route path="offers/:offerId/edit" element={<VendorOfferFormPage />} />
+                  <Route path="leads" element={<VendorLeadsPage />} />
+                  <Route path="leads/:leadId" element={<VendorLeadDetailPage />} />
+                </Route>
 
                 {/* Admin Routes */}
                 <Route path="/admin" element={
@@ -65,9 +161,19 @@ function App() {
                   <Route path="vendors" element={<VendorsPage />} />
                   <Route path="companies" element={<CompaniesPage />} />
                   <Route path="offers" element={<AdminOffersPage />} />
+                  <Route path="offers-review" element={<OffersReviewPage />} />
                   <Route path="leads" element={<AdminLeadsPage />} />
                   <Route path="categories" element={<AdminOffersPage />} />
                   <Route path="users" element={<UsersPage />} />
+                </Route>
+
+                {/* Finance Routes */}
+                <Route path="/finance" element={
+                  <ProtectedRoute requireFinance>
+                    <FinanceLayout />
+                  </ProtectedRoute>
+                }>
+                  <Route index element={<FinanceDashboard />} />
                 </Route>
 
                 <Route path="*" element={<NotFoundPage />} />

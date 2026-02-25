@@ -2,13 +2,29 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../lib/prisma';
-import { authenticateToken } from '../middleware/auth';
-import { canSendEmail, sendVerificationCodeEmail } from '../lib/mailer';
+import { authenticateToken, requireAdmin } from '../middleware/auth';
+import {
+  canSendEmail,
+  getEmailConfig,
+  sendTestEmail,
+  sendVerificationCodeEmail,
+} from '../lib/mailer';
+import { buildAuthUserPayload } from '../lib/auth-user';
+import {
+  companyMatchesDomain,
+  getCompanyAllowedDomains,
+  getUserVerification,
+  listUserVerifications,
+  resolveCompanyByDomain,
+  upsertUserCompanyVerification,
+  VERIFIED_STATUS,
+} from '../lib/verifications';
 
 const router = Router();
 
 const CODE_TTL_MINUTES = Number(process.env.VERIFICATION_CODE_TTL_MINUTES || '15');
 const MAX_ATTEMPTS = Number(process.env.VERIFICATION_CODE_MAX_ATTEMPTS || '5');
+const jwtExpiresIn = (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'];
 
 const PERSONAL_EMAIL_DOMAINS = new Set([
   'gmail.com',
@@ -42,10 +58,53 @@ const shouldReturnDevCode = () =>
   process.env.RETURN_VERIFICATION_CODE === 'true' ||
   process.env.NODE_ENV !== 'production';
 
+// SMTP test email (admin only)
+router.post(
+  '/test-email',
+  authenticateToken,
+  requireAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      if (process.env.NODE_ENV === 'production') {
+        res.status(404).json({ error: 'Not found' });
+        return;
+      }
+
+      const to = normalizeEmail(String(req.body?.to || ''));
+      if (!to || !to.includes('@')) {
+        res.status(400).json({ error: 'A valid recipient email is required' });
+        return;
+      }
+
+      const result = await sendTestEmail({ to });
+      if (!result.sent) {
+        res.status(500).json({
+          error: 'Failed to send test email',
+          detail: result.error || 'Unknown mailer error',
+          config: getEmailConfig(),
+        });
+        return;
+      }
+
+      res.json({
+        sent: true,
+        to,
+        config: getEmailConfig(),
+      });
+    } catch (error) {
+      console.error('Test email endpoint error:', error);
+      res.status(500).json({ error: 'Failed to send test email' });
+    }
+  }
+);
+
 // Start verification (send code)
 router.post('/start', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { companyIdOrSlug, email } = req.body;
+    const companyIdOrSlug = String(
+      req.body?.companyIdOrSlug || req.body?.companyId || req.body?.company || ''
+    ).trim();
+    const email = String(req.body?.email || req.body?.workEmail || '').trim();
 
     if (!companyIdOrSlug || !email) {
       res.status(400).json({ error: 'Company and email are required' });
@@ -69,7 +128,7 @@ router.post('/start', async (req: Request, res: Response): Promise<void> => {
       where: {
         OR: [{ id: companyIdOrSlug }, { slug: companyIdOrSlug }],
       },
-      select: { id: true, name: true, slug: true, domain: true },
+      select: { id: true, name: true, slug: true, domain: true, allowedDomains: true, logo: true },
     });
 
     if (!company) {
@@ -77,16 +136,28 @@ router.post('/start', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const companyDomain = company.domain?.toLowerCase();
-    if (companyDomain && !ALLOW_PERSONAL_EMAILS) {
-      const matches =
-        domain === companyDomain || domain.endsWith(`.${companyDomain}`);
-      if (!matches) {
-        res.status(400).json({
-          error: `Email domain must match ${companyDomain}`,
+    const allowedDomains = getCompanyAllowedDomains(company);
+    if (!ALLOW_PERSONAL_EMAILS && !companyMatchesDomain(company, domain)) {
+      const matchedCompany = await resolveCompanyByDomain(domain);
+      if (!matchedCompany) {
+        res.status(404).json({
+          error: 'Company not found. Request to add company.',
         });
         return;
       }
+
+      if (matchedCompany.id !== company.id) {
+        res.status(400).json({
+          error: `This email is associated with ${matchedCompany.name}. Verify that company instead.`,
+        });
+        return;
+      }
+
+      const expected = allowedDomains.join(', ') || company.domain || 'your company domain';
+      res.status(400).json({
+        error: `Email domain mismatch. Use your ${expected} work email.`,
+      });
+      return;
     }
 
     const code = generateCode();
@@ -145,6 +216,7 @@ router.post('/start', async (req: Request, res: Response): Promise<void> => {
         slug: company.slug,
         name: company.name,
         domain: company.domain,
+        logo: company.logo,
       },
       delivery: emailResult.sent ? 'email' : 'console',
       emailConfigured: canSendEmail(),
@@ -161,10 +233,127 @@ router.post('/start', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+const completeVerification = async (
+  verification: any,
+  code: string,
+  name: unknown,
+  res: Response
+): Promise<void> => {
+  if (verification.status !== 'PENDING') {
+    res.status(400).json({ error: 'Verification is no longer valid' });
+    return;
+  }
+
+  if (verification.codeExpiresAt < new Date()) {
+    await prisma.employeeVerification.update({
+      where: { id: verification.id },
+      data: { status: 'EXPIRED' },
+    });
+    res.status(400).json({ error: 'Verification code has expired' });
+    return;
+  }
+
+  if (verification.attempts >= MAX_ATTEMPTS) {
+    res.status(429).json({ error: 'Too many attempts. Request a new code.' });
+    return;
+  }
+
+  const isValid = await bcrypt.compare(code, verification.codeHash);
+  if (!isValid) {
+    await prisma.employeeVerification.update({
+      where: { id: verification.id },
+      data: { attempts: { increment: 1 } },
+    });
+    res.status(400).json({ error: 'Invalid verification code' });
+    return;
+  }
+
+  const existingUser = await prisma.user.findUnique({
+    where: { email: verification.email },
+  });
+
+  if (existingUser && existingUser.role !== 'EMPLOYEE') {
+    res.status(409).json({
+      error: 'This email is already linked to a vendor or admin account',
+    });
+    return;
+  }
+
+  const displayName =
+    typeof name === 'string' && name.trim().length > 0 ? name.trim() : null;
+
+  const passwordHash = existingUser
+    ? undefined
+    : await bcrypt.hash(
+        `emp-${verification.id}-${Math.random().toString(36).slice(2)}`,
+        10
+      );
+
+  const user = existingUser
+    ? await prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          employeeCompanyId: verification.companyId,
+          employmentVerifiedAt: new Date(),
+          ...(displayName && !existingUser.name ? { name: displayName } : {}),
+        },
+      })
+    : await prisma.user.create({
+        data: {
+          email: verification.email,
+          passwordHash: passwordHash!,
+          name: displayName,
+          role: 'EMPLOYEE',
+          employeeCompanyId: verification.companyId,
+          employmentVerifiedAt: new Date(),
+        },
+      });
+
+  const verificationRecord = await upsertUserCompanyVerification(
+    user.id,
+    verification.companyId
+  );
+
+  await prisma.employeeVerification.update({
+    where: { id: verification.id },
+    data: {
+      status: 'VERIFIED',
+      verifiedAt: new Date(),
+      userId: user.id,
+    },
+  });
+
+  const token = jwt.sign(
+    { userId: user.id, email: user.email, role: user.role },
+    process.env.JWT_SECRET || 'secret',
+    { expiresIn: jwtExpiresIn }
+  );
+
+  const userPayload = await buildAuthUserPayload(user.id);
+  if (!userPayload) {
+    res.status(500).json({ error: 'Failed to prepare user payload' });
+    return;
+  }
+
+  res.json({
+    token,
+    user: userPayload,
+    verification: {
+      id: verificationRecord.id,
+      status: verificationRecord.status,
+      verifiedAt: verificationRecord.verifiedAt,
+      expiresAt: verificationRecord.expiresAt,
+      company: verificationRecord.company,
+    },
+  });
+};
+
 // Verify code and issue employee token
 router.post('/verify', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { verificationId, code, name } = req.body;
+    const verificationId = String(req.body?.verificationId || '').trim();
+    const code = String(req.body?.code || req.body?.otp || '').trim();
+    const name = req.body?.name;
 
     if (!verificationId || !code) {
       res.status(400).json({ error: 'Verification ID and code are required' });
@@ -183,139 +372,219 @@ router.post('/verify', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    if (verification.status !== 'PENDING') {
-      res.status(400).json({ error: 'Verification is no longer valid' });
-      return;
-    }
-
-    if (verification.codeExpiresAt < new Date()) {
-      await prisma.employeeVerification.update({
-        where: { id: verification.id },
-        data: { status: 'EXPIRED' },
-      });
-      res.status(400).json({ error: 'Verification code has expired' });
-      return;
-    }
-
-    if (verification.attempts >= MAX_ATTEMPTS) {
-      res.status(429).json({ error: 'Too many attempts. Request a new code.' });
-      return;
-    }
-
-    const isValid = await bcrypt.compare(code, verification.codeHash);
-    if (!isValid) {
-      await prisma.employeeVerification.update({
-        where: { id: verification.id },
-        data: { attempts: { increment: 1 } },
-      });
-      res.status(400).json({ error: 'Invalid verification code' });
-      return;
-    }
-
-    const existingUser = await prisma.user.findUnique({
-      where: { email: verification.email },
-    });
-
-    if (existingUser && existingUser.role !== 'EMPLOYEE') {
-      res.status(409).json({
-        error: 'This email is already linked to a vendor or admin account',
-      });
-      return;
-    }
-
-    const displayName =
-      typeof name === 'string' && name.trim().length > 0 ? name.trim() : null;
-
-    const passwordHash = existingUser
-      ? undefined
-      : await bcrypt.hash(
-          `emp-${verification.id}-${Math.random().toString(36).slice(2)}`,
-          10
-        );
-
-    const user = existingUser
-      ? await prisma.user.update({
-          where: { id: existingUser.id },
-          data: {
-            employeeCompanyId: verification.companyId,
-            employmentVerifiedAt: new Date(),
-            ...(displayName && !existingUser.name ? { name: displayName } : {}),
-          },
-        })
-      : await prisma.user.create({
-          data: {
-            email: verification.email,
-            passwordHash: passwordHash!,
-            name: displayName,
-            role: 'EMPLOYEE',
-            employeeCompanyId: verification.companyId,
-            employmentVerifiedAt: new Date(),
-          },
-        });
-
-    await prisma.employeeVerification.update({
-      where: { id: verification.id },
-      data: {
-        status: 'VERIFIED',
-        verifiedAt: new Date(),
-        userId: user.id,
-      },
-    });
-
-    const token = jwt.sign(
-      { userId: user.id, email: user.email, role: user.role },
-      process.env.JWT_SECRET || 'secret',
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
-    );
-
-    res.json({
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        employmentVerifiedAt: user.employmentVerifiedAt,
-        employeeCompany: verification.company,
-      },
-    });
+    await completeVerification(verification, code, name, res);
   } catch (error) {
     console.error('Verify code error:', error);
     res.status(500).json({ error: 'Failed to verify code' });
   }
 });
 
-// Get current verification status (authenticated)
-router.get(
-  '/status',
-  authenticateToken,
-  async (req: Request, res: Response): Promise<void> => {
-    try {
-      const user = await prisma.user.findUnique({
-        where: { id: req.user!.id },
-        select: {
-          employmentVerifiedAt: true,
-          employeeCompany: {
-            select: { id: true, slug: true, name: true, domain: true },
-          },
+// Alias used by new frontend flow
+router.post('/confirm', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const verificationId = String(req.body?.verificationId || '').trim();
+    const companyIdOrSlug = String(
+      req.body?.companyId || req.body?.company || req.body?.companyIdOrSlug || ''
+    ).trim();
+    const workEmail = String(req.body?.workEmail || req.body?.email || '').trim();
+    const otp = String(req.body?.otp || req.body?.code || '').trim();
+    const name = req.body?.name;
+
+    let verification: any = null;
+
+    if (verificationId) {
+      verification = await prisma.employeeVerification.findUnique({
+        where: { id: verificationId },
+        include: {
+          company: { select: { id: true, slug: true, name: true, domain: true } },
         },
       });
-
-      if (!user) {
-        res.status(404).json({ error: 'User not found' });
+    } else {
+      if (!companyIdOrSlug || !workEmail || !otp) {
+        res.status(400).json({
+          error: 'companyId, workEmail, and otp are required',
+        });
         return;
       }
 
+      const company = await prisma.company.findFirst({
+        where: {
+          OR: [{ id: companyIdOrSlug }, { slug: companyIdOrSlug }],
+        },
+        select: { id: true },
+      });
+
+      if (!company) {
+        res.status(404).json({ error: 'Company not found' });
+        return;
+      }
+
+      verification = await prisma.employeeVerification.findFirst({
+        where: {
+          companyId: company.id,
+          email: normalizeEmail(workEmail),
+          status: 'PENDING',
+        },
+        include: {
+          company: { select: { id: true, slug: true, name: true, domain: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    if (!verification) {
+      res.status(404).json({ error: 'Verification request not found' });
+      return;
+    }
+
+    const code = otp || String(req.body?.code || '').trim();
+    if (!code) {
+      res.status(400).json({ error: 'OTP code is required' });
+      return;
+    }
+
+    await completeVerification(verification, code, name, res);
+  } catch (error) {
+    console.error('Confirm verification error:', error);
+    res.status(500).json({ error: 'Failed to verify code' });
+  }
+});
+
+router.get(
+  '/company/:companyIdOrSlug/status',
+  authenticateToken,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const companyIdOrSlug = String(req.params.companyIdOrSlug);
+      const company = await prisma.company.findFirst({
+        where: {
+          OR: [{ id: companyIdOrSlug }, { slug: companyIdOrSlug }],
+        },
+        select: { id: true, slug: true, name: true, domain: true, logo: true },
+      });
+
+      if (!company) {
+        res.status(404).json({ error: 'Company not found' });
+        return;
+      }
+
+      const verification = await getUserVerification(req.user!.id, company.id);
+      const verified =
+        !!verification &&
+        verification.status === VERIFIED_STATUS &&
+        verification.expiresAt > new Date();
+
       res.json({
-        verified: !!user.employmentVerifiedAt,
-        employmentVerifiedAt: user.employmentVerifiedAt,
-        company: user.employeeCompany,
+        verified,
+        company,
+        verification: verification
+          ? {
+              id: verification.id,
+              status: verification.status,
+              verifiedAt: verification.verifiedAt,
+              expiresAt: verification.expiresAt,
+              verificationMethod: verification.verificationMethod,
+            }
+          : null,
       });
     } catch (error) {
-      console.error('Get verification status error:', error);
+      console.error('Get company verification status error:', error);
       res.status(500).json({ error: 'Failed to fetch verification status' });
     }
   }
 );
+
+router.get(
+  '/my',
+  authenticateToken,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const records = await listUserVerifications(req.user!.id);
+      res.json(
+        records.map((record) => ({
+          id: record.id,
+          status: record.status,
+          verifiedAt: record.verifiedAt,
+          expiresAt: record.expiresAt,
+          verificationMethod: record.verificationMethod,
+          company: record.company,
+        }))
+      );
+    } catch (error) {
+      console.error('Get my verifications error:', error);
+      res.status(500).json({ error: 'Failed to fetch verifications' });
+    }
+  }
+);
+
+// Get current verification status (authenticated)
+router.get('/status', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const companyIdOrSlug = (req.query.companyIdOrSlug as string | undefined) || '';
+    const allVerifications = await listUserVerifications(req.user!.id);
+    const activeVerifications = allVerifications.filter(
+      (item) => item.status === VERIFIED_STATUS && item.expiresAt > new Date()
+    );
+
+    let companyVerification: any = null;
+    if (companyIdOrSlug) {
+      const company = await prisma.company.findFirst({
+        where: {
+          OR: [{ id: companyIdOrSlug }, { slug: companyIdOrSlug }],
+        },
+        select: { id: true, slug: true, name: true, domain: true, logo: true },
+      });
+
+      if (company) {
+        const verification = await getUserVerification(req.user!.id, company.id);
+        companyVerification = {
+          company,
+          verification: verification
+            ? {
+                id: verification.id,
+                status: verification.status,
+                verifiedAt: verification.verifiedAt,
+                expiresAt: verification.expiresAt,
+                verificationMethod: verification.verificationMethod,
+              }
+            : null,
+          verified:
+            !!verification &&
+            verification.status === VERIFIED_STATUS &&
+            verification.expiresAt > new Date(),
+        };
+      }
+    }
+
+    const current = activeVerifications[0] || null;
+
+    res.json({
+      verified: !!current,
+      employmentVerifiedAt: current?.verifiedAt || null,
+      company: current?.company || null,
+      verification: current
+        ? {
+            id: current.id,
+            status: current.status,
+            verifiedAt: current.verifiedAt,
+            expiresAt: current.expiresAt,
+            verificationMethod: current.verificationMethod,
+          }
+        : null,
+      activeVerifications: activeVerifications.map((item) => ({
+        id: item.id,
+        status: item.status,
+        verifiedAt: item.verifiedAt,
+        expiresAt: item.expiresAt,
+        verificationMethod: item.verificationMethod,
+        company: item.company,
+      })),
+      companyVerification,
+    });
+  } catch (error) {
+    console.error('Get verification status error:', error);
+    res.status(500).json({ error: 'Failed to fetch verification status' });
+  }
+});
 
 export default router;

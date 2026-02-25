@@ -36,6 +36,7 @@ const VendorCTASection = () => {
   return (
     <section
       ref={sectionRef}
+      id="vendors"
       className="relative w-full bg-corp-light py-20 lg:py-28 z-60"
     >
       <div className="w-full px-6 lg:px-12">
@@ -64,9 +65,12 @@ const VendorCTASection = () => {
                     Become a Partner
                     <ArrowRight className="w-5 h-5" />
                   </Link>
-                  <button className="px-6 py-3 bg-white/10 rounded-xl font-inter hover:bg-white/20 transition-colors">
+                  <Link
+                    to="/for-vendors"
+                    className="px-6 py-3 bg-white/10 rounded-xl font-inter hover:bg-white/20 transition-colors text-center"
+                  >
                     Learn More
-                  </button>
+                  </Link>
                 </div>
               </div>
               

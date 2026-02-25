@@ -41,6 +41,7 @@ const CategoriesPreviewSection = () => {
   return (
     <section
       ref={sectionRef}
+      id="categories"
       className="relative w-full bg-white py-20 lg:py-28 z-50"
     >
       <div className="w-full px-6 lg:px-12">

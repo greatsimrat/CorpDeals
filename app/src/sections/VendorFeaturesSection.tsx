@@ -21,12 +21,12 @@ const features = [
   },
   {
     title: 'See What Works',
-    description: 'Track views, redemptions, and revenue—without the spreadsheet chaos.',
+    description: 'Track views, lead submissions, and revenue without spreadsheet chaos.',
     icon: BarChart3,
     color: 'bg-purple-500',
     lightColor: 'bg-purple-50',
     benefits: [
-      'Real-time redemption tracking',
+      'Real-time lead tracking',
       'Revenue attribution',
       'Employee engagement metrics',
       'Exportable reports',
@@ -173,7 +173,7 @@ const VendorFeaturesSection = () => {
               {/* Overlay stats */}
               <div className="absolute bottom-4 left-4 right-4 flex justify-between">
                 <div className="bg-white/90 backdrop-blur-sm rounded-xl px-4 py-2">
-                  <span className="font-inter text-xs text-corp-gray">Today's Redemptions</span>
+                  <span className="font-inter text-xs text-corp-gray">Today's Leads</span>
                   <span className="block font-montserrat font-bold text-xl text-corp-dark">1,247</span>
                 </div>
                 <div className="bg-white/90 backdrop-blur-sm rounded-xl px-4 py-2">
