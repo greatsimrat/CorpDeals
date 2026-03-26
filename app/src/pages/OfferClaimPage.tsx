@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { CheckCircle2, Loader2 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../hooks/useAuth';
 import api from '../services/api';
 
 export default function OfferClaimPage() {
@@ -117,3 +117,4 @@ export default function OfferClaimPage() {
     </div>
   );
 }
+

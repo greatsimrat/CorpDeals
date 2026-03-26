@@ -188,6 +188,11 @@ const csvEscape = (value: unknown): string => {
   return raw;
 };
 
+const asNumber = (value: unknown): number => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+};
+
 const requireVendorUser = async (req: Request, res: Response) => {
   if (!req.user?.id) {
     res.status(401).json({ error: 'Unauthorized' });
@@ -616,6 +621,98 @@ router.get('/dashboard/lead-trend', authenticateToken, async (req: Request, res:
   } catch (error) {
     console.error('GET /api/vendor/dashboard/lead-trend error:', error);
     res.status(500).json({ error: 'Failed to load lead trend' });
+  }
+});
+
+router.get('/billing', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const vendor = await requireVendorUser(req, res);
+    if (!vendor) return;
+
+    const [activePlan, invoices] = await Promise.all([
+      (prisma as any).vendorBillingPlan.findFirst({
+        where: { vendorId: vendor.id, isActive: true },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      (prisma as any).invoice.findMany({
+        where: { vendorId: vendor.id },
+        include: {
+          lineItems: {
+            orderBy: { createdAt: 'asc' },
+          },
+        },
+        orderBy: [{ periodStart: 'desc' }, { createdAt: 'desc' }],
+      }),
+    ]);
+
+    res.json({
+      vendor: {
+        id: vendor.id,
+        companyName: vendor.companyName,
+        email: vendor.email,
+      },
+      activePlan,
+      invoices,
+    });
+  } catch (error) {
+    console.error('GET /api/vendor/billing error:', error);
+    res.status(500).json({ error: 'Failed to load vendor billing' });
+  }
+});
+
+router.get('/billing/invoices/:id/csv', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const vendor = await requireVendorUser(req, res);
+    if (!vendor) return;
+
+    const id = String(req.params.id);
+    const invoice = await (prisma as any).invoice.findFirst({
+      where: { id, vendorId: vendor.id },
+      include: {
+        lineItems: { orderBy: { createdAt: 'asc' } },
+      },
+    });
+
+    if (!invoice) {
+      res.status(404).json({ error: 'Invoice not found' });
+      return;
+    }
+
+    const header = ['item_type', 'description', 'quantity', 'unit_price', 'amount', 'metadata_json'];
+    const rows = (invoice.lineItems || []).map((item: any) =>
+      [
+        item.itemType,
+        item.description,
+        item.quantity,
+        asNumber(item.unitPrice).toFixed(2),
+        asNumber(item.amount).toFixed(2),
+        item.metadataJson ? JSON.stringify(item.metadataJson) : '',
+      ]
+        .map(csvEscape)
+        .join(',')
+    );
+
+    const preface = [
+      ['invoice_id', invoice.id],
+      ['period_start', new Date(invoice.periodStart).toISOString().slice(0, 10)],
+      ['period_end', new Date(invoice.periodEnd).toISOString().slice(0, 10)],
+      ['status', invoice.status],
+      ['subtotal', asNumber(invoice.subtotal).toFixed(2)],
+      ['tax', asNumber(invoice.tax).toFixed(2)],
+      ['total', asNumber(invoice.total).toFixed(2)],
+    ].map((row) => row.map(csvEscape).join(','));
+
+    const csv = [...preface, '', header.join(','), ...rows].join('\n');
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="invoice-${invoice.id}.csv"`
+    );
+    res.send(csv);
+  } catch (error) {
+    console.error('GET /api/vendor/billing/invoices/:id/csv error:', error);
+    res.status(500).json({ error: 'Failed to export invoice CSV' });
   }
 });
 

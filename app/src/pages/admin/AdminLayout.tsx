@@ -15,7 +15,7 @@ import {
   UserCircle,
   Wallet,
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../hooks/useAuth';
 
 const navItems = [
   { path: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
@@ -25,6 +25,7 @@ const navItems = [
   { path: '/admin/offers', label: 'Offers', icon: Percent, exact: true },
   { path: '/admin/offers-review', label: 'Offers Review', icon: FileCheck, exact: true },
   { path: '/admin/leads', label: 'Leads', icon: ListChecks },
+  { path: '/admin/invoices', label: 'Invoices', icon: Wallet },
   { path: '/admin/categories', label: 'Categories', icon: Tag },
   { path: '/admin/users', label: 'Users', icon: UserCircle },
   { path: '/finance', label: 'Finance', icon: Wallet },
@@ -168,3 +169,4 @@ export default function AdminLayout() {
     </div>
   );
 }
+

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../../services/api';
 
 type VendorRow = {
@@ -149,26 +150,34 @@ export default function VendorsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {vendor.status === 'PENDING' ? (
-                        <div className="inline-flex gap-2">
-                          <button
-                            onClick={() => review(vendor.id, 'REJECTED')}
-                            disabled={isSavingId === vendor.id}
-                            className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
-                          >
-                            Reject
-                          </button>
-                          <button
-                            onClick={() => review(vendor.id, 'APPROVED')}
-                            disabled={isSavingId === vendor.id}
-                            className="rounded-md bg-green-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"
-                          >
-                            Approve
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-slate-500">Reviewed</span>
-                      )}
+                      <div className="inline-flex gap-2">
+                        <Link
+                          to={`/admin/vendors/${vendor.id}/billing-plan`}
+                          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          Billing Plan
+                        </Link>
+                        {vendor.status === 'PENDING' ? (
+                          <>
+                            <button
+                              onClick={() => review(vendor.id, 'REJECTED')}
+                              disabled={isSavingId === vendor.id}
+                              className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                            >
+                              Reject
+                            </button>
+                            <button
+                              onClick={() => review(vendor.id, 'APPROVED')}
+                              disabled={isSavingId === vendor.id}
+                              className="rounded-md bg-green-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"
+                            >
+                              Approve
+                            </button>
+                          </>
+                        ) : (
+                          <span className="px-3 py-1.5 text-xs text-slate-500">Reviewed</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))

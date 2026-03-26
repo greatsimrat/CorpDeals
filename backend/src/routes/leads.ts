@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 import { authenticateToken, authenticateTokenOptional, requireVendor, requireAdmin } from '../middleware/auth';
 import { isUserVerifiedForCompany } from '../lib/verifications';
 import { sendVendorLeadNotificationEmail } from '../lib/mailer';
+import { recordLeadDeliveryBillingEvent } from '../lib/lead-billing';
 
 const router = Router();
 
@@ -111,6 +112,22 @@ router.post('/', authenticateTokenOptional, async (req: Request, res: Response):
 
     if (!verified) {
       res.status(403).json({ error: 'Employment verification required to claim this offer' });
+      return;
+    }
+
+    const duplicateWhere = req.user?.id
+      ? { userId: req.user.id, offerId: offer.id }
+      : { offerId: offer.id, email: normalizedEmail };
+    const existingLead = await prisma.lead.findFirst({
+      where: duplicateWhere as any,
+      select: { id: true, createdAt: true },
+    });
+    if (existingLead) {
+      res.status(409).json({
+        error: 'DUPLICATE_LEAD',
+        message: 'You have already applied for this offer.',
+        existing_lead_id: existingLead.id,
+      });
       return;
     }
 
@@ -253,10 +270,18 @@ router.post('/', authenticateTokenOptional, async (req: Request, res: Response):
         where: { id: lead.id },
         data: { status: 'SENT' },
       });
+      await recordLeadDeliveryBillingEvent(lead.id, offer.vendorId);
     }
 
     res.status(201).json(lead);
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === 'P2002') {
+      res.status(409).json({
+        error: 'DUPLICATE_LEAD',
+        message: 'You have already applied for this offer.',
+      });
+      return;
+    }
     console.error('Create lead error:', error);
     res.status(500).json({ error: 'Failed to submit lead' });
   }

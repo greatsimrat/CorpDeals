@@ -32,6 +32,74 @@ const getMonthRange = (monthValue?: string) => {
   return { start, end, month: `${safeYear}-${String(safeMonth).padStart(2, '0')}` };
 };
 
+const decimalToNumber = (value: unknown): number => {
+  if (value === null || value === undefined) return 0;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+};
+
+const toCents = (value: unknown): number => Math.round(decimalToNumber(value) * 100);
+
+const SUBSCRIPTION_PRESETS = {
+  FREE: {
+    monthlyFee: 0,
+    includedLeadsPerMonth: 10,
+    overagePricePerLead: 5,
+    currency: 'USD',
+  },
+  GROWTH: {
+    monthlyFee: 100,
+    includedLeadsPerMonth: 50,
+    overagePricePerLead: 3,
+    currency: 'USD',
+  },
+  PRO: {
+    monthlyFee: 500,
+    includedLeadsPerMonth: 300,
+    overagePricePerLead: 2,
+    currency: 'USD',
+  },
+} as const;
+
+type SubscriptionPresetKey = keyof typeof SUBSCRIPTION_PRESETS;
+
+const resolveSubscriptionPresetKey = (value: unknown): SubscriptionPresetKey | null => {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (!normalized) return null;
+  if (Object.prototype.hasOwnProperty.call(SUBSCRIPTION_PRESETS, normalized)) {
+    return normalized as SubscriptionPresetKey;
+  }
+  return null;
+};
+
+const getSubscriptionPresetByMonthlyFee = (monthlyFee: number | null): SubscriptionPresetKey | null => {
+  if (monthlyFee === null) return null;
+  const entries = Object.entries(SUBSCRIPTION_PRESETS) as Array<
+    [SubscriptionPresetKey, (typeof SUBSCRIPTION_PRESETS)[SubscriptionPresetKey]]
+  >;
+  for (const [key, preset] of entries) {
+    if (preset.monthlyFee === monthlyFee) return key;
+  }
+  return null;
+};
+
+const toActivePlanSummary = (plan: any) => {
+  if (!plan) return null;
+  return {
+    id: plan.id,
+    planType: plan.planType,
+    pricePerLead: plan.pricePerLead,
+    monthlyFee: plan.monthlyFee,
+    includedLeadsPerMonth: plan.includedLeadsPerMonth,
+    overagePricePerLead: plan.overagePricePerLead,
+    billingCycleDay: plan.billingCycleDay,
+    currency: plan.currency,
+    isActive: plan.isActive,
+    createdAt: plan.createdAt,
+    updatedAt: plan.updatedAt,
+  };
+};
+
 // Finance dashboard summary per vendor
 router.get('/vendors/summary', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -46,10 +114,17 @@ router.get('/vendors/summary', async (req: Request, res: Response): Promise<void
     const vendorWhere: any = {};
     if (vendorId) vendorWhere.id = vendorId;
 
-    const [vendors, charges] = await Promise.all([
+    const [vendorsRaw, charges] = await Promise.all([
       prisma.vendor.findMany({
         where: vendorWhere,
-        include: { billing: true },
+        include: {
+          billing: true,
+          billingPlans: {
+            where: { isActive: true },
+            orderBy: { updatedAt: 'desc' },
+            take: 1,
+          },
+        } as any,
         orderBy: { companyName: 'asc' },
       }),
       prisma.leadCharge.findMany({
@@ -60,6 +135,7 @@ router.get('/vendors/summary', async (req: Request, res: Response): Promise<void
         select: { vendorId: true, amountCents: true, status: true, currency: true },
       }),
     ]);
+    const vendors = vendorsRaw as any[];
 
     const byVendor = new Map<string, { leadCount: number; chargeableLeadCount: number; waivedLeadCount: number; amountCents: number; currency: string }>();
     for (const charge of charges) {
@@ -93,12 +169,13 @@ router.get('/vendors/summary', async (req: Request, res: Response): Promise<void
       range: { start: rangeStart.toISOString(), end: rangeEnd.toISOString() },
       totals,
       vendors: vendors.map((vendor) => {
+        const activePlan = (vendor as any).billingPlans?.[0] || null;
         const summary = byVendor.get(vendor.id) || {
           leadCount: 0,
           chargeableLeadCount: 0,
           waivedLeadCount: 0,
           amountCents: 0,
-          currency: vendor.billing?.currency || 'USD',
+          currency: activePlan?.currency || vendor.billing?.currency || 'USD',
         };
 
         const trialActive =
@@ -110,6 +187,7 @@ router.get('/vendors/summary', async (req: Request, res: Response): Promise<void
           vendorId: vendor.id,
           companyName: vendor.companyName,
           status: vendor.status,
+          billingPlan: toActivePlanSummary(activePlan),
           billing: vendor.billing
             ? {
                 billingMode: vendor.billing.billingMode,
@@ -293,6 +371,12 @@ router.patch('/vendors/:id/billing', async (req: Request, res: Response): Promis
     }
 
     const {
+      planType,
+      pricePerLead,
+      monthlyFee,
+      includedLeadsPerMonth,
+      overagePricePerLead,
+      billingCycleDay,
       billingMode,
       postTrialMode,
       trialEndsAt,
@@ -304,6 +388,140 @@ router.patch('/vendors/:id/billing', async (req: Request, res: Response): Promis
       stripeCustomerId,
       stripeSubscriptionId,
     } = req.body;
+    const subscriptionTier = req.body?.subscriptionTier ?? req.body?.subscription_tier;
+
+    const normalizedPlanType = typeof planType === 'string' ? planType.trim().toUpperCase() : undefined;
+    if (normalizedPlanType) {
+      if (!['PAY_PER_LEAD', 'SUBSCRIPTION'].includes(normalizedPlanType)) {
+        res.status(400).json({ error: 'Invalid planType. Use PAY_PER_LEAD or SUBSCRIPTION' });
+        return;
+      }
+
+      let parsedPricePerLead =
+        pricePerLead === undefined || pricePerLead === null || pricePerLead === ''
+          ? null
+          : Number(pricePerLead);
+      const requestedMonthlyFee =
+        monthlyFee === undefined || monthlyFee === null || monthlyFee === ''
+          ? null
+          : Number(monthlyFee);
+      let parsedMonthlyFee = requestedMonthlyFee;
+      let parsedIncludedLeadsPerMonth =
+        includedLeadsPerMonth === undefined ||
+        includedLeadsPerMonth === null ||
+        includedLeadsPerMonth === ''
+          ? null
+          : Number(includedLeadsPerMonth);
+      let parsedOveragePricePerLead =
+        overagePricePerLead === undefined || overagePricePerLead === null || overagePricePerLead === ''
+          ? null
+          : Number(overagePricePerLead);
+      const parsedBillingCycleDay =
+        billingCycleDay === undefined || billingCycleDay === null || billingCycleDay === ''
+          ? 1
+          : Number(billingCycleDay);
+      let normalizedCurrency = String(currency || 'CAD').trim().toUpperCase() || 'CAD';
+
+      if (parsedPricePerLead !== null && (!Number.isFinite(parsedPricePerLead) || parsedPricePerLead < 0)) {
+        res.status(400).json({ error: 'pricePerLead must be a non-negative number' });
+        return;
+      }
+      if (!Number.isInteger(parsedBillingCycleDay) || parsedBillingCycleDay < 1 || parsedBillingCycleDay > 28) {
+        res.status(400).json({ error: 'billingCycleDay must be an integer between 1 and 28' });
+        return;
+      }
+      if (normalizedPlanType === 'PAY_PER_LEAD' && parsedPricePerLead === null) {
+        res.status(400).json({ error: 'pricePerLead is required for PAY_PER_LEAD plans' });
+        return;
+      }
+
+      if (normalizedPlanType === 'SUBSCRIPTION') {
+        const resolvedTier =
+          resolveSubscriptionPresetKey(subscriptionTier) ||
+          getSubscriptionPresetByMonthlyFee(requestedMonthlyFee);
+        if (!resolvedTier) {
+          res.status(400).json({
+            error: 'subscriptionTier must be FREE, GROWTH, or PRO (or monthlyFee must match 0, 100, or 500)',
+          });
+          return;
+        }
+
+        const preset = SUBSCRIPTION_PRESETS[resolvedTier];
+        parsedPricePerLead = null;
+        parsedMonthlyFee = preset.monthlyFee;
+        parsedIncludedLeadsPerMonth = preset.includedLeadsPerMonth;
+        parsedOveragePricePerLead = preset.overagePricePerLead;
+        normalizedCurrency = preset.currency;
+      } else {
+        if (parsedMonthlyFee !== null && (!Number.isFinite(parsedMonthlyFee) || parsedMonthlyFee < 0)) {
+          res.status(400).json({ error: 'monthlyFee must be a non-negative number' });
+          return;
+        }
+        if (
+          parsedIncludedLeadsPerMonth !== null &&
+          (!Number.isInteger(parsedIncludedLeadsPerMonth) || parsedIncludedLeadsPerMonth < 0)
+        ) {
+          res.status(400).json({ error: 'includedLeadsPerMonth must be a non-negative integer' });
+          return;
+        }
+        if (
+          parsedOveragePricePerLead !== null &&
+          (!Number.isFinite(parsedOveragePricePerLead) || parsedOveragePricePerLead < 0)
+        ) {
+          res.status(400).json({ error: 'overagePricePerLead must be a non-negative number' });
+          return;
+        }
+      }
+
+      const result = await prisma.$transaction(async (tx) => {
+        await (tx as any).vendorBillingPlan.updateMany({
+          where: { vendorId, isActive: true },
+          data: { isActive: false },
+        });
+
+        const activePlan = await (tx as any).vendorBillingPlan.create({
+          data: {
+            vendorId,
+            planType: normalizedPlanType,
+            pricePerLead: parsedPricePerLead,
+            monthlyFee: parsedMonthlyFee,
+            includedLeadsPerMonth: parsedIncludedLeadsPerMonth,
+            overagePricePerLead: parsedOveragePricePerLead,
+            billingCycleDay: parsedBillingCycleDay,
+            currency: normalizedCurrency,
+            isActive: true,
+          },
+        });
+
+        // Keep legacy billing in sync for old screens/routes.
+        const legacyBilling = await tx.vendorBilling.upsert({
+          where: { vendorId },
+          update: {
+            billingMode: normalizedPlanType === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : 'MONTHLY',
+            leadPriceCents: parsedPricePerLead !== null ? toCents(parsedPricePerLead) : 0,
+            monthlyFeeCents: parsedMonthlyFee !== null ? toCents(parsedMonthlyFee) : 0,
+            currency: normalizedCurrency,
+            billingDay: parsedBillingCycleDay,
+          },
+          create: {
+            vendorId,
+            billingMode: normalizedPlanType === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : 'MONTHLY',
+            postTrialMode: normalizedPlanType === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : 'MONTHLY',
+            trialEndsAt: null,
+            leadPriceCents: parsedPricePerLead !== null ? toCents(parsedPricePerLead) : 0,
+            monthlyFeeCents: parsedMonthlyFee !== null ? toCents(parsedMonthlyFee) : 0,
+            paymentMethod: 'MANUAL',
+            currency: normalizedCurrency,
+            billingDay: parsedBillingCycleDay,
+          },
+        });
+
+        return { activePlan, legacyBilling };
+      });
+
+      res.json(result);
+      return;
+    }
 
     const allowedModes = ['TRIAL', 'FREE', 'PAY_PER_LEAD', 'MONTHLY', 'HYBRID'];
     if (billingMode && !allowedModes.includes(billingMode)) {

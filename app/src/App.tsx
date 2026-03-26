@@ -24,6 +24,7 @@ import VendorOffersPage from './pages/vendor/VendorOffersPage';
 import VendorOfferFormPage from './pages/vendor/VendorOfferFormPage';
 import VendorLeadsPage from './pages/vendor/VendorLeadsPage';
 import VendorLeadDetailPage from './pages/vendor/VendorLeadDetailPage';
+import VendorBillingPage from './pages/vendor/VendorBillingPage';
 import VendorTermsPage from './pages/vendor/VendorTermsPage';
 import OfferPage from './pages/OfferPage';
 
@@ -40,10 +41,14 @@ import UsersPage from './pages/admin/UsersPage';
 import AdminOffersPage from './pages/AdminOffersPage';
 import AdminLeadsPage from './pages/admin/AdminLeadsPage';
 import OffersReviewPage from './pages/admin/OffersReviewPage';
+import AdminVendorBillingPlanPage from './pages/admin/AdminVendorBillingPlanPage';
+import AdminInvoicesPage from './pages/admin/AdminInvoicesPage';
+import AdminInvoiceDetailPage from './pages/admin/AdminInvoiceDetailPage';
 import FinanceLayout from './pages/finance/FinanceLayout';
 import FinanceDashboard from './pages/finance/FinanceDashboard';
 import SeoContentPage from './pages/SeoContentPage';
 import PolicyTypesPage from './pages/PolicyTypesPage';
+import PricingPage from './pages/PricingPage';
 
 function LegacyCompanyRedirect() {
   const { companyId } = useParams<{ companyId: string }>();
@@ -111,7 +116,7 @@ function App() {
                 <Route path="/for-employees" element={<SeoContentPage pageKey="forEmployees" />} />
                 <Route path="/for-vendors" element={<SeoContentPage pageKey="forVendors" />} />
                 <Route path="/for-hr-teams" element={<SeoContentPage pageKey="forHrTeams" />} />
-                <Route path="/pricing" element={<SeoContentPage pageKey="pricing" />} />
+                <Route path="/pricing" element={<PricingPage />} />
                 <Route path="/about" element={<SeoContentPage pageKey="about" />} />
                 <Route path="/careers" element={<SeoContentPage pageKey="careers" />} />
                 <Route path="/press" element={<SeoContentPage pageKey="press" />} />
@@ -148,6 +153,7 @@ function App() {
                   <Route path="offers/:offerId/edit" element={<VendorOfferFormPage />} />
                   <Route path="leads" element={<VendorLeadsPage />} />
                   <Route path="leads/:leadId" element={<VendorLeadDetailPage />} />
+                  <Route path="billing" element={<VendorBillingPage />} />
                 </Route>
 
                 {/* Admin Routes */}
@@ -159,10 +165,13 @@ function App() {
                   <Route index element={<AdminDashboard />} />
                   <Route path="vendor-requests" element={<VendorRequestsPage />} />
                   <Route path="vendors" element={<VendorsPage />} />
+                  <Route path="vendors/:vendorId/billing-plan" element={<AdminVendorBillingPlanPage />} />
                   <Route path="companies" element={<CompaniesPage />} />
                   <Route path="offers" element={<AdminOffersPage />} />
                   <Route path="offers-review" element={<OffersReviewPage />} />
                   <Route path="leads" element={<AdminLeadsPage />} />
+                  <Route path="invoices" element={<AdminInvoicesPage />} />
+                  <Route path="invoices/:invoiceId" element={<AdminInvoiceDetailPage />} />
                   <Route path="categories" element={<AdminOffersPage />} />
                   <Route path="users" element={<UsersPage />} />
                 </Route>
@@ -187,3 +196,4 @@ function App() {
 }
 
 export default App;
+

@@ -2,12 +2,13 @@ import { useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Wallet,
+  LayoutDashboard,
   Menu,
   X,
   LogOut,
   ChevronRight,
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../hooks/useAuth';
 
 const navItems = [
   { path: '/finance', label: 'Finance Dashboard', icon: Wallet, exact: true },
@@ -18,6 +19,7 @@ export default function FinanceLayout() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const isAdminUser = user?.role === 'ADMIN';
 
   const handleLogout = () => {
     logout();
@@ -63,6 +65,16 @@ export default function FinanceLayout() {
 
         {/* Navigation */}
         <nav className="p-4 space-y-1">
+          {isAdminUser && (
+            <Link
+              to="/admin"
+              onClick={() => setSidebarOpen(false)}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-slate-400 hover:text-white hover:bg-slate-800"
+            >
+              <LayoutDashboard className="w-5 h-5" />
+              <span className="font-medium">Admin Home</span>
+            </Link>
+          )}
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.path, item.exact);
@@ -134,12 +146,16 @@ export default function FinanceLayout() {
                 )}
               </nav>
             </div>
-            <Link
-              to="/"
-              className="text-sm text-slate-600 hover:text-slate-900"
-            >
-              View Site
-            </Link>
+            <div className="flex items-center gap-4">
+              {isAdminUser && (
+                <Link to="/admin" className="text-sm text-slate-600 hover:text-slate-900">
+                  Admin Home
+                </Link>
+              )}
+              <Link to="/" className="text-sm text-slate-600 hover:text-slate-900">
+                View Site
+              </Link>
+            </div>
           </div>
         </header>
 
@@ -151,3 +167,4 @@ export default function FinanceLayout() {
     </div>
   );
 }
+

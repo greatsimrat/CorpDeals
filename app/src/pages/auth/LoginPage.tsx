@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Mail, Lock, Loader2, AlertCircle } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../hooks/useAuth';
 import Seo from '../../components/Seo';
 
 export default function LoginPage() {
@@ -156,3 +156,4 @@ export default function LoginPage() {
     </>
   );
 }
+

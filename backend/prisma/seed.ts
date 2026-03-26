@@ -157,6 +157,43 @@ async function main() {
   });
   console.log('Created sample vendor:', vendor.companyName);
 
+  await (prisma as any).vendorBillingPlan.updateMany({
+    where: {
+      vendorId: vendor.id,
+      isActive: true,
+      id: { not: 'seed-plan-coast-pay-per-lead' },
+    },
+    data: { isActive: false },
+  });
+
+  await (prisma as any).vendorBillingPlan.upsert({
+    where: { id: 'seed-plan-coast-pay-per-lead' },
+    update: {
+      vendorId: vendor.id,
+      planType: 'PAY_PER_LEAD',
+      pricePerLead: '12.50',
+      monthlyFee: null,
+      includedLeadsPerMonth: null,
+      overagePricePerLead: null,
+      billingCycleDay: 1,
+      currency: 'CAD',
+      isActive: true,
+    },
+    create: {
+      id: 'seed-plan-coast-pay-per-lead',
+      vendorId: vendor.id,
+      planType: 'PAY_PER_LEAD',
+      pricePerLead: '12.50',
+      monthlyFee: null,
+      includedLeadsPerMonth: null,
+      overagePricePerLead: null,
+      billingCycleDay: 1,
+      currency: 'CAD',
+      isActive: true,
+    },
+  });
+  console.log('Seeded billing plan for sample vendor:', vendor.companyName);
+
   const bmoPassword = await bcrypt.hash('vendor123', 10);
   const bmoUser = await prisma.user.upsert({
     where: { email: 'vendor@bmo.com' },

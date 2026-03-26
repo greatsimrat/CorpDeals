@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../hooks/useAuth';
 
 const Navigation = () => {
   const { user, isAuthenticated, logout } = useAuth();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState('');
@@ -63,6 +65,12 @@ const Navigation = () => {
   ];
 
   const scrollToSection = (href: string) => {
+    if (pathname !== '/') {
+      navigate(`/${href}`);
+      setIsMobileMenuOpen(false);
+      return;
+    }
+
     const element = document.querySelector(href);
     if (element) {
       element.scrollIntoView({ behavior: 'smooth' });
@@ -111,6 +119,16 @@ const Navigation = () => {
                 {link.label}
               </button>
             ))}
+            <Link
+              to="/pricing"
+              className={`px-4 py-2 rounded-lg font-inter text-sm transition-all duration-300 ${
+                pathname === '/pricing'
+                  ? 'text-corp-blue bg-corp-highlight'
+                  : 'text-corp-dark hover:text-corp-blue hover:bg-gray-50'
+              }`}
+            >
+              Pricing
+            </Link>
           </div>
 
           {/* CTA Buttons */}
@@ -184,6 +202,17 @@ const Navigation = () => {
               {link.label}
             </button>
           ))}
+          <Link
+            to="/pricing"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className={`block w-full text-left px-4 py-3 rounded-lg font-inter text-sm transition-colors ${
+              pathname === '/pricing'
+                ? 'text-corp-blue bg-corp-highlight'
+                : 'text-corp-dark hover:bg-gray-50'
+            }`}
+          >
+            Pricing
+          </Link>
           <div className="pt-4 border-t border-gray-100 space-y-2">
             {verificationLabel && (
               <Link
@@ -225,3 +254,4 @@ const Navigation = () => {
 };
 
 export default Navigation;
+

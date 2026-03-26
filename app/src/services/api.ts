@@ -26,6 +26,19 @@ class ApiService {
     return this.token;
   }
 
+  private buildQuery(params?: Record<string, unknown>) {
+    if (!params) return '';
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      const normalized = String(value).trim();
+      if (!normalized || normalized === 'undefined' || normalized === 'null') return;
+      searchParams.set(key, normalized);
+    });
+    const query = searchParams.toString();
+    return query ? `?${query}` : '';
+  }
+
   private async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
     const { method = 'GET', body, headers = {} } = options;
 
@@ -299,6 +312,32 @@ class ApiService {
 
   async getVendorOffers() {
     return this.request<any[]>('/vendor/offers');
+  }
+
+  async getVendorBilling() {
+    return this.request<{
+      vendor: { id: string; companyName: string; email: string };
+      activePlan: any | null;
+      invoices: any[];
+    }>('/vendor/billing');
+  }
+
+  async exportVendorInvoiceCsv(invoiceId: string) {
+    const headers: Record<string, string> = {};
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+    const response = await fetch(
+      `${API_BASE_URL}/vendor/billing/invoices/${encodeURIComponent(invoiceId)}/csv`,
+      {
+        method: 'GET',
+        headers,
+      }
+    );
+    if (!response.ok) {
+      throw new Error('Failed to export invoice CSV');
+    }
+    return response.text();
   }
 
   async getVendorPolicyDefaults() {
@@ -661,14 +700,64 @@ class ApiService {
     });
   }
 
+  async getAdminVendorBillingPlan(vendorId: string) {
+    return this.request<any>(`/admin/vendors/${encodeURIComponent(vendorId)}/billing-plan`);
+  }
+
+  async setAdminVendorBillingPlan(vendorId: string, data: any) {
+    return this.request<any>(`/admin/vendors/${encodeURIComponent(vendorId)}/billing-plan`, {
+      method: 'PUT',
+      body: data,
+    });
+  }
+
+  async generateAdminInvoices(period: string) {
+    const query = new URLSearchParams({ period }).toString();
+    return this.request<any>(`/admin/billing/generate-invoices?${query}`, {
+      method: 'POST',
+    });
+  }
+
+  async getAdminInvoices(params?: { vendorId?: string; status?: string; period?: string }) {
+    const query = this.buildQuery(params as Record<string, unknown> | undefined);
+    return this.request<any[]>(`/admin/invoices${query}`);
+  }
+
+  async getAdminInvoice(id: string) {
+    return this.request<any>(`/admin/invoices/${encodeURIComponent(id)}`);
+  }
+
+  async updateAdminInvoiceStatus(id: string, status: 'SENT' | 'PAID' | 'VOID') {
+    return this.request<any>(`/admin/invoices/${encodeURIComponent(id)}/status`, {
+      method: 'PATCH',
+      body: { status },
+    });
+  }
+
+  async addAdminInvoiceLineItem(
+    id: string,
+    data: {
+      description: string;
+      quantity: number;
+      unitPrice: number;
+      itemType?: 'ADJUSTMENT' | 'LEADS' | 'SUBSCRIPTION';
+      metadataJson?: Record<string, any>;
+    }
+  ) {
+    return this.request<any>(`/admin/invoices/${encodeURIComponent(id)}/line-items`, {
+      method: 'POST',
+      body: data,
+    });
+  }
+
   // Finance
   async getFinanceVendorsSummary(params?: { start?: string; end?: string; vendorId?: string }) {
-    const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
+    const query = this.buildQuery(params as Record<string, unknown> | undefined);
     return this.request<any>(`/finance/vendors/summary${query}`);
   }
 
   async getFinanceVendorCharges(vendorId: string, params?: { start?: string; end?: string; status?: string }) {
-    const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
+    const query = this.buildQuery(params as Record<string, unknown> | undefined);
     return this.request<any>(`/finance/vendors/${vendorId}/charges${query}`);
   }
 
@@ -680,7 +769,7 @@ class ApiService {
   }
 
   async getFinanceInvoices(params?: { month?: string }) {
-    const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
+    const query = this.buildQuery(params as Record<string, unknown> | undefined);
     return this.request<any>(`/finance/invoices${query}`);
   }
 }

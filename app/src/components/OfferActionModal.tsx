@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AlertCircle, Building2, Loader2, X } from 'lucide-react';
 import api from '../services/api';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../hooks/useAuth';
 
 interface OfferModalData {
   id: string;
@@ -199,3 +199,4 @@ export default function OfferActionModal({ open, offer, company, onClose }: Offe
     </div>
   );
 }
+

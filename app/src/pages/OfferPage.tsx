@@ -9,7 +9,7 @@ import {
   ShieldCheck,
   Tag,
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../hooks/useAuth';
 import api from '../services/api';
 
 interface OfferDetails {
@@ -326,3 +326,4 @@ export default function OfferPage() {
     </div>
   );
 }
+

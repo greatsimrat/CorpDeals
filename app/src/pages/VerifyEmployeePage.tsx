@@ -11,7 +11,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import api from '../services/api';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../hooks/useAuth';
 import Seo from '../components/Seo';
 
 interface CompanySummary {
@@ -515,3 +515,4 @@ const VerifyEmployeePage = () => {
 };
 
 export default VerifyEmployeePage;
+

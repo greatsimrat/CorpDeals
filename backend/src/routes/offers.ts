@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 import { authenticateToken, requireVendor } from '../middleware/auth';
 import { getUserVerification, isUserVerifiedForCompany, VERIFIED_STATUS } from '../lib/verifications';
 import { sendLeadSubmissionConfirmationEmail, sendVendorLeadNotificationEmail } from '../lib/mailer';
+import { recordLeadDeliveryBillingEvent } from '../lib/lead-billing';
 
 const router = Router();
 type JsonObject = Record<string, any>;
@@ -124,6 +125,22 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
   const { firstName, lastName } = splitName(name);
   const payloadJson = { name, email, phone };
 
+  const duplicateLead = await prisma.lead.findFirst({
+    where: {
+      userId: user.id,
+      offerId: offer.id,
+    },
+    select: { id: true, createdAt: true },
+  });
+  if (duplicateLead) {
+    res.status(409).json({
+      error: 'DUPLICATE_LEAD',
+      message: 'You have already applied for this offer.',
+      existing_lead_id: duplicateLead.id,
+    });
+    return;
+  }
+
   const lead = await prisma.lead.create({
     data: {
       userId: user.id,
@@ -177,6 +194,8 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
       error: vendorEmailResult.error,
       recipient: vendorEmailResult.recipient,
     });
+  } else {
+    await recordLeadDeliveryBillingEvent(lead.id, offer.vendorId);
   }
 
   const userConfirmationResult = await sendLeadSubmissionConfirmationEmail({
@@ -198,7 +217,7 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
 
   await prisma.lead.update({
     where: { id: lead.id },
-    data: { status: 'SENT' },
+    data: { status: vendorEmailResult.sent ? 'SENT' : 'FAILED' },
   });
 
   res.json({
@@ -322,6 +341,13 @@ router.post('/:id/apply', authenticateToken, async (req: Request, res: Response)
   try {
     await createLeadFromOfferApply(req, res);
   } catch (error: any) {
+    if (error?.code === 'P2002') {
+      res.status(409).json({
+        error: 'DUPLICATE_LEAD',
+        message: 'You have already applied for this offer.',
+      });
+      return;
+    }
     console.error('Offer apply error:', {
       offerId: req.params.id,
       userId: req.user?.id,
@@ -340,6 +366,13 @@ router.post('/:id/action', authenticateToken, async (req: Request, res: Response
   try {
     await createLeadFromOfferApply(req, res);
   } catch (error: any) {
+    if (error?.code === 'P2002') {
+      res.status(409).json({
+        error: 'DUPLICATE_LEAD',
+        message: 'You have already applied for this offer.',
+      });
+      return;
+    }
     console.error('Offer action alias error:', {
       offerId: req.params.id,
       userId: req.user?.id,

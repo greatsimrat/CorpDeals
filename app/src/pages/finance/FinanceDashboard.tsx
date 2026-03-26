@@ -11,23 +11,32 @@ import {
 } from 'lucide-react';
 import api from '../../services/api';
 
-interface VendorBillingSummary {
-  billingMode: 'TRIAL' | 'FREE' | 'PAY_PER_LEAD' | 'MONTHLY' | 'HYBRID';
-  postTrialMode?: 'TRIAL' | 'FREE' | 'PAY_PER_LEAD' | 'MONTHLY' | 'HYBRID' | null;
-  trialEndsAt?: string | null;
+interface VendorBillingPlanSummary {
+  id: string;
+  planType: 'PAY_PER_LEAD' | 'SUBSCRIPTION';
+  pricePerLead?: number | string | null;
+  monthlyFee?: number | string | null;
+  includedLeadsPerMonth?: number | null;
+  overagePricePerLead?: number | string | null;
+  billingCycleDay?: number;
+  currency?: string;
+  isActive?: boolean;
+}
+
+interface LegacyBillingSummary {
+  billingMode?: 'TRIAL' | 'FREE' | 'PAY_PER_LEAD' | 'MONTHLY' | 'HYBRID';
   leadPriceCents?: number;
   monthlyFeeCents?: number;
-  paymentMethod?: 'MANUAL' | 'STRIPE';
   currency?: string;
   billingDay?: number;
-  trialActive?: boolean;
 }
 
 interface VendorSummary {
   vendorId: string;
   companyName: string;
   status: string;
-  billing: VendorBillingSummary | null;
+  billingPlan?: VendorBillingPlanSummary | null;
+  billing?: LegacyBillingSummary | null;
   leadCount: number;
   chargeableLeadCount: number;
   waivedLeadCount: number;
@@ -46,19 +55,78 @@ interface FinanceSummaryResponse {
   vendors: VendorSummary[];
 }
 
+type SubscriptionTier = 'FREE' | 'GROWTH' | 'PRO';
+
+const SUBSCRIPTION_TIERS: Record<
+  SubscriptionTier,
+  {
+    label: string;
+    monthlyFee: number;
+    includedLeadsPerMonth: number;
+    overagePricePerLead: number;
+  }
+> = {
+  FREE: {
+    label: 'Free',
+    monthlyFee: 0,
+    includedLeadsPerMonth: 10,
+    overagePricePerLead: 5,
+  },
+  GROWTH: {
+    label: 'Growth',
+    monthlyFee: 100,
+    includedLeadsPerMonth: 50,
+    overagePricePerLead: 3,
+  },
+  PRO: {
+    label: 'Pro',
+    monthlyFee: 500,
+    includedLeadsPerMonth: 300,
+    overagePricePerLead: 2,
+  },
+};
+
 const formatDateInput = (value: string) => value.slice(0, 10);
 
-const formatCurrency = (amountCents: number, currency = 'USD') => {
+const formatCurrencyCents = (amountCents: number, currency = 'USD') => {
   const value = (amountCents || 0) / 100;
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(value);
 };
 
+const formatCurrencyDollars = (amount: number, currency = 'USD') =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount || 0);
+
+const asNumber = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getVendorCurrency = (vendor: VendorSummary) =>
+  vendor.billingPlan?.currency || vendor.billing?.currency || vendor.currency || 'USD';
+
+const getVendorPlanLabel = (vendor: VendorSummary) => {
+  if (vendor.billingPlan?.planType === 'PAY_PER_LEAD') return 'PAY_PER_LEAD';
+  if (vendor.billingPlan?.planType === 'SUBSCRIPTION') return 'SUBSCRIPTION';
+  return vendor.billing?.billingMode || 'NO_PLAN';
+};
+
+const inferSubscriptionTier = (monthlyFee: unknown): SubscriptionTier => {
+  const value = Number(monthlyFee);
+  if (Number.isFinite(value)) {
+    if (value === SUBSCRIPTION_TIERS.FREE.monthlyFee) return 'FREE';
+    if (value === SUBSCRIPTION_TIERS.PRO.monthlyFee) return 'PRO';
+  }
+  return 'GROWTH';
+};
+
 const billingBadgeClasses: Record<string, string> = {
+  PAY_PER_LEAD: 'bg-emerald-100 text-emerald-700',
+  SUBSCRIPTION: 'bg-blue-100 text-blue-700',
   TRIAL: 'bg-amber-100 text-amber-700',
   FREE: 'bg-slate-100 text-slate-700',
-  PAY_PER_LEAD: 'bg-emerald-100 text-emerald-700',
   MONTHLY: 'bg-blue-100 text-blue-700',
   HYBRID: 'bg-purple-100 text-purple-700',
+  NO_PLAN: 'bg-slate-100 text-slate-700',
 };
 
 export default function FinanceDashboard() {
@@ -69,10 +137,10 @@ export default function FinanceDashboard() {
   const [endDate, setEndDate] = useState('');
   const [search, setSearch] = useState('');
   const [editingVendor, setEditingVendor] = useState<VendorSummary | null>(null);
-  const [billingMode, setBillingMode] = useState<'PAY_PER_LEAD' | 'MONTHLY' | 'FREE' | 'TRIAL'>('PAY_PER_LEAD');
-  const [paymentMethod, setPaymentMethod] = useState<'MANUAL' | 'STRIPE'>('MANUAL');
+  const [planType, setPlanType] = useState<'PAY_PER_LEAD' | 'SUBSCRIPTION'>('PAY_PER_LEAD');
+  const [subscriptionTier, setSubscriptionTier] = useState<SubscriptionTier>('GROWTH');
   const [leadPrice, setLeadPrice] = useState('');
-  const [monthlyFee, setMonthlyFee] = useState('');
+  const [billingCycleDay, setBillingCycleDay] = useState('1');
   const [currency, setCurrency] = useState('USD');
   const [saving, setSaving] = useState(false);
 
@@ -100,13 +168,29 @@ export default function FinanceDashboard() {
 
   useEffect(() => {
     if (!editingVendor) return;
-    const billing = editingVendor.billing;
-    const nextMode = (billing?.billingMode || 'PAY_PER_LEAD') as 'PAY_PER_LEAD' | 'MONTHLY' | 'FREE' | 'TRIAL';
-    setBillingMode(nextMode);
-    setPaymentMethod(billing?.paymentMethod || 'MANUAL');
-    setLeadPrice(((billing?.leadPriceCents || 0) / 100).toFixed(2));
-    setMonthlyFee(((billing?.monthlyFeeCents || 0) / 100).toFixed(2));
-    setCurrency(billing?.currency || 'USD');
+    const activePlan = editingVendor.billingPlan;
+    const legacyBilling = editingVendor.billing;
+    const defaultPlanType =
+      activePlan?.planType ||
+      (legacyBilling?.billingMode === 'MONTHLY' ? 'SUBSCRIPTION' : 'PAY_PER_LEAD');
+
+    setPlanType(defaultPlanType);
+    setLeadPrice(
+      activePlan?.pricePerLead !== undefined && activePlan?.pricePerLead !== null
+        ? String(activePlan.pricePerLead)
+        : ((legacyBilling?.leadPriceCents || 0) / 100).toFixed(2)
+    );
+    setSubscriptionTier(
+      inferSubscriptionTier(
+        activePlan?.monthlyFee !== undefined && activePlan?.monthlyFee !== null
+          ? activePlan.monthlyFee
+          : (legacyBilling?.monthlyFeeCents || 0) / 100
+      )
+    );
+    setBillingCycleDay(
+      String(activePlan?.billingCycleDay || legacyBilling?.billingDay || 1)
+    );
+    setCurrency(activePlan?.currency || legacyBilling?.currency || 'USD');
   }, [editingVendor]);
 
   const handleApply = () => {
@@ -120,21 +204,20 @@ export default function FinanceDashboard() {
     if (!editingVendor) return;
     try {
       setSaving(true);
-      const leadPriceCents = Math.max(0, Math.round(Number(leadPrice || 0) * 100));
-      const monthlyFeeCents = Math.max(0, Math.round(Number(monthlyFee || 0) * 100));
-      const payload: any = {
-        billingMode,
-        paymentMethod,
-        currency,
-      };
+      const parsedLeadPrice = Math.max(0, Number(leadPrice || 0));
+      const parsedBillingDay = Math.min(28, Math.max(1, Math.floor(Number(billingCycleDay || 1))));
+      const selectedTier = SUBSCRIPTION_TIERS[subscriptionTier];
 
-      if (billingMode === 'PAY_PER_LEAD') {
-        payload.leadPriceCents = leadPriceCents;
-        payload.monthlyFeeCents = 0;
-      } else if (billingMode === 'MONTHLY') {
-        payload.monthlyFeeCents = monthlyFeeCents;
-        payload.leadPriceCents = 0;
-      }
+      const payload: any = {
+        planType,
+        subscriptionTier: planType === 'SUBSCRIPTION' ? subscriptionTier : undefined,
+        currency: planType === 'SUBSCRIPTION' ? 'USD' : currency,
+        billingCycleDay: parsedBillingDay,
+        pricePerLead: planType === 'PAY_PER_LEAD' ? parsedLeadPrice : null,
+        monthlyFee: planType === 'SUBSCRIPTION' ? selectedTier.monthlyFee : null,
+        includedLeadsPerMonth: planType === 'SUBSCRIPTION' ? selectedTier.includedLeadsPerMonth : null,
+        overagePricePerLead: planType === 'SUBSCRIPTION' ? selectedTier.overagePricePerLead : null,
+      };
 
       await api.updateVendorBilling(editingVendor.vendorId, payload);
       setEditingVendor(null);
@@ -260,11 +343,11 @@ export default function FinanceDashboard() {
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm text-slate-500">Estimated Revenue</p>
-              <p className="text-2xl font-bold text-slate-900 mt-1">
-                {formatCurrency(summary?.totals.amountCents || 0)}
-              </p>
-            </div>
+                <p className="text-sm text-slate-500">Estimated Revenue</p>
+                <p className="text-2xl font-bold text-slate-900 mt-1">
+                  {formatCurrencyCents(summary?.totals.amountCents || 0)}
+                </p>
+              </div>
             <div className="p-3 rounded-lg bg-emerald-100">
               <Wallet className="w-5 h-5 text-emerald-600" />
             </div>
@@ -297,8 +380,8 @@ export default function FinanceDashboard() {
               <tr>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Vendor</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Billing</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Trial Ends</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Payment</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Pricing</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Cycle Day</th>
                 <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Leads</th>
                 <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Chargeable</th>
                 <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Waived</th>
@@ -323,27 +406,40 @@ export default function FinanceDashboard() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
+                      {(() => {
+                        const planLabel = getVendorPlanLabel(vendor);
+                        return (
                       <span
                         className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
-                          billingBadgeClasses[vendor.billing?.billingMode || 'FREE'] || 'bg-slate-100 text-slate-700'
+                              billingBadgeClasses[planLabel] || 'bg-slate-100 text-slate-700'
                         }`}
                       >
-                        {vendor.billing?.billingMode || 'FREE'}
+                            {planLabel}
                       </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-600">
-                      {vendor.billing?.trialEndsAt
-                        ? new Date(vendor.billing.trialEndsAt).toLocaleDateString()
+                      {vendor.billingPlan?.planType === 'PAY_PER_LEAD'
+                        ? `${formatCurrencyDollars(asNumber(vendor.billingPlan.pricePerLead), getVendorCurrency(vendor))}/lead`
+                        : vendor.billingPlan?.planType === 'SUBSCRIPTION'
+                        ? `${formatCurrencyDollars(asNumber(vendor.billingPlan.monthlyFee), getVendorCurrency(vendor))}/month`
                         : '-'}
+                      {vendor.billingPlan?.planType === 'SUBSCRIPTION' && (
+                        <p className="text-xs text-slate-500">
+                          Included: {vendor.billingPlan.includedLeadsPerMonth ?? 0}, Overage:{' '}
+                          {formatCurrencyDollars(asNumber(vendor.billingPlan.overagePricePerLead), getVendorCurrency(vendor))}
+                        </p>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-600">
-                      {vendor.billing?.paymentMethod || 'MANUAL'}
+                      {vendor.billingPlan?.billingCycleDay || vendor.billing?.billingDay || 1}
                     </td>
                     <td className="px-6 py-4 text-right text-sm text-slate-700">{vendor.leadCount}</td>
                     <td className="px-6 py-4 text-right text-sm text-slate-700">{vendor.chargeableLeadCount}</td>
                     <td className="px-6 py-4 text-right text-sm text-slate-700">{vendor.waivedLeadCount}</td>
                     <td className="px-6 py-4 text-right text-sm font-medium text-slate-900">
-                      {formatCurrency(vendor.amountCents, vendor.currency)}
+                      {formatCurrencyCents(vendor.amountCents, vendor.currency)}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <button
@@ -378,44 +474,55 @@ export default function FinanceDashboard() {
             </div>
             <div className="p-5 space-y-4">
               <label className="text-sm text-slate-600 block">
-                Billing mode
+                Plan type
                 <select
-                  value={billingMode}
-                  onChange={(e) => setBillingMode(e.target.value as any)}
+                  value={planType}
+                  onChange={(e) => setPlanType(e.target.value as 'PAY_PER_LEAD' | 'SUBSCRIPTION')}
                   className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2"
                 >
                   <option value="PAY_PER_LEAD">Pay per lead</option>
-                  <option value="MONTHLY">Monthly (unlimited leads)</option>
-                  <option value="TRIAL">Trial</option>
-                  <option value="FREE">Free</option>
+                  <option value="SUBSCRIPTION">Subscription + overage</option>
                 </select>
               </label>
+
+              {planType === 'PAY_PER_LEAD' ? (
+                <label className="text-sm text-slate-600 block">
+                  Currency
+                  <select
+                    value={currency}
+                    onChange={(e) => setCurrency(e.target.value)}
+                    className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2"
+                  >
+                    <option value="USD">USD</option>
+                    <option value="CAD">CAD</option>
+                  </select>
+                </label>
+              ) : (
+                <label className="text-sm text-slate-600 block">
+                  Currency
+                  <input
+                    type="text"
+                    value="USD"
+                    disabled
+                    className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 bg-slate-100 text-slate-500"
+                  />
+                </label>
+              )}
 
               <label className="text-sm text-slate-600 block">
-                Payment method
-                <select
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value as any)}
+                Billing cycle day (1-28)
+                <input
+                  type="number"
+                  min="1"
+                  max="28"
+                  step="1"
+                  value={billingCycleDay}
+                  onChange={(e) => setBillingCycleDay(e.target.value)}
                   className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2"
-                >
-                  <option value="MANUAL">Manual</option>
-                  <option value="STRIPE">Stripe</option>
-                </select>
+                />
               </label>
 
-              <label className="text-sm text-slate-600 block">
-                Currency
-                <select
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value)}
-                  className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2"
-                >
-                  <option value="USD">USD</option>
-                  <option value="CAD">CAD</option>
-                </select>
-              </label>
-
-              {billingMode === 'PAY_PER_LEAD' && (
+              {planType === 'PAY_PER_LEAD' && (
                 <label className="text-sm text-slate-600 block">
                   Price per lead ({currency})
                   <input
@@ -429,18 +536,35 @@ export default function FinanceDashboard() {
                 </label>
               )}
 
-              {billingMode === 'MONTHLY' && (
-                <label className="text-sm text-slate-600 block">
-                  Monthly fee ({currency})
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={monthlyFee}
-                    onChange={(e) => setMonthlyFee(e.target.value)}
-                    className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2"
-                  />
-                </label>
+              {planType === 'SUBSCRIPTION' && (
+                <>
+                  <label className="text-sm text-slate-600 block">
+                    Subscription tier
+                    <select
+                      value={subscriptionTier}
+                      onChange={(e) => setSubscriptionTier(e.target.value as SubscriptionTier)}
+                      className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2"
+                    >
+                      <option value="FREE">Free - $0 / month</option>
+                      <option value="GROWTH">Growth - $100 / month</option>
+                      <option value="PRO">Pro - $500 / month</option>
+                    </select>
+                  </label>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-sm font-semibold text-slate-900">
+                      {SUBSCRIPTION_TIERS[subscriptionTier].label} plan
+                    </p>
+                    <p className="text-sm text-slate-700">
+                      Monthly fee: ${SUBSCRIPTION_TIERS[subscriptionTier].monthlyFee} USD
+                    </p>
+                    <p className="text-sm text-slate-700">
+                      Included leads/month: {SUBSCRIPTION_TIERS[subscriptionTier].includedLeadsPerMonth}
+                    </p>
+                    <p className="text-sm text-slate-700">
+                      Overage: ${SUBSCRIPTION_TIERS[subscriptionTier].overagePricePerLead} per lead
+                    </p>
+                  </div>
+                </>
               )}
             </div>
             <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-slate-200">

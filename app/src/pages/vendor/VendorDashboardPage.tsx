@@ -11,7 +11,7 @@ import {
   YAxis,
 } from 'recharts';
 import api from '../../services/api';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../hooks/useAuth';
 
 type SummaryMetrics = {
   leads_today: number;
@@ -337,3 +337,4 @@ export default function VendorDashboardPage() {
     </div>
   );
 }
+

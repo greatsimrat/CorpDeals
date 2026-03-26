@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../hooks/useAuth';
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
   `rounded-md px-3 py-2 text-sm font-medium ${
@@ -44,6 +44,9 @@ export default function VendorLayout() {
             <NavLink to="/vendor/leads" className={linkClass}>
               Leads
             </NavLink>
+            <NavLink to="/vendor/billing" className={linkClass}>
+              Billing
+            </NavLink>
           </nav>
         </aside>
         <main className="min-w-0 flex-1">
@@ -53,3 +56,4 @@ export default function VendorLayout() {
     </div>
   );
 }
+
