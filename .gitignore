@@ -16,6 +16,9 @@ coverage/
 .env.*
 !.env.example
 !*.env.example
+.env.local
+app/.env.local
+*.local
 app/.env
 app/.env.*
 !app/.env.example
