@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { 
   ArrowLeft, 
   Building2, 
@@ -42,7 +42,6 @@ const businessTypes = [
 ];
 
 export default function BecomePartnerPage() {
-  const navigate = useNavigate();
   const [formData, setFormData] = useState<FormData>({
     companyName: '',
     contactName: '',

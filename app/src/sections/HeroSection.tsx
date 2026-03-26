@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { ArrowRight, Check, Building2, Users, TrendingUp } from 'lucide-react';
@@ -122,21 +123,21 @@ const HeroSection = () => {
           <div className="animate-in flex items-center gap-2 px-4 py-2 bg-corp-highlight rounded-full mb-6">
             <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
             <span className="font-inter text-sm text-corp-blue font-medium">
-              Now serving 12,000+ companies
+              Trusted by employees at 12,000+ companies
             </span>
           </div>
 
           {/* Main Headline */}
           <h1 className="animate-in heading-1 text-corp-dark text-center max-w-4xl mb-6">
-            EXCLUSIVE PERKS FOR
+            EMPLOYEE PERKS AND
             <br />
-            <span className="text-corp-blue">VERIFIED EMPLOYEES</span>
+            <span className="text-corp-blue">CORPORATE DISCOUNTS</span>
           </h1>
 
           {/* Subheadline */}
           <p className="animate-in body-text text-lg md:text-xl text-center max-w-2xl mb-8">
-            CorpDeals connects your team with exclusive discounts from top brands. 
-            Verify once, save forever.
+            Search your company, verify your work email, and unlock exclusive deals
+            in minutes.
           </p>
 
           {/* CTA Buttons */}
@@ -145,15 +146,15 @@ const HeroSection = () => {
               href="#search" 
               className="btn-primary px-8 py-4 text-base flex items-center gap-2 group"
             >
-              Find Your Company
+              Find my company deals
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </a>
-            <a 
-              href="#vendors" 
+            <Link 
+              to="/verify"
               className="btn-secondary px-8 py-4 text-base"
             >
-              For Vendors
-            </a>
+              Verify my work email
+            </Link>
           </div>
 
           {/* Trust Indicators */}
@@ -164,7 +165,7 @@ const HeroSection = () => {
             </div>
             <div className="flex items-center gap-2">
               <Check className="w-4 h-4 text-green-500" />
-              <span className="font-inter">30-second verification</span>
+              <span className="font-inter">Secure work email verification</span>
             </div>
             <div className="flex items-center gap-2">
               <Check className="w-4 h-4 text-green-500" />
@@ -183,7 +184,7 @@ const HeroSection = () => {
             <div className="relative rounded-3xl overflow-hidden shadow-2xl">
               <img
                 src="/hero_main.jpg"
-                alt="Happy employees enjoying corporate perks in modern office"
+                alt="Employees browsing corporate discounts and employee perks"
                 className="w-full h-auto object-cover"
                 loading="eager"
               />

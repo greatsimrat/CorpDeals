@@ -1,10 +1,23 @@
 import { useState, useEffect } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
 
 const Navigation = () => {
+  const { user, isAuthenticated, logout } = useAuth();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState('');
+
+  const verificationLabel = user?.activeVerification
+    ? `Verified: ${user.activeVerification.company.name} (valid until ${new Date(
+        user.activeVerification.expiresAt
+      ).toLocaleDateString()})`
+    : user?.latestVerification?.status === 'expired'
+    ? 'Verification expired - re-verify'
+    : null;
 
   useEffect(() => {
     const handleScroll = () => {
@@ -52,6 +65,12 @@ const Navigation = () => {
   ];
 
   const scrollToSection = (href: string) => {
+    if (pathname !== '/') {
+      navigate(`/${href}`);
+      setIsMobileMenuOpen(false);
+      return;
+    }
+
     const element = document.querySelector(href);
     if (element) {
       element.scrollIntoView({ behavior: 'smooth' });
@@ -72,8 +91,8 @@ const Navigation = () => {
       <div className="w-full px-6 lg:px-12">
         <div className="flex items-center justify-between h-16 lg:h-20">
           {/* Logo */}
-          <a 
-            href="#" 
+          <Link 
+            to="/" 
             className="flex items-center gap-2 group"
             aria-label="CorpDeals Home"
           >
@@ -83,7 +102,7 @@ const Navigation = () => {
             <span className="font-montserrat font-bold text-xl text-corp-dark">
               CorpDeals
             </span>
-          </a>
+          </Link>
 
           {/* Desktop Navigation */}
           <div className="hidden lg:flex items-center gap-1">
@@ -100,22 +119,51 @@ const Navigation = () => {
                 {link.label}
               </button>
             ))}
+            <Link
+              to="/pricing"
+              className={`px-4 py-2 rounded-lg font-inter text-sm transition-all duration-300 ${
+                pathname === '/pricing'
+                  ? 'text-corp-blue bg-corp-highlight'
+                  : 'text-corp-dark hover:text-corp-blue hover:bg-gray-50'
+              }`}
+            >
+              Pricing
+            </Link>
           </div>
 
           {/* CTA Buttons */}
           <div className="hidden lg:flex items-center gap-3">
-            <button 
-              onClick={() => scrollToSection('#vendors')}
+            {verificationLabel && (
+              <Link
+                to={
+                  user?.latestVerification?.company?.slug
+                    ? `/verify?company=${encodeURIComponent(user.latestVerification.company.slug)}`
+                    : '/verify'
+                }
+                className={`px-3 py-1.5 rounded-full text-xs font-medium ${
+                  user?.activeVerification
+                    ? 'bg-green-50 text-green-700 border border-green-200'
+                    : 'bg-amber-50 text-amber-700 border border-amber-200'
+                }`}
+              >
+                {verificationLabel}
+              </Link>
+            )}
+            <Link
+              to="/vendor/login"
               className="font-inter text-sm text-corp-dark hover:text-corp-blue transition-colors px-4 py-2"
             >
               Vendor Login
-            </button>
-            <button 
-              onClick={() => scrollToSection('#search')}
-              className="btn-primary text-sm"
-            >
-              Get Started
-            </button>
+            </Link>
+            {!isAuthenticated ? (
+              <Link to="/login" className="btn-primary text-sm">
+                Login
+              </Link>
+            ) : (
+              <button onClick={logout} className="btn-primary text-sm">
+                Logout
+              </button>
+            )}
           </div>
 
           {/* Mobile Menu Button */}
@@ -154,19 +202,50 @@ const Navigation = () => {
               {link.label}
             </button>
           ))}
+          <Link
+            to="/pricing"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className={`block w-full text-left px-4 py-3 rounded-lg font-inter text-sm transition-colors ${
+              pathname === '/pricing'
+                ? 'text-corp-blue bg-corp-highlight'
+                : 'text-corp-dark hover:bg-gray-50'
+            }`}
+          >
+            Pricing
+          </Link>
           <div className="pt-4 border-t border-gray-100 space-y-2">
-            <button 
-              onClick={() => scrollToSection('#vendors')}
+            {verificationLabel && (
+              <Link
+                to={
+                  user?.latestVerification?.company?.slug
+                    ? `/verify?company=${encodeURIComponent(user.latestVerification.company.slug)}`
+                    : '/verify'
+                }
+                className={`block w-full text-left px-4 py-3 rounded-lg text-xs font-medium ${
+                  user?.activeVerification
+                    ? 'bg-green-50 text-green-700'
+                    : 'bg-amber-50 text-amber-700'
+                }`}
+              >
+                {verificationLabel}
+              </Link>
+            )}
+            <Link
+              to="/vendor/login"
+              onClick={() => setIsMobileMenuOpen(false)}
               className="block w-full text-left px-4 py-3 font-inter text-sm text-corp-dark"
             >
               Vendor Login
-            </button>
-            <button 
-              onClick={() => scrollToSection('#search')}
-              className="btn-primary text-sm w-full"
-            >
-              Get Started
-            </button>
+            </Link>
+            {!isAuthenticated ? (
+              <Link to="/login" className="btn-primary text-sm w-full block text-center">
+                Login
+              </Link>
+            ) : (
+              <button onClick={logout} className="btn-primary text-sm w-full">
+                Logout
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -175,3 +254,4 @@ const Navigation = () => {
 };
 
 export default Navigation;
+

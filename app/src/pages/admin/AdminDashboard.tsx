@@ -6,10 +6,14 @@ import {
   Percent,
   FileCheck,
   TrendingUp,
+  Calendar,
+  CalendarDays,
+  CalendarRange,
   Clock,
   CheckCircle2,
   ArrowRight,
   Loader2,
+  Wallet,
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -26,12 +30,21 @@ interface Stats {
     active: number;
   };
   leads: number;
+  leadSubmissions: {
+    today: number;
+    thisMonth: number;
+    thisYear: number;
+    daily: Array<{ bucket: string; count: number }>;
+    monthly: Array<{ bucket: string; count: number }>;
+    yearly: Array<{ bucket: string; count: number }>;
+  };
   pendingRequests: number;
 }
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [pendingRequests, setPendingRequests] = useState<any[]>([]);
+  const [invoiceData, setInvoiceData] = useState<{ month: string; totals: { count: number; amountCents: number }; invoices: any[] } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -42,12 +55,16 @@ export default function AdminDashboard() {
   const loadData = async () => {
     try {
       setIsLoading(true);
-      const [statsData, requestsData] = await Promise.all([
+      const now = new Date();
+      const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const [statsData, requestsData, invoicesData] = await Promise.all([
         api.getAdminStats(),
         api.getVendorRequests({ status: 'PENDING' }),
+        api.getFinanceInvoices({ month: monthKey }),
       ]);
       setStats(statsData);
       setPendingRequests(requestsData.slice(0, 5));
+      setInvoiceData(invoicesData);
     } catch (err: any) {
       setError(err.message || 'Failed to load data');
     } finally {
@@ -70,6 +87,35 @@ export default function AdminDashboard() {
       </div>
     );
   }
+
+  const formatCurrency = (amountCents: number, currency = 'USD') => {
+    const value = (amountCents || 0) / 100;
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(value);
+  };
+
+  const formatDayBucket = (bucket: string) => {
+    const [year, month, day] = bucket.split('-').map(Number);
+    return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+    });
+  };
+
+  const formatMonthBucket = (bucket: string) => {
+    const [year, month] = bucket.split('-').map(Number);
+    return new Date(year, month - 1, 1).toLocaleDateString('en-US', {
+      month: 'short',
+      year: 'numeric',
+    });
+  };
+
+  const dailyLeads = stats?.leadSubmissions?.daily || [];
+  const monthlyLeads = stats?.leadSubmissions?.monthly || [];
+  const yearlyLeads = stats?.leadSubmissions?.yearly || [];
+
+  const maxDailyCount = Math.max(1, ...dailyLeads.map((item) => item.count));
+  const maxMonthlyCount = Math.max(1, ...monthlyLeads.map((item) => item.count));
+  const maxYearlyCount = Math.max(1, ...yearlyLeads.map((item) => item.count));
 
   const statCards = [
     {
@@ -107,7 +153,15 @@ export default function AdminDashboard() {
       value: stats?.leads || 0,
       icon: TrendingUp,
       color: 'rose',
-      link: '/admin/offers',
+      link: '/admin/leads',
+    },
+    {
+      label: 'Invoices (This Month)',
+      value: invoiceData?.totals.count || 0,
+      subtext: invoiceData ? `Total ${formatCurrency(invoiceData.totals.amountCents)}` : undefined,
+      icon: Wallet,
+      color: 'emerald',
+      link: '/finance',
     },
     {
       label: 'Pending Requests',
@@ -163,6 +217,113 @@ export default function AdminDashboard() {
         })}
       </div>
 
+      <div className="bg-white rounded-xl border border-slate-200">
+        <div className="p-5 border-b border-slate-200">
+          <h2 className="font-semibold text-slate-900">Lead Submissions</h2>
+          <p className="text-sm text-slate-500 mt-1">Daily, monthly, and yearly lead submission counts</p>
+        </div>
+
+        <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 border-b border-slate-200">
+          <div className="rounded-lg bg-blue-50 border border-blue-100 p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-blue-700">Today</p>
+              <CalendarDays className="w-4 h-4 text-blue-600" />
+            </div>
+            <p className="text-2xl font-bold text-blue-900 mt-2">{stats?.leadSubmissions?.today || 0}</p>
+          </div>
+
+          <div className="rounded-lg bg-emerald-50 border border-emerald-100 p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-emerald-700">This Month</p>
+              <CalendarRange className="w-4 h-4 text-emerald-600" />
+            </div>
+            <p className="text-2xl font-bold text-emerald-900 mt-2">{stats?.leadSubmissions?.thisMonth || 0}</p>
+          </div>
+
+          <div className="rounded-lg bg-amber-50 border border-amber-100 p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-amber-700">This Year</p>
+              <Calendar className="w-4 h-4 text-amber-600" />
+            </div>
+            <p className="text-2xl font-bold text-amber-900 mt-2">{stats?.leadSubmissions?.thisYear || 0}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 divide-y xl:divide-y-0 xl:divide-x divide-slate-200">
+          <div className="p-5">
+            <h3 className="text-sm font-semibold text-slate-900">By Day (last 7 of 30)</h3>
+            <div className="mt-3 space-y-3">
+              {dailyLeads.length === 0 ? (
+                <p className="text-sm text-slate-500">No daily lead data yet.</p>
+              ) : (
+                dailyLeads.slice(-7).map((item) => (
+                  <div key={item.bucket}>
+                    <div className="flex items-center justify-between text-xs text-slate-600 mb-1">
+                      <span>{formatDayBucket(item.bucket)}</span>
+                      <span className="font-semibold text-slate-800">{item.count}</span>
+                    </div>
+                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-blue-500"
+                        style={{ width: `${(item.count / maxDailyCount) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="p-5">
+            <h3 className="text-sm font-semibold text-slate-900">By Month (last 6 of 12)</h3>
+            <div className="mt-3 space-y-3">
+              {monthlyLeads.length === 0 ? (
+                <p className="text-sm text-slate-500">No monthly lead data yet.</p>
+              ) : (
+                monthlyLeads.slice(-6).map((item) => (
+                  <div key={item.bucket}>
+                    <div className="flex items-center justify-between text-xs text-slate-600 mb-1">
+                      <span>{formatMonthBucket(item.bucket)}</span>
+                      <span className="font-semibold text-slate-800">{item.count}</span>
+                    </div>
+                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-500"
+                        style={{ width: `${(item.count / maxMonthlyCount) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="p-5">
+            <h3 className="text-sm font-semibold text-slate-900">By Year</h3>
+            <div className="mt-3 space-y-3">
+              {yearlyLeads.length === 0 ? (
+                <p className="text-sm text-slate-500">No yearly lead data yet.</p>
+              ) : (
+                yearlyLeads.map((item) => (
+                  <div key={item.bucket}>
+                    <div className="flex items-center justify-between text-xs text-slate-600 mb-1">
+                      <span>{item.bucket}</span>
+                      <span className="font-semibold text-slate-800">{item.count}</span>
+                    </div>
+                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-amber-500"
+                        style={{ width: `${(item.count / maxYearlyCount) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Pending Vendor Requests */}
       <div className="bg-white rounded-xl border border-slate-200">
         <div className="flex items-center justify-between p-5 border-b border-slate-200">
@@ -215,6 +376,48 @@ export default function AdminDashboard() {
                   >
                     Review
                   </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Invoices */}
+      <div className="bg-white rounded-xl border border-slate-200">
+        <div className="flex items-center justify-between p-5 border-b border-slate-200">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-emerald-100 rounded-lg">
+              <Wallet className="w-5 h-5 text-emerald-600" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-slate-900">Invoices (This Month)</h2>
+              <p className="text-sm text-slate-500">
+                {invoiceData
+                  ? `${invoiceData.totals.count} invoices • ${formatCurrency(invoiceData.totals.amountCents)} total`
+                  : 'No invoice data'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {!invoiceData || invoiceData.invoices.length === 0 ? (
+          <div className="p-8 text-center text-slate-500">No invoices for this month</div>
+        ) : (
+          <div className="divide-y divide-slate-200">
+            {invoiceData.invoices.slice(0, 5).map((invoice: any) => (
+              <div key={invoice.invoiceId} className="p-4 hover:bg-slate-50">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-slate-900">{invoice.companyName}</p>
+                    <p className="text-sm text-slate-500">{invoice.invoiceId}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold text-slate-900">
+                      {formatCurrency(invoice.totalCents, invoice.currency)}
+                    </p>
+                    <p className="text-xs text-slate-500">{invoice.status}</p>
+                  </div>
                 </div>
               </div>
             ))}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   Plus, 
@@ -60,6 +60,13 @@ const initialFormData: OfferFormData = {
   image: '',
 };
 
+const formatDateInput = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export default function AdminOffersPage() {
   const { offers, addOffer, deleteOffer, updateOffer } = useOffers();
   const [showForm, setShowForm] = useState(false);
@@ -69,6 +76,12 @@ export default function AdminOffersPage() {
   const [filterCompany, setFilterCompany] = useState<string>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [successMessage, setSuccessMessage] = useState('');
+  const minExpiryDate = useMemo(() => {
+    const tomorrow = new Date();
+    tomorrow.setHours(0, 0, 0, 0);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return formatDateInput(tomorrow);
+  }, []);
 
   // Filter offers based on search and filters
   const filteredOffers = offers.filter(offer => {
@@ -117,6 +130,10 @@ export default function AdminOffersPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (formData.expiryDate && formData.expiryDate < minExpiryDate) {
+      window.alert('Offer end date must be in the future');
+      return;
+    }
     
     // Filter out empty terms and howToClaim
     const cleanedFormData = {
@@ -386,6 +403,7 @@ export default function AdminOffersPage() {
                         type="date"
                         name="expiryDate"
                         value={formData.expiryDate}
+                        min={minExpiryDate}
                         onChange={handleInputChange}
                         required
                         className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"

@@ -13,18 +13,22 @@ import {
   LogOut,
   ChevronRight,
   UserCircle,
+  Wallet,
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../hooks/useAuth';
 
 const navItems = [
   { path: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
   { path: '/admin/vendor-requests', label: 'Vendor Requests', icon: FileCheck },
   { path: '/admin/vendors', label: 'Vendors', icon: Users },
   { path: '/admin/companies', label: 'Companies', icon: Building2 },
-  { path: '/admin/offers', label: 'Offers', icon: Percent },
+  { path: '/admin/offers', label: 'Offers', icon: Percent, exact: true },
+  { path: '/admin/offers-review', label: 'Offers Review', icon: FileCheck, exact: true },
   { path: '/admin/leads', label: 'Leads', icon: ListChecks },
+  { path: '/admin/invoices', label: 'Invoices', icon: Wallet },
   { path: '/admin/categories', label: 'Categories', icon: Tag },
   { path: '/admin/users', label: 'Users', icon: UserCircle },
+  { path: '/finance', label: 'Finance', icon: Wallet },
 ];
 
 export default function AdminLayout() {
@@ -165,3 +169,4 @@ export default function AdminLayout() {
     </div>
   );
 }
+

@@ -4,10 +4,17 @@ import { authenticateToken, requireAdmin } from '../middleware/auth';
 
 const router = Router();
 
+const firstString = (value: unknown): string | undefined => {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value) && typeof value[0] === 'string') return value[0];
+  return undefined;
+};
+
 // Get all HR contacts (admin only)
 router.get('/', authenticateToken, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { companyId, search } = req.query;
+    const companyId = firstString(req.query.companyId);
+    const search = firstString(req.query.search);
 
     const where: any = {};
     if (companyId) where.companyId = companyId;
@@ -41,8 +48,14 @@ router.get('/', authenticateToken, requireAdmin, async (req: Request, res: Respo
 // Get HR contacts for a company (admin only)
 router.get('/company/:companyId', authenticateToken, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
+    const companyId = firstString(req.params.companyId);
+    if (!companyId) {
+      res.status(400).json({ error: 'Invalid company id' });
+      return;
+    }
+
     const contacts = await prisma.hRContact.findMany({
-      where: { companyId: req.params.companyId },
+      where: { companyId },
       orderBy: [
         { isPrimary: 'desc' },
         { name: 'asc' },
@@ -59,8 +72,14 @@ router.get('/company/:companyId', authenticateToken, requireAdmin, async (req: R
 // Get HR contact by ID (admin only)
 router.get('/:id', authenticateToken, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
+    const id = firstString(req.params.id);
+    if (!id) {
+      res.status(400).json({ error: 'Invalid contact id' });
+      return;
+    }
+
     const contact = await prisma.hRContact.findUnique({
-      where: { id: req.params.id },
+      where: { id },
       include: {
         company: true,
       },
@@ -117,10 +136,16 @@ router.post('/', authenticateToken, requireAdmin, async (req: Request, res: Resp
 // Update HR contact (admin only)
 router.patch('/:id', authenticateToken, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
+    const id = firstString(req.params.id);
+    if (!id) {
+      res.status(400).json({ error: 'Invalid contact id' });
+      return;
+    }
+
     const { name, email, phone, title, isPrimary } = req.body;
 
     const existingContact = await prisma.hRContact.findUnique({
-      where: { id: req.params.id },
+      where: { id },
     });
 
     if (!existingContact) {
@@ -137,7 +162,7 @@ router.patch('/:id', authenticateToken, requireAdmin, async (req: Request, res: 
     }
 
     const contact = await prisma.hRContact.update({
-      where: { id: req.params.id },
+      where: { id },
       data: { name, email, phone, title, isPrimary },
       include: {
         company: {
@@ -156,8 +181,14 @@ router.patch('/:id', authenticateToken, requireAdmin, async (req: Request, res: 
 // Delete HR contact (admin only)
 router.delete('/:id', authenticateToken, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
+    const id = firstString(req.params.id);
+    if (!id) {
+      res.status(400).json({ error: 'Invalid contact id' });
+      return;
+    }
+
     await prisma.hRContact.delete({
-      where: { id: req.params.id },
+      where: { id },
     });
 
     res.json({ message: 'HR contact deleted' });

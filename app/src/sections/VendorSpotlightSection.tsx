@@ -115,7 +115,7 @@ const VendorSpotlightSection = () => {
               <div className="flex items-center gap-2">
                 <TrendingUp className="w-5 h-5 text-green-500" />
                 <span className="font-inter text-sm text-corp-dark">
-                  <strong>18%</strong> avg. redemption rate
+                  <strong>18%</strong> avg. lead conversion rate
                 </span>
               </div>
             </div>
@@ -145,7 +145,7 @@ const VendorSpotlightSection = () => {
             {/* Description */}
             <p className="animate-item body-text text-lg mb-8">
               Promote offers to verified employees at companies you choose. 
-              Set caps, track redemption, and pay only for results.
+              Set caps, track leads, and pay only for results.
             </p>
 
             {/* Benefits List */}

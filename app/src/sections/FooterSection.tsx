@@ -1,4 +1,5 @@
 import { useRef, useLayoutEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { Mail, Phone, MapPin, Send, Linkedin, Twitter, Instagram, Check } from 'lucide-react';
@@ -7,28 +8,29 @@ gsap.registerPlugin(ScrollTrigger);
 
 const footerLinks = {
   product: [
-    { label: 'For Employees', href: '#search' },
-    { label: 'For Vendors', href: '#vendors' },
-    { label: 'For HR Teams', href: '#how-it-works' },
-    { label: 'Pricing', href: '#' },
+    { label: 'For Employees', href: '/for-employees' },
+    { label: 'For Vendors', href: '/for-vendors' },
+    { label: 'For HR Teams', href: '/for-hr-teams' },
+    { label: 'Pricing', href: '/pricing' },
   ],
   company: [
-    { label: 'About Us', href: '#' },
-    { label: 'Careers', href: '#' },
-    { label: 'Press', href: '#' },
-    { label: 'Blog', href: '#' },
+    { label: 'About Us', href: '/about' },
+    { label: 'Careers', href: '/careers' },
+    { label: 'Press', href: '/press' },
+    { label: 'Blog', href: '/blog' },
   ],
   resources: [
-    { label: 'Help Center', href: '#' },
-    { label: 'API Docs', href: '#' },
-    { label: 'Partner Portal', href: '#' },
-    { label: 'Case Studies', href: '#testimonial' },
+    { label: 'Help Center', href: '/help-center' },
+    { label: 'API Docs', href: '/api-docs' },
+    { label: 'Partner Portal', href: '/partner-portal' },
+    { label: 'Case Studies', href: '/case-studies' },
   ],
   legal: [
-    { label: 'Privacy Policy', href: '#' },
-    { label: 'Terms of Service', href: '#' },
-    { label: 'Cookie Policy', href: '#' },
-    { label: 'Security', href: '#' },
+    { label: 'Policy Types', href: '/policies' },
+    { label: 'Privacy Policy', href: '/privacy-policy' },
+    { label: 'Terms of Service', href: '/terms-of-service' },
+    { label: 'Cookie Policy', href: '/cookie-policy' },
+    { label: 'Security', href: '/security' },
   ],
 };
 
@@ -93,6 +95,35 @@ const FooterSection = () => {
       setIsSubmitted(false);
       setFormData({ name: '', email: '', company: '', message: '' });
     }, 3000);
+  };
+
+  const renderFooterLink = (label: string, href: string) => {
+    if (href.startsWith('#')) {
+      return (
+        <a href={href} className="font-inter text-gray-400 hover:text-white transition-colors text-sm">
+          {label}
+        </a>
+      );
+    }
+
+    if (href.startsWith('http://') || href.startsWith('https://')) {
+      return (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-inter text-gray-400 hover:text-white transition-colors text-sm"
+        >
+          {label}
+        </a>
+      );
+    }
+
+    return (
+      <Link to={href} className="font-inter text-gray-400 hover:text-white transition-colors text-sm">
+        {label}
+      </Link>
+    );
   };
 
   return (
@@ -235,13 +266,23 @@ const FooterSection = () => {
               {/* Social Links */}
               <div className="flex items-center gap-3">
                 {[
-                  { icon: Linkedin, label: 'LinkedIn' },
-                  { icon: Twitter, label: 'Twitter' },
-                  { icon: Instagram, label: 'Instagram' },
-                ].map(({ icon: Icon, label }) => (
+                  {
+                    icon: Linkedin,
+                    label: 'LinkedIn',
+                    href: 'https://www.linkedin.com/company/corpdeals',
+                  },
+                  { icon: Twitter, label: 'Twitter', href: 'https://twitter.com/corpdeals' },
+                  {
+                    icon: Instagram,
+                    label: 'Instagram',
+                    href: 'https://www.instagram.com/corpdeals',
+                  },
+                ].map(({ icon: Icon, label, href }) => (
                   <a
                     key={label}
-                    href="#"
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     aria-label={label}
                     className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center text-gray-400 hover:text-white hover:bg-corp-blue transition-all"
                   >
@@ -262,12 +303,7 @@ const FooterSection = () => {
                 <ul className="space-y-3">
                   {links.map((link) => (
                     <li key={link.label}>
-                      <a
-                        href={link.href}
-                        className="font-inter text-gray-400 hover:text-white transition-colors text-sm"
-                      >
-                        {link.label}
-                      </a>
+                      {renderFooterLink(link.label, link.href)}
                     </li>
                   ))}
                 </ul>
@@ -278,18 +314,21 @@ const FooterSection = () => {
           {/* Bottom Bar */}
           <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-8 border-t border-white/10">
             <p className="font-inter text-sm text-gray-500">
-              © 2026 CorpDeals. All rights reserved.
+              (c) 2026 CorpDeals. All rights reserved.
             </p>
             <div className="flex items-center gap-6">
-              <a href="#" className="font-inter text-sm text-gray-500 hover:text-white transition-colors">
+              <Link to="/policies" className="font-inter text-sm text-gray-500 hover:text-white transition-colors">
+                Policies
+              </Link>
+              <Link to="/privacy-policy" className="font-inter text-sm text-gray-500 hover:text-white transition-colors">
                 Privacy
-              </a>
-              <a href="#" className="font-inter text-sm text-gray-500 hover:text-white transition-colors">
+              </Link>
+              <Link to="/terms-of-service" className="font-inter text-sm text-gray-500 hover:text-white transition-colors">
                 Terms
-              </a>
-              <a href="#" className="font-inter text-sm text-gray-500 hover:text-white transition-colors">
+              </Link>
+              <Link to="/cookie-policy" className="font-inter text-sm text-gray-500 hover:text-white transition-colors">
                 Cookies
-              </a>
+              </Link>
             </div>
           </div>
         </div>
@@ -299,3 +338,4 @@ const FooterSection = () => {
 };
 
 export default FooterSection;
+

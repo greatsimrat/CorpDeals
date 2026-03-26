@@ -5,6 +5,12 @@ import { authenticateToken, requireAdmin, requireVendor } from '../middleware/au
 
 const router = Router();
 
+const firstString = (value: unknown): string | undefined => {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value) && typeof value[0] === 'string') return value[0];
+  return undefined;
+};
+
 // Submit vendor application (public)
 router.post('/apply', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -58,6 +64,11 @@ router.post('/apply', async (req: Request, res: Response): Promise<void> => {
         },
       });
 
+      await tx.user.update({
+        where: { id: user.id },
+        data: { vendorId: vendor.id } as any,
+      });
+
       // Create vendor request
       const request = await tx.vendorRequest.create({
         data: {
@@ -86,7 +97,8 @@ router.post('/apply', async (req: Request, res: Response): Promise<void> => {
 // Get all vendors (admin only)
 router.get('/', authenticateToken, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { status, search } = req.query;
+    const status = firstString(req.query.status);
+    const search = firstString(req.query.search);
 
     const where: any = {};
     if (status) {
@@ -121,8 +133,14 @@ router.get('/', authenticateToken, requireAdmin, async (req: Request, res: Respo
 // Get vendor by ID
 router.get('/:id', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
+    const id = firstString(req.params.id);
+    if (!id) {
+      res.status(400).json({ error: 'Invalid vendor id' });
+      return;
+    }
+
     const vendor = await prisma.vendor.findUnique({
-      where: { id: req.params.id },
+      where: { id },
       include: {
         user: {
           select: { id: true, email: true, name: true, role: true },
@@ -157,8 +175,14 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response): Promi
 // Update vendor
 router.patch('/:id', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
+    const id = firstString(req.params.id);
+    if (!id) {
+      res.status(400).json({ error: 'Invalid vendor id' });
+      return;
+    }
+
     const vendor = await prisma.vendor.findUnique({
-      where: { id: req.params.id },
+      where: { id },
     });
 
     if (!vendor) {
@@ -175,7 +199,7 @@ router.patch('/:id', authenticateToken, async (req: Request, res: Response): Pro
     const { companyName, contactName, phone, website, logo, description } = req.body;
 
     const updated = await prisma.vendor.update({
-      where: { id: req.params.id },
+      where: { id },
       data: {
         companyName,
         contactName,

@@ -4,6 +4,12 @@ import { authenticateToken, requireAdmin } from '../middleware/auth';
 
 const router = Router();
 
+const firstString = (value: unknown): string | undefined => {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value) && typeof value[0] === 'string') return value[0];
+  return undefined;
+};
+
 // Get all categories (public)
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -24,7 +30,11 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 // Get category by ID or slug (public)
 router.get('/:idOrSlug', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { idOrSlug } = req.params;
+    const idOrSlug = firstString(req.params.idOrSlug);
+    if (!idOrSlug) {
+      res.status(400).json({ error: 'Invalid category identifier' });
+      return;
+    }
 
     const category = await prisma.category.findFirst({
       where: {
@@ -35,7 +45,10 @@ router.get('/:idOrSlug', async (req: Request, res: Response): Promise<void> => {
       },
       include: {
         offers: {
-          where: { active: true },
+          where: {
+            active: true,
+            complianceStatus: 'APPROVED',
+          } as any,
           include: {
             vendor: {
               select: { companyName: true, logo: true },
@@ -92,10 +105,16 @@ router.post('/', authenticateToken, requireAdmin, async (req: Request, res: Resp
 // Update category (admin only)
 router.patch('/:id', authenticateToken, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
+    const id = firstString(req.params.id);
+    if (!id) {
+      res.status(400).json({ error: 'Invalid category id' });
+      return;
+    }
+
     const { name, slug, icon, description, color, bgColor, image } = req.body;
 
     const category = await prisma.category.update({
-      where: { id: req.params.id },
+      where: { id },
       data: { name, slug, icon, description, color, bgColor, image },
     });
 
@@ -113,8 +132,14 @@ router.patch('/:id', authenticateToken, requireAdmin, async (req: Request, res: 
 // Delete category (admin only)
 router.delete('/:id', authenticateToken, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
+    const id = firstString(req.params.id);
+    if (!id) {
+      res.status(400).json({ error: 'Invalid category id' });
+      return;
+    }
+
     await prisma.category.delete({
-      where: { id: req.params.id },
+      where: { id },
     });
 
     res.json({ message: 'Category deleted' });
