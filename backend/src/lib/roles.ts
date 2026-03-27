@@ -1,4 +1,4 @@
-export const APP_ROLES = ['USER', 'VENDOR', 'FINANCE', 'ADMIN'] as const;
+export const APP_ROLES = ['USER', 'VENDOR', 'FINANCE', 'SALES', 'ADMIN'] as const;
 
 export type AppRole = (typeof APP_ROLES)[number];
 
@@ -9,6 +9,7 @@ const LEGACY_ROLE_ALIASES: Record<string, AppRole> = {
   USER: 'USER',
   VENDOR: 'VENDOR',
   FINANCE: 'FINANCE',
+  SALES: 'SALES',
   ADMIN: 'ADMIN',
 };
 

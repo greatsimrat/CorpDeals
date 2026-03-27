@@ -1,4 +1,4 @@
-export const APP_ROLES = ['USER', 'VENDOR', 'FINANCE', 'ADMIN'] as const;
+export const APP_ROLES = ['USER', 'VENDOR', 'FINANCE', 'SALES', 'ADMIN'] as const;
 
 export type AppRole = (typeof APP_ROLES)[number];
 
@@ -27,6 +27,7 @@ export const normalizeRole = (role: unknown): AppRole => {
   switch (normalized) {
     case 'ADMIN':
     case 'FINANCE':
+    case 'SALES':
     case 'VENDOR':
     case 'USER':
       return normalized;
@@ -50,6 +51,7 @@ export const getDefaultRouteForRole = (user: {
   if (!user) return '/';
 
   if (user.role === 'ADMIN') return '/admin';
+  if (user.role === 'SALES') return '/sales';
   if (user.role === 'FINANCE') return '/finance';
   if (hasVendorWorkspaceAccess(user)) return '/vendor/dashboard';
 
@@ -63,6 +65,7 @@ export const getDefaultRouteForRole = (user: {
 
 export const canAccessPathForRole = (role: AppRole, pathname: string) => {
   if (pathname.startsWith('/admin')) return role === 'ADMIN';
+  if (pathname.startsWith('/sales')) return role === 'ADMIN' || role === 'SALES';
   if (pathname.startsWith('/finance')) return role === 'ADMIN' || role === 'FINANCE';
   if (pathname.startsWith('/vendor')) return role === 'VENDOR';
   if (pathname === '/my-applications' || pathname === '/confirmation') return role === 'USER';

@@ -47,6 +47,8 @@ import AdminInvoicesPage from './pages/admin/AdminInvoicesPage';
 import AdminInvoiceDetailPage from './pages/admin/AdminInvoiceDetailPage';
 import FinanceLayout from './pages/finance/FinanceLayout';
 import FinanceDashboard from './pages/finance/FinanceDashboard';
+import SalesLayout from './pages/sales/SalesLayout';
+import SalesDashboardPage from './pages/sales/SalesDashboardPage';
 import SeoContentPage from './pages/SeoContentPage';
 import PolicyTypesPage from './pages/PolicyTypesPage';
 import PricingPage from './pages/PricingPage';
@@ -185,6 +187,17 @@ function App() {
                   </ProtectedRoute>
                 }>
                   <Route index element={<FinanceDashboard />} />
+                </Route>
+
+                <Route
+                  path="/sales"
+                  element={
+                    <ProtectedRoute allowedRoles={['ADMIN', 'SALES']}>
+                      <SalesLayout />
+                    </ProtectedRoute>
+                  }
+                >
+                  <Route index element={<SalesDashboardPage />} />
                 </Route>
 
                 <Route path="*" element={<NotFoundPage />} />

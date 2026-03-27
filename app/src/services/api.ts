@@ -218,6 +218,7 @@ class ApiService {
     targetCompanies?: string;
     offerSummary?: string;
     notes?: string;
+    captchaToken?: string;
     description?: string;
     additionalInfo?: string;
     password?: string;
@@ -235,6 +236,7 @@ class ApiService {
       jobTitle: data.jobTitle,
       targetCompanies: data.targetCompanies,
       offerSummary: data.offerSummary,
+      captchaToken: data.captchaToken,
       notes: data.notes || data.description || data.additionalInfo,
     };
     return this.request<{ ok: boolean; message: string; vendorId: string; requestId?: string }>('/vendor/apply', {
@@ -782,6 +784,46 @@ class ApiService {
   async getFinanceInvoices(params?: { month?: string }) {
     const query = this.buildQuery(params as Record<string, unknown> | undefined);
     return this.request<any>(`/finance/invoices${query}`);
+  }
+
+  // Sales
+  async getSalesDashboard() {
+    return this.request<{
+      summary: {
+        pendingVendorRequests: number;
+        approvedVendors: number;
+        draftOffers: number;
+        submittedOffers: number;
+        liveOffers: number;
+      };
+      vendorRequests: any[];
+      vendors: any[];
+      companies: any[];
+      categories: any[];
+      recentOffers: any[];
+    }>('/sales/dashboard');
+  }
+
+  async createSalesOffer(data: {
+    vendorId: string;
+    companyId: string;
+    categoryId?: string;
+    title: string;
+    description: string;
+    productName?: string;
+    productModel?: string;
+    productUrl?: string;
+    expiryDate?: string;
+  }) {
+    return this.request<{ ok: boolean; message: string; offer: any }>('/sales/offers', {
+      method: 'POST',
+      body: data,
+    });
+  }
+
+  async getSalesOffers(params?: { status?: string; vendorId?: string }) {
+    const query = this.buildQuery(params as Record<string, unknown> | undefined);
+    return this.request<any[]>(`/sales/offers${query}`);
   }
 }
 

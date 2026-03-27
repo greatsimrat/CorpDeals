@@ -42,7 +42,9 @@ export interface AuthContextType {
   isAuthenticated: boolean;
   isAdmin: boolean;
   isFinance: boolean;
+  isSales: boolean;
   isAdminOrFinance: boolean;
+  isAdminOrSales: boolean;
   isVendor: boolean;
   isUser: boolean;
   hasVendorAccess: boolean;

@@ -150,6 +150,8 @@ export const requireRole = requireAnyRole;
 
 export const requireAdmin = requireAnyRole('ADMIN');
 
+export const requireAdminOrSales = requireAnyRole('ADMIN', 'SALES');
+
 export const requireAdminOrFinance = requireAnyRole('ADMIN', 'FINANCE');
 
 export const requireVendor = requireAnyRole('VENDOR', 'ADMIN');

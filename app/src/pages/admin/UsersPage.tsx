@@ -14,7 +14,7 @@ interface User {
   id: string;
   email: string;
   name: string | null;
-  role: 'ADMIN' | 'FINANCE' | 'VENDOR' | 'USER';
+  role: 'ADMIN' | 'SALES' | 'FINANCE' | 'VENDOR' | 'USER';
   createdAt: string;
   vendor?: {
     id: string;
@@ -79,6 +79,13 @@ export default function UsersPage() {
             Vendor
           </span>
         );
+      case 'SALES':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+            <UserCircle className="w-3 h-3" />
+            Sales
+          </span>
+        );
       case 'FINANCE':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
@@ -140,6 +147,7 @@ export default function UsersPage() {
             >
               <option value="">All Roles</option>
               <option value="ADMIN">Admin</option>
+              <option value="SALES">Sales</option>
               <option value="FINANCE">Finance</option>
               <option value="VENDOR">Vendor</option>
               <option value="USER">User</option>
@@ -211,6 +219,7 @@ export default function UsersPage() {
                           className="text-sm px-3 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                         >
                           <option value="USER">User</option>
+                          <option value="SALES">Sales</option>
                           <option value="FINANCE">Finance</option>
                           <option value="VENDOR">Vendor</option>
                           <option value="ADMIN">Admin</option>

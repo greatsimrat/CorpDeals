@@ -5,6 +5,7 @@ import { ArrowRight, BadgeCheck, Briefcase, Building2, CheckCircle2, Mail, Spark
 import api from '../../services/api';
 import Seo from '../../components/Seo';
 import { useAuth } from '../../hooks/useAuth';
+import TurnstileWidget from '../../components/TurnstileWidget';
 
 type FormState = {
   businessName: string;
@@ -12,12 +13,9 @@ type FormState = {
   category: string;
   city: string;
   contactName: string;
-  contactEmail: string;
-  businessEmail: string;
+  workEmail: string;
   phone: string;
   jobTitle: string;
-  targetCompanies: string;
-  offerSummary: string;
   notes: string;
 };
 
@@ -27,19 +25,16 @@ const initialState: FormState = {
   category: '',
   city: '',
   contactName: '',
-  contactEmail: '',
-  businessEmail: '',
+  workEmail: '',
   phone: '',
   jobTitle: '',
-  targetCompanies: '',
-  offerSummary: '',
   notes: '',
 };
 
 const partnerJourney = [
   {
     title: 'Apply',
-    body: 'Tell us about your company, your contact details, and the kind of employee offer you want to run.',
+    body: 'Tell us who you are and what company you represent. Keep it lightweight.',
   },
   {
     title: 'Review',
@@ -47,7 +42,7 @@ const partnerJourney = [
   },
   {
     title: 'Launch',
-    body: 'Create your first offer, submit it for approval, and start receiving verified employee leads.',
+    body: 'After approval, create offers inside the vendor workspace and submit them for review.',
   },
 ];
 
@@ -57,6 +52,98 @@ const valueProps = [
   'Track applications, lead quality, and billing from one workspace',
 ];
 
+const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() || '';
+const personalEmailDomains = new Set([
+  'gmail.com',
+  'yahoo.com',
+  'hotmail.com',
+  'outlook.com',
+  'live.com',
+  'icloud.com',
+  'aol.com',
+  'proton.me',
+  'protonmail.com',
+  'pm.me',
+  'gmx.com',
+]);
+
+const normalizePhone = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  const hasPlusPrefix = trimmed.startsWith('+');
+  const digits = trimmed.replace(/\D/g, '');
+  return digits ? `${hasPlusPrefix ? '+' : ''}${digits}` : '';
+};
+
+const isValidWebsite = (value: string) => {
+  if (!value.trim()) return true;
+  try {
+    const parsed = new URL(value.trim());
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+const validateForm = (form: FormState, requireCaptcha: boolean, captchaToken: string) => {
+  const nextErrors: Partial<Record<keyof FormState | 'captcha', string>> = {};
+
+  if (form.businessName.trim().length < 2) {
+    nextErrors.businessName = 'Business name is required';
+  } else if (form.businessName.trim().length > 100) {
+    nextErrors.businessName = 'Business name must be 100 characters or less';
+  }
+
+  if (form.contactName.trim().length < 2) {
+    nextErrors.contactName = 'Contact name is required';
+  } else if (form.contactName.trim().length > 80) {
+    nextErrors.contactName = 'Contact name must be 80 characters or less';
+  }
+
+  if (form.jobTitle.trim().length > 80) {
+    nextErrors.jobTitle = 'Job title must be 80 characters or less';
+  }
+
+  const email = form.workEmail.trim().toLowerCase();
+  if (!email) {
+    nextErrors.workEmail = 'Work email is required';
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    nextErrors.workEmail = 'Enter a valid work email';
+  } else {
+    const domain = email.split('@')[1] || '';
+    if (personalEmailDomains.has(domain)) {
+      nextErrors.workEmail = 'Use your business email address';
+    }
+  }
+
+  const phone = normalizePhone(form.phone);
+  if (phone && !/^\+?\d{10,15}$/.test(phone)) {
+    nextErrors.phone = 'Enter a valid phone number';
+  }
+
+  if (!isValidWebsite(form.website)) {
+    nextErrors.website = 'Enter a valid website URL';
+  }
+
+  if (form.category.trim().length > 80) {
+    nextErrors.category = 'Category must be 80 characters or less';
+  }
+
+  if (form.city.trim().length > 100) {
+    nextErrors.city = 'City or region must be 100 characters or less';
+  }
+
+  if (form.notes.trim().length > 1000) {
+    nextErrors.notes = 'Notes must be 1000 characters or less';
+  }
+
+  if (requireCaptcha && !captchaToken.trim()) {
+    nextErrors.captcha = 'Please complete the captcha';
+  }
+
+  return nextErrors;
+};
+
 export default function VendorApplyPage() {
   const { user, hasVendorAccess } = useAuth();
   const [form, setForm] = useState<FormState>(initialState);
@@ -64,14 +151,15 @@ export default function VendorApplyPage() {
   const [successMessage, setSuccessMessage] = useState('');
   const [requestId, setRequestId] = useState('');
   const [error, setError] = useState('');
+  const [captchaToken, setCaptchaToken] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof FormState | 'captcha', string>>>({});
 
   useEffect(() => {
     setForm((prev) => ({
       ...prev,
       contactName: prev.contactName || user?.name || '',
-      contactEmail: prev.contactEmail || user?.loginEmail || user?.email || '',
     }));
-  }, [user?.email, user?.loginEmail, user?.name]);
+  }, [user?.name]);
 
   const applicationState = String(user?.vendor?.status || '').toUpperCase();
   const showApprovedState = hasVendorAccess;
@@ -86,25 +174,48 @@ export default function VendorApplyPage() {
   const onChange = (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [event.target.name]: event.target.value }));
     setError('');
+    setFieldErrors((prev) => ({ ...prev, [event.target.name]: '' }));
   };
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    const nextFieldErrors = validateForm(form, Boolean(turnstileSiteKey), captchaToken);
+    setFieldErrors(nextFieldErrors);
+    if (Object.values(nextFieldErrors).some(Boolean)) {
+      return;
+    }
+
     setIsSubmitting(true);
     setError('');
     setSuccessMessage('');
 
     try {
-      const result = await api.submitVendorApplication(form);
+      const result = await api.submitVendorApplication({
+        businessName: form.businessName,
+        website: form.website,
+        category: form.category,
+        city: form.city,
+        contactName: form.contactName,
+        contactEmail: user?.loginEmail || user?.email || form.workEmail,
+        businessEmail: form.workEmail,
+        phone: form.phone,
+        jobTitle: form.jobTitle,
+        notes: form.notes,
+        captchaToken,
+      });
       setSuccessMessage("We'll review your partner application and follow up within 1-2 business days.");
       setRequestId(result.requestId || '');
+      setCaptchaToken('');
+      setFieldErrors({});
       setForm((prev) => ({
         ...initialState,
         contactName: prev.contactName,
-        contactEmail: prev.contactEmail,
       }));
     } catch (err: any) {
       setError(err.message || 'Failed to submit partner application');
+      if (err?.responseBody?.fieldErrors) {
+        setFieldErrors(err.responseBody.fieldErrors);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -202,10 +313,10 @@ export default function VendorApplyPage() {
                   <div className="mt-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-slate-700">
                     <p className="font-semibold text-slate-900">Applying with your current account</p>
                     <p className="mt-1">
-                      Contact email: <span className="font-medium">{accountEmailLabel}</span>
+                      Account email: <span className="font-medium">{accountEmailLabel}</span>
                     </p>
                     <p className="mt-1">
-                      Your business email is collected separately for partner verification and operations.
+                      You only need to give us one visible work email on this form. Offer setup happens after approval.
                     </p>
                   </div>
                 ) : null}
@@ -273,6 +384,7 @@ export default function VendorApplyPage() {
                             onClick={() => {
                               setSuccessMessage('');
                               setRequestId('');
+                              setCaptchaToken('');
                             }}
                             className="rounded-xl border border-transparent px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100"
                           >
@@ -290,6 +402,7 @@ export default function VendorApplyPage() {
                   </div>
                 ) : null}
 
+                {!successMessage ? (
                 <form onSubmit={onSubmit} className="mt-6 space-y-6">
                   <div className="space-y-4">
                     <div>
@@ -304,6 +417,9 @@ export default function VendorApplyPage() {
                         onChange={onChange}
                         className="mt-1 w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                       />
+                      {fieldErrors.businessName ? (
+                        <p className="mt-2 text-xs text-red-600">{fieldErrors.businessName}</p>
+                      ) : null}
                     </label>
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <label className="block text-sm font-medium text-slate-700">
@@ -315,16 +431,22 @@ export default function VendorApplyPage() {
                           placeholder="https://example.com"
                           className="mt-1 w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                         />
+                        {fieldErrors.website ? (
+                          <p className="mt-2 text-xs text-red-600">{fieldErrors.website}</p>
+                        ) : null}
                       </label>
-                      <label className="block text-sm font-medium text-slate-700">
-                        Category
-                        <input
+                    <label className="block text-sm font-medium text-slate-700">
+                      Category
+                      <input
                           name="category"
                           value={form.category}
                           onChange={onChange}
                           placeholder="Travel, telecom, auto, finance"
                           className="mt-1 w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                         />
+                        {fieldErrors.category ? (
+                          <p className="mt-2 text-xs text-red-600">{fieldErrors.category}</p>
+                        ) : null}
                       </label>
                     </div>
                     <label className="block text-sm font-medium text-slate-700">
@@ -335,12 +457,15 @@ export default function VendorApplyPage() {
                         onChange={onChange}
                         className="mt-1 w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                       />
+                      {fieldErrors.city ? (
+                        <p className="mt-2 text-xs text-red-600">{fieldErrors.city}</p>
+                      ) : null}
                     </label>
                   </div>
 
                   <div className="space-y-4 border-t border-slate-200 pt-6">
                     <div>
-                      <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">2. Contact and verification</h3>
+                      <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">2. Contact details</h3>
                     </div>
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <label className="block text-sm font-medium text-slate-700">
@@ -352,6 +477,9 @@ export default function VendorApplyPage() {
                           onChange={onChange}
                           className="mt-1 w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                         />
+                        {fieldErrors.contactName ? (
+                          <p className="mt-2 text-xs text-red-600">{fieldErrors.contactName}</p>
+                        ) : null}
                       </label>
                       <label className="block text-sm font-medium text-slate-700">
                         Job title
@@ -362,37 +490,33 @@ export default function VendorApplyPage() {
                           placeholder="Partnerships Manager"
                           className="mt-1 w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                         />
+                        {fieldErrors.jobTitle ? (
+                          <p className="mt-2 text-xs text-red-600">{fieldErrors.jobTitle}</p>
+                        ) : null}
                       </label>
                     </div>
-                    <label className="block text-sm font-medium text-slate-700">
-                      Contact email
-                      <div className="relative mt-1">
-                        <Mail className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                        <input
-                          required
-                          type="email"
-                          name="contactEmail"
-                          value={form.contactEmail}
-                          onChange={onChange}
-                          className="w-full rounded-2xl border border-slate-300 py-3 pl-11 pr-4 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-                        />
-                      </div>
-                      <p className="mt-2 text-xs text-slate-500">
-                        This is the account email for updates, sign-in, and partner workspace access.
-                      </p>
-                    </label>
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <label className="block text-sm font-medium text-slate-700">
-                        Business email
-                        <input
-                          required
-                          type="email"
-                          name="businessEmail"
-                          value={form.businessEmail}
-                          onChange={onChange}
-                          placeholder="you@yourcompany.com"
-                          className="mt-1 w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-                        />
+                        Work email
+                        <div className="relative mt-1">
+                          <Mail className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                          <input
+                            required
+                            type="email"
+                            name="workEmail"
+                            value={form.workEmail}
+                            onChange={onChange}
+                            placeholder="you@telus.com"
+                            className="w-full rounded-2xl border border-slate-300 py-3 pl-11 pr-4 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                          />
+                        </div>
+                        <p className="mt-2 text-xs text-slate-500">
+                          We use this to verify you represent the business.
+                          {user ? ' Your account email stays as-is.' : ' This will also be your login email for now.'}
+                        </p>
+                        {fieldErrors.workEmail ? (
+                          <p className="mt-2 text-xs text-red-600">{fieldErrors.workEmail}</p>
+                        ) : null}
                       </label>
                       <label className="block text-sm font-medium text-slate-700">
                         Phone
@@ -402,35 +526,17 @@ export default function VendorApplyPage() {
                           onChange={onChange}
                           className="mt-1 w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                         />
+                        {fieldErrors.phone ? (
+                          <p className="mt-2 text-xs text-red-600">{fieldErrors.phone}</p>
+                        ) : null}
                       </label>
                     </div>
                   </div>
 
                   <div className="space-y-4 border-t border-slate-200 pt-6">
                     <div>
-                      <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">3. Offer fit</h3>
+                      <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">3. Optional notes</h3>
                     </div>
-                    <label className="block text-sm font-medium text-slate-700">
-                      Target companies or audience
-                      <input
-                        name="targetCompanies"
-                        value={form.targetCompanies}
-                        onChange={onChange}
-                        placeholder="Amazon, Telus, BC Hydro"
-                        className="mt-1 w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-                      />
-                    </label>
-                    <label className="block text-sm font-medium text-slate-700">
-                      Offer summary
-                      <textarea
-                        name="offerSummary"
-                        value={form.offerSummary}
-                        onChange={onChange}
-                        rows={4}
-                        placeholder="Describe the employee offer or lead experience you want to launch."
-                        className="mt-1 w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-                      />
-                    </label>
                     <label className="block text-sm font-medium text-slate-700">
                       Additional notes
                       <textarea
@@ -438,11 +544,30 @@ export default function VendorApplyPage() {
                         value={form.notes}
                         onChange={onChange}
                         rows={3}
-                        placeholder="Anything we should know about your company, launch timing, or compliance needs?"
+                        placeholder="Anything we should know before approval?"
                         className="mt-1 w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                       />
+                      {fieldErrors.notes ? (
+                        <p className="mt-2 text-xs text-red-600">{fieldErrors.notes}</p>
+                      ) : null}
                     </label>
                   </div>
+
+                  {turnstileSiteKey ? (
+                    <div className="space-y-2 border-t border-slate-200 pt-6">
+                      <TurnstileWidget
+                        siteKey={turnstileSiteKey}
+                        onVerify={(token) => {
+                          setCaptchaToken(token);
+                          setFieldErrors((prev) => ({ ...prev, captcha: '' }));
+                        }}
+                        onExpire={() => setCaptchaToken('')}
+                      />
+                      {fieldErrors.captcha ? (
+                        <p className="text-xs text-red-600">{fieldErrors.captcha}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
 
                   <button
                     type="submit"
@@ -453,6 +578,7 @@ export default function VendorApplyPage() {
                     <ArrowRight className="h-4 w-4" />
                   </button>
                 </form>
+                ) : null}
               </section>
             </div>
           )}

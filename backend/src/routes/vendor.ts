@@ -10,6 +10,11 @@ import {
 } from '../lib/mailer';
 import { verifyVendorSetPasswordToken } from '../lib/vendor-password';
 import { DEFAULT_USER_ROLE } from '../lib/roles';
+import { verifyTurnstileToken } from '../lib/turnstile';
+import {
+  normalizePhone,
+  vendorApplicationSchema,
+} from '../lib/vendor-application';
 
 const router = Router();
 
@@ -218,29 +223,56 @@ const requireVendorUser = async (req: Request, res: Response) => {
 
 router.post('/apply', authenticateTokenOptional, async (req: Request, res: Response): Promise<void> => {
   try {
-    const businessName = String(req.body?.businessName || req.body?.business_name || '').trim();
-    const contactName = String(req.body?.contactName || req.body?.contact_name || '').trim();
-    const contactEmail = String(req.body?.contactEmail || req.body?.contact_email || '')
-      .trim()
-      .toLowerCase();
-    const businessEmail = String(req.body?.businessEmail || req.body?.business_email || '')
-      .trim()
-      .toLowerCase();
-    const phone = String(req.body?.phone || '').trim() || null;
-    const website = String(req.body?.website || '').trim() || null;
-    const category = String(req.body?.category || '').trim() || null;
-    const city = String(req.body?.city || '').trim() || null;
-    const notes = String(req.body?.notes || '').trim() || null;
-    const jobTitle = String(req.body?.jobTitle || req.body?.job_title || '').trim() || null;
-    const offerSummary =
-      String(req.body?.offerSummary || req.body?.offer_summary || '').trim() || null;
-    const targetCompanies =
-      String(req.body?.targetCompanies || req.body?.target_companies || '').trim() || null;
+    const parsed = vendorApplicationSchema.safeParse({
+      businessName: req.body?.businessName || req.body?.business_name,
+      contactName: req.body?.contactName || req.body?.contact_name,
+      contactEmail: req.body?.contactEmail || req.body?.contact_email,
+      businessEmail: req.body?.businessEmail || req.body?.business_email,
+      phone: req.body?.phone,
+      website: req.body?.website,
+      category: req.body?.category,
+      city: req.body?.city,
+      notes: req.body?.notes,
+      jobTitle: req.body?.jobTitle || req.body?.job_title,
+      offerSummary: req.body?.offerSummary || req.body?.offer_summary,
+      targetCompanies: req.body?.targetCompanies || req.body?.target_companies,
+      captchaToken: req.body?.captchaToken || req.body?.captcha_token,
+    });
 
-    if (!businessName || !contactName || !contactEmail || !businessEmail) {
+    if (!parsed.success) {
+      const fieldErrors = parsed.error.flatten().fieldErrors;
+      const firstError =
+        Object.values(fieldErrors)
+          .flat()
+          .find(Boolean) || 'Invalid application details';
       res.status(400).json({
-        error: 'Missing required fields',
-        detail: 'business name, contact name, contact email, and business email are required',
+        error: firstError,
+        fieldErrors,
+      });
+      return;
+    }
+
+    const {
+      businessName,
+      contactName,
+      contactEmail,
+      businessEmail,
+      phone,
+      website,
+      category,
+      city,
+      notes,
+      jobTitle,
+      offerSummary,
+      targetCompanies,
+      captchaToken,
+    } = parsed.data;
+
+    const turnstileResult = await verifyTurnstileToken(captchaToken, req.ip || null);
+    if (!turnstileResult.success) {
+      res.status(400).json({
+        error: 'Captcha verification failed. Please try again.',
+        code: 'CAPTCHA_FAILED',
       });
       return;
     }
@@ -313,6 +345,51 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
       return;
     }
 
+    const duplicateVendorByEmail = await prisma.vendor.findFirst({
+      where: {
+        OR: [
+          { email: contactEmail },
+          { email: businessEmail },
+          { businessEmail: contactEmail },
+          { businessEmail },
+        ],
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+    if (duplicateVendorByEmail) {
+      res.status(409).json({
+        error: 'A partner application already exists for this email address',
+      });
+      return;
+    }
+
+    if (phone) {
+      const vendorPhones = await prisma.vendor.findMany({
+        where: {
+          NOT: {
+            phone: null,
+          },
+        },
+        select: {
+          id: true,
+          phone: true,
+          status: true,
+        },
+      });
+      const duplicatePhone = vendorPhones.find(
+        (vendor) => normalizePhone(vendor.phone || '') === phone
+      );
+      if (duplicatePhone) {
+        res.status(409).json({
+          error: 'A partner application already exists for this phone number',
+        });
+        return;
+      }
+    }
+
     const additionalInfo = [
       jobTitle ? `Job title: ${jobTitle}` : null,
       businessEmail ? `Business email: ${businessEmail}` : null,
@@ -341,12 +418,12 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
           contactName,
           email: contactEmail,
           businessEmail,
-          phone,
-          website,
-          businessType: category,
-          city,
-          notes,
-          description: offerSummary || notes,
+          phone: phone || null,
+          website: website || null,
+          businessType: category || null,
+          city: city || null,
+          notes: notes || null,
+          description: offerSummary || notes || null,
           status: 'PENDING',
         } as any,
       });
@@ -361,8 +438,8 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
       const request = await tx.vendorRequest.create({
         data: {
           vendorId: vendor.id,
-          businessType: category,
-          description: offerSummary || notes,
+          businessType: category || null,
+          description: offerSummary || notes || null,
           additionalInfo: additionalInfo || null,
           status: 'PENDING',
         } as any,
@@ -375,10 +452,10 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
       businessName,
       contactName,
       contactEmail,
-      phone,
-      website,
-      category,
-      city,
+      phone: phone || null,
+      website: website || null,
+      category: category || null,
+      city: city || null,
       notes:
         [
           businessEmail ? `Business email: ${businessEmail}` : null,

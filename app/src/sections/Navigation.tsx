@@ -71,6 +71,8 @@ const Navigation = () => {
   const accountLink =
     role === 'ADMIN'
       ? { to: '/admin', label: 'Admin' }
+      : role === 'SALES'
+      ? { to: '/sales', label: 'Sales' }
       : role === 'FINANCE'
       ? { to: '/finance', label: 'Finance' }
       : role === 'VENDOR' || hasVendorAccess
