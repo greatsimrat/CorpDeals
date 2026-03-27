@@ -7,6 +7,7 @@ import { getDefaultRouteForRole, normalizeRole } from '../lib/auth';
 
 const normalizeUser = (user: User): User => ({
   ...user,
+  loginEmail: user.loginEmail || user.email,
   role: normalizeRole(user.role),
 });
 

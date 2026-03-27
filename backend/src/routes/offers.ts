@@ -122,6 +122,14 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
     return;
   }
 
+  if (email !== user.email.toLowerCase()) {
+    res.status(403).json({
+      error: 'EMAIL_MISMATCH',
+      detail: 'Use the email address on your account when submitting an application.',
+    });
+    return;
+  }
+
   const { firstName, lastName } = splitName(name);
   const payloadJson = { name, email, phone };
 

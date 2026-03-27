@@ -30,6 +30,7 @@ import OfferPage from './pages/OfferPage';
 
 // Auth Pages
 import LoginPage from './pages/auth/LoginPage';
+import RegisterPage from './pages/auth/RegisterPage';
 
 // Admin Pages
 import AdminLayout from './pages/admin/AdminLayout';
@@ -108,6 +109,7 @@ function App() {
                 <Route path="/verify" element={<VerifyEmployeePage />} />
                 <Route path="/verify/:companyId" element={<VerifyEmployeePage />} />
                 <Route path="/login" element={<LoginPage />} />
+                <Route path="/signup" element={<RegisterPage />} />
                 <Route path="/become-partner" element={<Navigate to="/vendor/apply" replace />} />
                 <Route path="/vendor/apply" element={<VendorApplyPage />} />
                 <Route path="/vendor/login" element={<VendorLoginPage />} />

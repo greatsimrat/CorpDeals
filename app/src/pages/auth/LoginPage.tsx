@@ -76,7 +76,9 @@ export default function LoginPage() {
               <span className="text-white font-bold text-xl">C</span>
             </div>
             <h1 className="text-2xl font-bold text-slate-900">Welcome Back</h1>
-            <p className="text-slate-600 mt-1">Sign in to access your account</p>
+            <p className="text-slate-600 mt-1">
+              Sign in with your account email. Work email verification happens after login.
+            </p>
           </div>
 
           {/* Form */}
@@ -99,10 +101,13 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  placeholder="you@company.com"
+                  placeholder="you@gmail.com"
                   className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 />
               </div>
+              <p className="mt-2 text-xs text-slate-500">
+                Use your personal or preferred login email. Your work email is used separately to unlock company deals.
+              </p>
             </div>
 
             <div>
@@ -141,6 +146,12 @@ export default function LoginPage() {
           {/* Footer */}
           <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 text-center">
             <p className="text-sm text-slate-600">
+              New here?{' '}
+              <Link to="/signup" state={location.state} className="text-blue-600 hover:underline font-medium">
+                Create an account
+              </Link>
+            </p>
+            <p className="text-sm text-slate-600 mt-2">
               Want to become a vendor?{' '}
               <Link to="/become-partner" className="text-blue-600 hover:underline font-medium">
                 Apply here

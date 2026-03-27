@@ -4,6 +4,9 @@ import type { AppRole, CompanySummary } from '../lib/auth';
 export interface User {
   id: string;
   email: string;
+  loginEmail?: string | null;
+  workEmail?: string | null;
+  workEmailVerifiedAt?: string | null;
   name: string | null;
   role: AppRole;
   employmentVerifiedAt?: string | null;

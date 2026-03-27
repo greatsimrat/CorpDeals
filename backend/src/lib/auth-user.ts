@@ -26,14 +26,46 @@ export const buildAuthUserPayload = async (userId: string) => {
     !!latestVerification &&
     latestVerification.status === VERIFIED_STATUS &&
     latestVerification.expiresAt > new Date();
+  const latestVerifiedWorkEmail =
+    (await prisma.employeeVerification.findFirst({
+      where: latestVerification
+        ? {
+            userId,
+            companyId: latestVerification.company.id,
+            status: 'VERIFIED',
+          }
+        : {
+            userId,
+            status: 'VERIFIED',
+          },
+      select: {
+        email: true,
+        verifiedAt: true,
+      },
+      orderBy: [{ verifiedAt: 'desc' }, { updatedAt: 'desc' }],
+    })) ||
+    (await prisma.employeeVerification.findFirst({
+      where: {
+        userId,
+        status: 'VERIFIED',
+      },
+      select: {
+        email: true,
+        verifiedAt: true,
+      },
+      orderBy: [{ verifiedAt: 'desc' }, { updatedAt: 'desc' }],
+    }));
 
   return {
     id: user.id,
     email: user.email,
+    loginEmail: user.email,
     name: user.name,
     role: normalizeRole(user.role),
     vendor: user.vendor,
     employmentVerifiedAt: user.employmentVerifiedAt,
+    workEmail: latestVerifiedWorkEmail?.email || null,
+    workEmailVerifiedAt: latestVerifiedWorkEmail?.verifiedAt || null,
     activeCompany: user.activeCompany,
     employeeCompany: user.employeeCompany,
     activeVerification: isActiveVerification
