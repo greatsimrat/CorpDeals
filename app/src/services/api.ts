@@ -429,6 +429,18 @@ class ApiService {
     });
   }
 
+  async submitContactMessage(data: {
+    name: string;
+    email: string;
+    company?: string;
+    message: string;
+  }) {
+    return this.request<{ ok: boolean; message: string; contactMessageId: string }>('/contact', {
+      method: 'POST',
+      body: data,
+    });
+  }
+
   async getCompanyRequests(params?: { status?: string }) {
     const query = this.buildQuery(params as Record<string, unknown> | undefined);
     return this.request<any[]>(`/companies/requests${query}`);

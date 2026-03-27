@@ -3,21 +3,10 @@ import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { Search, Building2, Plane, Heart, UtensilsCrossed, Laptop, Dumbbell, Shield, Ticket, ShoppingBag, ArrowRight, Sparkles } from 'lucide-react';
+import { Search, Building2, ArrowRight, Sparkles } from 'lucide-react';
 import api from '../services/api';
 
 gsap.registerPlugin(ScrollTrigger);
-
-const categories = [
-  { label: 'Travel', icon: Plane, color: 'bg-blue-50 text-blue-600' },
-  { label: 'Wellness', icon: Heart, color: 'bg-rose-50 text-rose-600' },
-  { label: 'Food', icon: UtensilsCrossed, color: 'bg-orange-50 text-orange-600' },
-  { label: 'Tech', icon: Laptop, color: 'bg-purple-50 text-purple-600' },
-  { label: 'Fitness', icon: Dumbbell, color: 'bg-green-50 text-green-600' },
-  { label: 'Insurance', icon: Shield, color: 'bg-teal-50 text-teal-600' },
-  { label: 'Entertainment', icon: Ticket, color: 'bg-pink-50 text-pink-600' },
-  { label: 'Shopping', icon: ShoppingBag, color: 'bg-amber-50 text-amber-600' },
-];
 const initialCompanyRequestForm = {
   companyName: '',
   requesterName: '',
@@ -30,7 +19,6 @@ const SearchSection = () => {
   const navigate = useNavigate();
   const sectionRef = useRef<HTMLDivElement>(null);
   const searchCardRef = useRef<HTMLDivElement>(null);
-  const categoriesRef = useRef<HTMLDivElement>(null);
   const companiesRef = useRef<HTMLDivElement>(null);
   
   const [searchQuery, setSearchQuery] = useState('');
@@ -119,28 +107,6 @@ const SearchSection = () => {
           },
         }
       );
-
-      const chips = categoriesRef.current?.querySelectorAll('.category-chip');
-      if (chips) {
-        gsap.fromTo(
-          chips,
-          { opacity: 0, y: 30, scale: 0.9 },
-          {
-            opacity: 1,
-            y: 0,
-            scale: 1,
-            duration: 0.5,
-            stagger: 0.05,
-            ease: 'back.out(1.5)',
-            scrollTrigger: {
-              trigger: categoriesRef.current,
-              start: 'top 85%',
-              end: 'top 60%',
-              scrub: true,
-            },
-          }
-        );
-      }
 
       const companyItems = companiesRef.current?.querySelectorAll('.company-item');
       if (companyItems) {
@@ -267,13 +233,13 @@ const SearchSection = () => {
     <section
       ref={sectionRef}
       id="search"
-      className="relative w-full bg-corp-light py-20 lg:py-28 z-20"
+      className="relative w-full bg-corp-light py-14 lg:py-18 z-20"
       aria-label="Find Your Company"
     >
       <div className="w-full px-6 lg:px-12">
         <div className="max-w-6xl mx-auto">
           
-          <div className="text-center mb-12">
+          <div className="text-center mb-10">
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-corp-highlight rounded-full mb-4">
               <Sparkles className="w-4 h-4 text-corp-blue" />
               <span className="font-inter text-sm text-corp-blue font-medium">
@@ -291,9 +257,9 @@ const SearchSection = () => {
 
           <div
             ref={searchCardRef}
-            className="bg-white rounded-3xl shadow-card p-6 lg:p-10 mb-10"
+            className="bg-white rounded-3xl shadow-card p-6 lg:p-8"
           >
-            <div className="relative mb-8">
+            <div className="relative mb-6">
               <div className="flex flex-col sm:flex-row gap-3">
                 <div className="flex-1 relative">
                   <div className="absolute left-4 top-1/2 -translate-y-1/2">
@@ -602,30 +568,6 @@ const SearchSection = () => {
                   </button>
                 ))}
               </div>
-            </div>
-          </div>
-
-          <div ref={categoriesRef}>
-            <p className="font-inter text-sm text-corp-gray text-center mb-6">
-              Or explore employee perks by category:
-            </p>
-            <div className="flex flex-wrap justify-center gap-3">
-              {categories.map((category) => {
-                const Icon = category.icon;
-                return (
-                  <button
-                    key={category.label}
-                    className="category-chip flex items-center gap-2 px-5 py-3 bg-white rounded-xl shadow-sm hover:shadow-card transition-all duration-300 group"
-                  >
-                    <div className={`w-9 h-9 ${category.color} rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform`}>
-                      <Icon className="w-5 h-5" />
-                    </div>
-                    <span className="font-inter text-sm font-medium text-corp-dark">
-                      {category.label}
-                    </span>
-                  </button>
-                );
-              })}
             </div>
           </div>
         </div>

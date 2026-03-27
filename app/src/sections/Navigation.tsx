@@ -30,7 +30,7 @@ const Navigation = () => {
 
     // Track active section for highlighting
     const handleSectionObserver = () => {
-      const sections = ['search', 'how-it-works', 'categories', 'vendors', 'testimonial'];
+      const sections = ['search', 'how-it-works', 'vendors', 'testimonial'];
       const observerOptions = {
         rootMargin: '-50% 0px -50% 0px',
         threshold: 0,
@@ -64,7 +64,6 @@ const Navigation = () => {
   const navLinks = [
     { label: 'Find Perks', href: '#search', id: 'search' },
     { label: 'How It Works', href: '#how-it-works', id: 'how-it-works' },
-    { label: 'Categories', href: '#categories', id: 'categories' },
     { label: 'For Vendors', href: '#vendors', id: 'vendors' },
   ];
 

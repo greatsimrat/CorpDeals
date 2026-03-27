@@ -5,8 +5,6 @@ import Navigation from '../sections/Navigation';
 import HeroSection from '../sections/HeroSection';
 import SearchSection from '../sections/SearchSection';
 import HowItWorksSection from '../sections/HowItWorksSection';
-import FeaturedDealsSection from '../sections/FeaturedDealsSection';
-import CategoriesPreviewSection from '../sections/CategoriesPreviewSection';
 import VendorCTASection from '../sections/VendorCTASection';
 import FooterSection from '../sections/FooterSection';
 import Seo from '../components/Seo';
@@ -89,8 +87,6 @@ const HomePage = () => {
         <HeroSection />
         <SearchSection />
         <HowItWorksSection />
-        <FeaturedDealsSection />
-        <CategoriesPreviewSection />
         <VendorCTASection />
         <FooterSection />
       </main>

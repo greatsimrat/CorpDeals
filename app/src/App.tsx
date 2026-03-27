@@ -52,6 +52,8 @@ import SalesDashboardPage from './pages/sales/SalesDashboardPage';
 import SeoContentPage from './pages/SeoContentPage';
 import PolicyTypesPage from './pages/PolicyTypesPage';
 import PricingPage from './pages/PricingPage';
+import LegalPage from './pages/LegalPage';
+import ContactPage from './pages/ContactPage';
 
 function LegacyCompanyRedirect() {
   const { companyId } = useParams<{ companyId: string }>();
@@ -122,6 +124,7 @@ function App() {
                 <Route path="/for-hr-teams" element={<SeoContentPage pageKey="forHrTeams" />} />
                 <Route path="/pricing" element={<PricingPage />} />
                 <Route path="/about" element={<SeoContentPage pageKey="about" />} />
+                <Route path="/contact" element={<ContactPage />} />
                 <Route path="/careers" element={<SeoContentPage pageKey="careers" />} />
                 <Route path="/press" element={<SeoContentPage pageKey="press" />} />
                 <Route path="/blog" element={<SeoContentPage pageKey="blog" />} />
@@ -129,9 +132,9 @@ function App() {
                 <Route path="/api-docs" element={<SeoContentPage pageKey="apiDocs" />} />
                 <Route path="/partner-portal" element={<SeoContentPage pageKey="partnerPortal" />} />
                 <Route path="/case-studies" element={<SeoContentPage pageKey="caseStudies" />} />
-                <Route path="/privacy-policy" element={<SeoContentPage pageKey="privacyPolicy" />} />
-                <Route path="/terms-of-service" element={<SeoContentPage pageKey="termsOfService" />} />
-                <Route path="/cookie-policy" element={<SeoContentPage pageKey="cookiePolicy" />} />
+                <Route path="/privacy-policy" element={<LegalPage pageKey="privacy" />} />
+                <Route path="/terms-of-service" element={<LegalPage pageKey="terms" />} />
+                <Route path="/cookie-policy" element={<LegalPage pageKey="cookies" />} />
                 <Route path="/security" element={<SeoContentPage pageKey="security" />} />
                 <Route path="/policies" element={<PolicyTypesPage />} />
                 <Route path="/privacy" element={<Navigate to="/privacy-policy" replace />} />

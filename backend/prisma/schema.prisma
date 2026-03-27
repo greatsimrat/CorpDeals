@@ -251,6 +251,19 @@ model CompanyRequest {
   @@map("company_requests")
 }
 
+model ContactMessage {
+  id          String   @id @default(uuid())
+  name        String
+  email       String
+  company     String?
+  message     String
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([createdAt])
+  @@map("contact_messages")
+}
+
 model HRContact {
   id          String    @id @default(uuid())
   companyId   String    @map("company_id")
