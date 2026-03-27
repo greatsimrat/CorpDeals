@@ -1,6 +1,11 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
-import { authenticateToken, authenticateTokenOptional, requireVendor, requireAdmin } from '../middleware/auth';
+import {
+  authenticateToken,
+  authenticateTokenOptional,
+  requireAdmin,
+  requireVendorOnly,
+} from '../middleware/auth';
 import { isUserVerifiedForCompany } from '../lib/verifications';
 import { sendVendorLeadNotificationEmail } from '../lib/mailer';
 import { recordLeadDeliveryBillingEvent } from '../lib/lead-billing';
@@ -288,7 +293,7 @@ router.post('/', authenticateTokenOptional, async (req: Request, res: Response):
 });
 
 // Get leads for vendor (vendor access)
-router.get('/vendor', authenticateToken, requireVendor, async (req: Request, res: Response): Promise<void> => {
+router.get('/vendor', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const status = firstString(req.query.status);
     const offerId = firstString(req.query.offerId);
@@ -298,21 +303,19 @@ router.get('/vendor', authenticateToken, requireVendor, async (req: Request, res
       where: { userId: req.user!.id },
     });
 
-    if (!vendor && req.user?.role !== 'ADMIN') {
+    if (!vendor) {
       res.status(403).json({ error: 'Vendor profile not found' });
       return;
     }
 
     const where: any = {};
-    
-    if (req.user?.role !== 'ADMIN') {
-      // Get all offers for this vendor
-      const vendorOffers = await prisma.offer.findMany({
-        where: { vendorId: vendor!.id },
-        select: { id: true },
-      });
-      where.offerId = { in: vendorOffers.map(o => o.id) };
-    }
+
+    // Get all offers for this vendor
+    const vendorOffers = await prisma.offer.findMany({
+      where: { vendorId: vendor.id },
+      select: { id: true },
+    });
+    where.offerId = { in: vendorOffers.map((offer) => offer.id) };
 
     if (status) where.status = status;
     if (offerId) where.offerId = offerId;
@@ -374,7 +377,7 @@ router.get('/', authenticateToken, requireAdmin, async (req: Request, res: Respo
 });
 
 // Update lead status (vendor or admin)
-router.patch('/:id', authenticateToken, requireVendor, async (req: Request, res: Response): Promise<void> => {
+router.patch('/:id', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const id = firstString(req.params.id);
     if (!id) {
@@ -399,7 +402,7 @@ router.patch('/:id', authenticateToken, requireVendor, async (req: Request, res:
     }
 
     // Check permission
-    if (req.user?.role !== 'ADMIN' && lead.offer.vendor.userId !== req.user?.id) {
+    if (lead.offer.vendor.userId !== req.user?.id) {
       res.status(403).json({ error: 'Access denied' });
       return;
     }

@@ -4,7 +4,7 @@ import { Menu, X } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
 const Navigation = () => {
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, logout, role } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [isScrolled, setIsScrolled] = useState(false);
@@ -63,6 +63,17 @@ const Navigation = () => {
     { label: 'Categories', href: '#categories', id: 'categories' },
     { label: 'For Vendors', href: '#vendors', id: 'vendors' },
   ];
+
+  const accountLink =
+    role === 'ADMIN'
+      ? { to: '/admin', label: 'Admin' }
+      : role === 'FINANCE'
+      ? { to: '/finance', label: 'Finance' }
+      : role === 'VENDOR'
+      ? { to: '/vendor/dashboard', label: 'Vendor Dashboard' }
+      : role === 'USER'
+      ? { to: '/my-applications', label: 'My Applications' }
+      : null;
 
   const scrollToSection = (href: string) => {
     if (pathname !== '/') {
@@ -149,18 +160,33 @@ const Navigation = () => {
                 {verificationLabel}
               </Link>
             )}
-            <Link
-              to="/vendor/login"
-              className="font-inter text-sm text-corp-dark hover:text-corp-blue transition-colors px-4 py-2"
-            >
-              Vendor Login
-            </Link>
+            {accountLink ? (
+              <Link
+                to={accountLink.to}
+                className="font-inter text-sm text-corp-dark hover:text-corp-blue transition-colors px-4 py-2"
+              >
+                {accountLink.label}
+              </Link>
+            ) : (
+              <Link
+                to="/vendor/login"
+                className="font-inter text-sm text-corp-dark hover:text-corp-blue transition-colors px-4 py-2"
+              >
+                Vendor Login
+              </Link>
+            )}
             {!isAuthenticated ? (
               <Link to="/login" className="btn-primary text-sm">
                 Login
               </Link>
             ) : (
-              <button onClick={logout} className="btn-primary text-sm">
+              <button
+                onClick={() => {
+                  logout();
+                  navigate('/');
+                }}
+                className="btn-primary text-sm"
+              >
                 Logout
               </button>
             )}
@@ -230,19 +256,36 @@ const Navigation = () => {
                 {verificationLabel}
               </Link>
             )}
-            <Link
-              to="/vendor/login"
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="block w-full text-left px-4 py-3 font-inter text-sm text-corp-dark"
-            >
-              Vendor Login
-            </Link>
+            {accountLink ? (
+              <Link
+                to={accountLink.to}
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="block w-full text-left px-4 py-3 font-inter text-sm text-corp-dark"
+              >
+                {accountLink.label}
+              </Link>
+            ) : (
+              <Link
+                to="/vendor/login"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="block w-full text-left px-4 py-3 font-inter text-sm text-corp-dark"
+              >
+                Vendor Login
+              </Link>
+            )}
             {!isAuthenticated ? (
               <Link to="/login" className="btn-primary text-sm w-full block text-center">
                 Login
               </Link>
             ) : (
-              <button onClick={logout} className="btn-primary text-sm w-full">
+              <button
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  logout();
+                  navigate('/');
+                }}
+                className="btn-primary text-sm w-full"
+              >
                 Logout
               </button>
             )}

@@ -92,7 +92,7 @@ function App() {
                 <Route
                   path="/confirmation"
                   element={
-                    <ProtectedRoute>
+                    <ProtectedRoute allowedRoles={['USER']}>
                       <ConfirmationPage />
                     </ProtectedRoute>
                   }
@@ -100,7 +100,7 @@ function App() {
                 <Route
                   path="/my-applications"
                   element={
-                    <ProtectedRoute>
+                    <ProtectedRoute allowedRoles={['USER']}>
                       <MyApplicationsPage />
                     </ProtectedRoute>
                   }
@@ -141,7 +141,7 @@ function App() {
                 <Route
                   path="/vendor"
                   element={
-                    <ProtectedRoute requireVendor>
+                    <ProtectedRoute allowedRoles={['VENDOR']}>
                       <VendorLayout />
                     </ProtectedRoute>
                   }
@@ -158,7 +158,7 @@ function App() {
 
                 {/* Admin Routes */}
                 <Route path="/admin" element={
-                  <ProtectedRoute requireAdmin>
+                  <ProtectedRoute allowedRoles={['ADMIN']}>
                     <AdminLayout />
                   </ProtectedRoute>
                 }>
@@ -178,7 +178,7 @@ function App() {
 
                 {/* Finance Routes */}
                 <Route path="/finance" element={
-                  <ProtectedRoute requireFinance>
+                  <ProtectedRoute allowedRoles={['ADMIN', 'FINANCE']}>
                     <FinanceLayout />
                   </ProtectedRoute>
                 }>

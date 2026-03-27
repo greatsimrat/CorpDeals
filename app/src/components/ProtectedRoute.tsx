@@ -1,22 +1,19 @@
+import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { Loader2 } from 'lucide-react';
+import type { AppRole } from '../lib/auth';
 
 interface ProtectedRouteProps {
-  children: React.ReactNode;
-  requireAdmin?: boolean;
-  requireVendor?: boolean;
-  requireFinance?: boolean;
+  children: ReactNode;
+  allowedRoles?: AppRole[];
 }
 
-export default function ProtectedRoute({ 
-  children, 
-  requireAdmin = false,
-  requireVendor = false,
-  requireFinance = false
-}: ProtectedRouteProps) {
-  const { isAuthenticated, isAdmin, isVendor, isAdminOrFinance, isLoading } = useAuth();
+export default function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
+  const { isAuthenticated, isLoading, role, defaultRoute } = useAuth();
   const location = useLocation();
+  const loginPath =
+    allowedRoles?.length === 1 && allowedRoles[0] === 'VENDOR' ? '/vendor/login' : '/login';
 
   if (isLoading) {
     return (
@@ -29,23 +26,15 @@ export default function ProtectedRoute({
   if (!isAuthenticated) {
     return (
       <Navigate
-        to={requireVendor ? '/vendor/login' : '/login'}
+        to={loginPath}
         state={{ from: location }}
         replace
       />
     );
   }
 
-  if (requireAdmin && !isAdmin) {
-    return <Navigate to="/" replace />;
-  }
-
-  if (requireVendor && !isVendor) {
-    return <Navigate to="/" replace />;
-  }
-
-  if (requireFinance && !isAdminOrFinance) {
-    return <Navigate to="/" replace />;
+  if (allowedRoles?.length && (!role || !allowedRoles.includes(role))) {
+    return <Navigate to={defaultRoute} replace />;
   }
 
   return <>{children}</>;

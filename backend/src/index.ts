@@ -1,9 +1,11 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
 
-// Load environment variables
-dotenv.config();
+// Load base env first, then let .env.local override for local development.
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local'), override: true });
 
 // Import routes
 import authRoutes from './routes/auth';
@@ -116,8 +118,8 @@ app.get('/api/me', authenticateTokenOptional, async (req, res) => {
       user,
       verified_companies: verifiedCompanies,
       verifiedCompanies,
-      active_company_id: user.employeeCompany?.id || null,
-      activeCompanyId: user.employeeCompany?.id || null,
+      active_company_id: user.activeCompany?.id || user.employeeCompany?.id || null,
+      activeCompanyId: user.activeCompany?.id || user.employeeCompany?.id || null,
     });
   } catch (error) {
     console.error('Get /api/me error:', error);

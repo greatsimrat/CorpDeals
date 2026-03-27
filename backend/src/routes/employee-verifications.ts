@@ -19,6 +19,7 @@ import {
   upsertUserCompanyVerification,
   VERIFIED_STATUS,
 } from '../lib/verifications';
+import { DEFAULT_USER_ROLE } from '../lib/roles';
 
 const router = Router();
 
@@ -272,9 +273,9 @@ const completeVerification = async (
     where: { email: verification.email },
   });
 
-  if (existingUser && existingUser.role !== 'EMPLOYEE') {
+  if (existingUser && existingUser.role !== DEFAULT_USER_ROLE) {
     res.status(409).json({
-      error: 'This email is already linked to a vendor or admin account',
+      error: 'This email is already linked to a non-user account',
     });
     return;
   }
@@ -293,6 +294,8 @@ const completeVerification = async (
     ? await prisma.user.update({
         where: { id: existingUser.id },
         data: {
+          role: DEFAULT_USER_ROLE,
+          activeCompanyId: verification.companyId,
           employeeCompanyId: verification.companyId,
           employmentVerifiedAt: new Date(),
           ...(displayName && !existingUser.name ? { name: displayName } : {}),
@@ -303,7 +306,8 @@ const completeVerification = async (
           email: verification.email,
           passwordHash: passwordHash!,
           name: displayName,
-          role: 'EMPLOYEE',
+          role: DEFAULT_USER_ROLE,
+          activeCompanyId: verification.companyId,
           employeeCompanyId: verification.companyId,
           employmentVerifiedAt: new Date(),
         },

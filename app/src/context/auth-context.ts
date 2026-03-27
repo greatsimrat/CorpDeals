@@ -1,35 +1,26 @@
 import { createContext } from 'react';
+import type { AppRole, CompanySummary } from '../lib/auth';
 
 export interface User {
   id: string;
   email: string;
   name: string | null;
-  role: 'ADMIN' | 'FINANCE' | 'VENDOR' | 'EMPLOYEE';
+  role: AppRole;
   employmentVerifiedAt?: string | null;
-  employeeCompany?: {
-    id: string;
-    slug: string;
-    name: string;
-    domain?: string | null;
-  } | null;
+  activeCompany?: CompanySummary | null;
+  employeeCompany?: CompanySummary | null;
   vendor?: {
     id: string;
     companyName: string;
     status: string;
-  };
+  } | null;
   activeVerification?: {
     id: string;
     status: string;
     verifiedAt: string;
     expiresAt: string;
     verificationMethod: string;
-    company: {
-      id: string;
-      slug: string;
-      name: string;
-      domain?: string | null;
-      logo?: string | null;
-    };
+    company: CompanySummary;
   } | null;
   latestVerification?: {
     id: string;
@@ -37,13 +28,7 @@ export interface User {
     verifiedAt: string;
     expiresAt: string;
     verificationMethod: string;
-    company: {
-      id: string;
-      slug: string;
-      name: string;
-      domain?: string | null;
-      logo?: string | null;
-    };
+    company: CompanySummary;
   } | null;
 }
 
@@ -55,8 +40,11 @@ export interface AuthContextType {
   isFinance: boolean;
   isAdminOrFinance: boolean;
   isVendor: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (data: { email: string; password: string; name?: string }) => Promise<void>;
+  isUser: boolean;
+  role: AppRole | null;
+  defaultRoute: string;
+  login: (email: string, password: string) => Promise<User>;
+  register: (data: { email: string; password: string; name?: string }) => Promise<User>;
   logout: () => void;
   refreshUser: () => Promise<void>;
 }

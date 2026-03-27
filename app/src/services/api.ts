@@ -1,4 +1,7 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const rawApiBaseUrl = import.meta.env.VITE_API_URL?.trim() || 'http://localhost:3001';
+const API_BASE_URL = rawApiBaseUrl.replace(/\/$/, '').endsWith('/api')
+  ? rawApiBaseUrl.replace(/\/$/, '')
+  : `${rawApiBaseUrl.replace(/\/$/, '')}/api`;
 
 interface RequestOptions {
   method?: string;
@@ -104,7 +107,7 @@ class ApiService {
     return result;
   }
 
-  async register(data: { email: string; password: string; name?: string; role?: string }) {
+  async register(data: { email: string; password: string; name?: string }) {
     const result = await this.request<{ user: any; token: string }>('/auth/register', {
       method: 'POST',
       body: data,

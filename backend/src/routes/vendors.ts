@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import prisma from '../lib/prisma';
-import { authenticateToken, requireAdmin, requireVendor } from '../middleware/auth';
+import { authenticateToken, requireAdmin, requireVendorOnly } from '../middleware/auth';
 
 const router = Router();
 
@@ -218,7 +218,7 @@ router.patch('/:id', authenticateToken, async (req: Request, res: Response): Pro
 });
 
 // Get current vendor profile
-router.get('/me/profile', authenticateToken, requireVendor, async (req: Request, res: Response): Promise<void> => {
+router.get('/me/profile', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await prisma.vendor.findUnique({
       where: { userId: req.user!.id },

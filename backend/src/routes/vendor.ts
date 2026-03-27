@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../lib/prisma';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, requireVendorOnly } from '../middleware/auth';
 import { buildAuthUserPayload } from '../lib/auth-user';
 import {
   sendOfferSubmittedForReviewEmail,
@@ -198,13 +198,13 @@ const requireVendorUser = async (req: Request, res: Response) => {
     res.status(401).json({ error: 'Unauthorized' });
     return null;
   }
-  if (req.user.role !== 'VENDOR') {
-    res.status(403).json({ error: 'Vendor access required' });
+  if (!req.user.vendorId) {
+    res.status(403).json({ error: 'Vendor profile not found' });
     return null;
   }
 
   const vendor = await prisma.vendor.findUnique({
-    where: { userId: req.user.id },
+    where: { id: req.user.vendorId },
   });
 
   if (!vendor) {
@@ -403,7 +403,7 @@ router.post('/set-password', async (req: Request, res: Response): Promise<void> 
   }
 });
 
-router.get('/dashboard', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/dashboard', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -424,7 +424,7 @@ router.get('/dashboard', authenticateToken, async (req: Request, res: Response):
   }
 });
 
-router.get('/dashboard/summary', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/dashboard/summary', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -440,6 +440,7 @@ router.get('/dashboard/summary', authenticateToken, async (req: Request, res: Re
 router.get(
   '/dashboard/company-breakdown',
   authenticateToken,
+  requireVendorOnly,
   async (req: Request, res: Response): Promise<void> => {
     try {
       const vendor = await requireVendorUser(req, res);
@@ -510,6 +511,7 @@ router.get(
 router.get(
   '/dashboard/offer-performance',
   authenticateToken,
+  requireVendorOnly,
   async (req: Request, res: Response): Promise<void> => {
     try {
       const vendor = await requireVendorUser(req, res);
@@ -573,7 +575,7 @@ router.get(
   }
 );
 
-router.get('/dashboard/lead-trend', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/dashboard/lead-trend', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -624,7 +626,7 @@ router.get('/dashboard/lead-trend', authenticateToken, async (req: Request, res:
   }
 });
 
-router.get('/billing', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/billing', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -660,7 +662,7 @@ router.get('/billing', authenticateToken, async (req: Request, res: Response): P
   }
 });
 
-router.get('/billing/invoices/:id/csv', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/billing/invoices/:id/csv', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -716,7 +718,7 @@ router.get('/billing/invoices/:id/csv', authenticateToken, async (req: Request, 
   }
 });
 
-router.get('/offers', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/offers', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -739,7 +741,7 @@ router.get('/offers', authenticateToken, async (req: Request, res: Response): Pr
   }
 });
 
-router.get('/policies/defaults', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/policies/defaults', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -761,7 +763,7 @@ router.get('/policies/defaults', authenticateToken, async (req: Request, res: Re
   }
 });
 
-router.post('/offers', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.post('/offers', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -1016,10 +1018,10 @@ const updateDraftOffer = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-router.put('/offers/:id', authenticateToken, updateDraftOffer);
-router.patch('/offers/:id', authenticateToken, updateDraftOffer);
+router.put('/offers/:id', authenticateToken, requireVendorOnly, updateDraftOffer);
+router.patch('/offers/:id', authenticateToken, requireVendorOnly, updateDraftOffer);
 
-router.post('/offers/:id/submit', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.post('/offers/:id/submit', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -1169,7 +1171,7 @@ router.post('/offers/:id/submit', authenticateToken, async (req: Request, res: R
   }
 });
 
-router.get('/leads', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/leads', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -1256,7 +1258,7 @@ router.get('/leads', authenticateToken, async (req: Request, res: Response): Pro
   }
 });
 
-router.get('/leads/:id', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/leads/:id', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -1290,7 +1292,7 @@ router.get('/leads/:id', authenticateToken, async (req: Request, res: Response):
   }
 });
 
-router.patch('/leads/:id', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.patch('/leads/:id', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;

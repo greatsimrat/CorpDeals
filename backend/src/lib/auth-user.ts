@@ -1,4 +1,5 @@
 import prisma from './prisma';
+import { normalizeRole } from './roles';
 import {
   getLatestVerificationBadge,
   VERIFIED_STATUS,
@@ -9,6 +10,9 @@ export const buildAuthUserPayload = async (userId: string) => {
     where: { id: userId },
     include: {
       vendor: true,
+      activeCompany: {
+        select: { id: true, slug: true, name: true, domain: true },
+      },
       employeeCompany: {
         select: { id: true, slug: true, name: true, domain: true },
       },
@@ -27,9 +31,10 @@ export const buildAuthUserPayload = async (userId: string) => {
     id: user.id,
     email: user.email,
     name: user.name,
-    role: user.role,
+    role: normalizeRole(user.role),
     vendor: user.vendor,
     employmentVerifiedAt: user.employmentVerifiedAt,
+    activeCompany: user.activeCompany,
     employeeCompany: user.employeeCompany,
     activeVerification: isActiveVerification
       ? {

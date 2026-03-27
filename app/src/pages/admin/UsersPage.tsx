@@ -14,7 +14,7 @@ interface User {
   id: string;
   email: string;
   name: string | null;
-  role: 'ADMIN' | 'FINANCE' | 'VENDOR' | 'EMPLOYEE';
+  role: 'ADMIN' | 'FINANCE' | 'VENDOR' | 'USER';
   createdAt: string;
   vendor?: {
     id: string;
@@ -90,7 +90,7 @@ export default function UsersPage() {
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
             <UserCircle className="w-3 h-3" />
-            Employee
+            User
           </span>
         );
     }
@@ -142,7 +142,7 @@ export default function UsersPage() {
               <option value="ADMIN">Admin</option>
               <option value="FINANCE">Finance</option>
               <option value="VENDOR">Vendor</option>
-              <option value="EMPLOYEE">Employee</option>
+              <option value="USER">User</option>
             </select>
             <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
           </div>
@@ -210,7 +210,7 @@ export default function UsersPage() {
                           onChange={(e) => handleRoleChange(user.id, e.target.value)}
                           className="text-sm px-3 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                         >
-                          <option value="EMPLOYEE">Employee</option>
+                          <option value="USER">User</option>
                           <option value="FINANCE">Finance</option>
                           <option value="VENDOR">Vendor</option>
                           <option value="ADMIN">Admin</option>

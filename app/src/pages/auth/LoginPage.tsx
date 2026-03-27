@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { FormEvent } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Mail, Lock, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import Seo from '../../components/Seo';
+import { canAccessPathForRole, getDefaultRouteForRole } from '../../lib/auth';
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, login, isLoading: authLoading } = useAuth();
+  const { user, login, isLoading: authLoading, defaultRoute } = useAuth();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,26 +20,28 @@ export default function LoginPage() {
   const from = fromState?.pathname
     ? `${fromState.pathname}${fromState.search || ''}`
     : '/';
-  const lastActiveCompanyPath = useMemo(() => {
-    const slug = user?.employeeCompany?.slug || user?.activeVerification?.company?.slug;
-    return slug ? `/c/${slug}` : '/';
-  }, [user]);
-
   useEffect(() => {
     if (authLoading) return;
     if (!user) return;
-    if (fromState?.pathname) return;
-    navigate(lastActiveCompanyPath, { replace: true });
-  }, [authLoading, fromState?.pathname, lastActiveCompanyPath, navigate, user]);
+    if (fromState?.pathname && canAccessPathForRole(user.role, fromState.pathname)) {
+      navigate(from, { replace: true });
+      return;
+    }
+    navigate(defaultRoute, { replace: true });
+  }, [authLoading, defaultRoute, from, fromState?.pathname, navigate, user]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
     try {
-      await login(email, password);
-      navigate(from, { replace: true });
+      const nextUser = await login(email, password);
+      const target =
+        fromState?.pathname && canAccessPathForRole(nextUser.role, fromState.pathname)
+          ? from
+          : getDefaultRouteForRole(nextUser);
+      navigate(target, { replace: true });
     } catch (err: any) {
       setError(err.message || 'Invalid credentials');
     } finally {
@@ -149,6 +153,7 @@ export default function LoginPage() {
         <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
           <p className="text-sm font-medium text-amber-800 mb-2">Demo Credentials:</p>
           <p className="text-sm text-amber-700">Admin: admin@corpdeals.io / admin123</p>
+          <p className="text-sm text-amber-700">Finance: finance@corpdeals.io / finance123</p>
           <p className="text-sm text-amber-700">Vendor: vendor@coastcapital.com / vendor123</p>
         </div>
         </div>

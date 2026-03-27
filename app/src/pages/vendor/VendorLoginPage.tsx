@@ -1,18 +1,25 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import api from '../../services/api';
 import Seo from '../../components/Seo';
+import { getDefaultRouteForRole } from '../../lib/auth';
 
 export default function VendorLoginPage() {
   const navigate = useNavigate();
-  const { refreshUser } = useAuth();
+  const { user, refreshUser, isLoading: authLoading } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const onSubmit = async (e: React.FormEvent) => {
+  useEffect(() => {
+    if (authLoading || !user) return;
+    navigate(getDefaultRouteForRole(user), { replace: true });
+  }, [authLoading, navigate, user]);
+
+  const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     setIsSubmitting(true);

@@ -11,7 +11,7 @@ enum UserRole {
   ADMIN
   FINANCE
   VENDOR
-  EMPLOYEE
+  USER
 }
 
 enum VendorStatus {
@@ -127,7 +127,7 @@ model User {
   email         String    @unique
   passwordHash  String?   @map("password_hash")
   name          String?
-  role          UserRole  @default(EMPLOYEE)
+  role          UserRole  @default(USER)
   vendorId      String?   @map("vendor_id")
   activeCompanyId String? @map("active_company_id")
   employeeCompanyId    String?   @map("employee_company_id")

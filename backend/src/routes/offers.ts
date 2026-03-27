@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
-import { authenticateToken, requireVendor } from '../middleware/auth';
+import { authenticateToken, requireUser, requireVendor } from '../middleware/auth';
 import { getUserVerification, isUserVerifiedForCompany, VERIFIED_STATUS } from '../lib/verifications';
 import { sendLeadSubmissionConfirmationEmail, sendVendorLeadNotificationEmail } from '../lib/mailer';
 import { recordLeadDeliveryBillingEvent } from '../lib/lead-billing';
@@ -337,7 +337,7 @@ router.get('/:id/access', authenticateToken, async (req: Request, res: Response)
   }
 });
 
-router.post('/:id/apply', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.post('/:id/apply', authenticateToken, requireUser, async (req: Request, res: Response): Promise<void> => {
   try {
     await createLeadFromOfferApply(req, res);
   } catch (error: any) {
@@ -362,7 +362,7 @@ router.post('/:id/apply', authenticateToken, async (req: Request, res: Response)
 });
 
 // Legacy alias for older clients.
-router.post('/:id/action', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.post('/:id/action', authenticateToken, requireUser, async (req: Request, res: Response): Promise<void> => {
   try {
     await createLeadFromOfferApply(req, res);
   } catch (error: any) {
@@ -412,7 +412,7 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response): Promi
       }
     }
 
-    if (req.user?.role === 'EMPLOYEE') {
+    if (req.user?.role === 'USER') {
       const verified = await isUserVerifiedForCompany(req.user.id, offer.companyId);
       if (!verified) {
         res.status(403).json({
