@@ -21,7 +21,7 @@ const homeStructuredData = [
     url: 'https://corpdeals.io',
     description:
       'CorpDeals helps verified employees unlock corporate discounts and employee-only perks from trusted brands.',
-    logo: 'https://corpdeals.io/hero_main.jpg',
+    logo: 'https://corpdeals.io/CorpDeals-hero1.webp',
   },
   {
     '@context': 'https://schema.org',
@@ -81,7 +81,7 @@ const HomePage = () => {
         description="Search your company, verify your work email, and unlock employee-only corporate discounts across travel, finance, wellness, and more."
         keywords="employee perks, corporate discounts, employee-only deals, work email verification, company benefits platform, corporate benefits"
         path="/"
-        image="/hero_main.jpg"
+        image="/CorpDeals-hero1.webp"
         structuredData={homeStructuredData}
       />
       <Navigation />

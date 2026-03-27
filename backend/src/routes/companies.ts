@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { authenticateToken, requireAdmin } from '../middleware/auth';
+import { sendCompanyRequestInternalEmail } from '../lib/mailer';
 import {
   getUserVerification,
   isUserVerifiedForCompany,
@@ -10,6 +11,9 @@ import {
 const router = Router();
 
 const asString = (value: unknown) => (typeof value === 'string' ? value : '');
+const normalizeBodyString = (value: unknown, maxLength = 255) =>
+  asString(value).trim().slice(0, maxLength);
+const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const normalizeSearchQuery = (query: Request['query']) =>
   (asString(query.q) || asString(query.query) || asString(query.search)).trim();
 
@@ -147,6 +151,105 @@ router.get('/resolve/search', async (req: Request, res: Response): Promise<void>
       error,
     });
     res.status(500).json({ error: 'Failed to resolve company search' });
+  }
+});
+
+router.post('/requests', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const companyName = normalizeBodyString(req.body.companyName, 160);
+    const requesterName = normalizeBodyString(req.body.requesterName, 120);
+    const workEmail = normalizeBodyString(req.body.workEmail, 160).toLowerCase();
+    const city = normalizeBodyString(req.body.city, 120);
+    const note = normalizeBodyString(req.body.note, 1500);
+
+    if (!companyName || !requesterName || !workEmail) {
+      res.status(400).json({
+        error: 'Company name, your name, and work email are required',
+      });
+      return;
+    }
+
+    if (!isValidEmail(workEmail)) {
+      res.status(400).json({ error: 'Please enter a valid work email' });
+      return;
+    }
+
+    const existingCompany = await prisma.company.findFirst({
+      where: {
+        OR: [
+          { name: { equals: companyName, mode: 'insensitive' } },
+          { slug: { equals: companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-'), mode: 'insensitive' } },
+        ],
+      },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        domain: true,
+        logo: true,
+        verified: true,
+        _count: { select: { offers: true, hrContacts: true } },
+      },
+    });
+
+    if (existingCompany) {
+      res.status(409).json({
+        error: 'That company already exists in CorpDeals',
+        company: toPublicCompany(existingCompany),
+      });
+      return;
+    }
+
+    const existingRequest = await prisma.companyRequest.findFirst({
+      where: {
+        companyName: { equals: companyName, mode: 'insensitive' },
+        workEmail: { equals: workEmail, mode: 'insensitive' },
+        status: 'PENDING',
+      },
+      select: { id: true },
+    });
+
+    if (existingRequest) {
+      res.status(409).json({
+        error: 'You have already requested this company. We will review it shortly.',
+      });
+      return;
+    }
+
+    const request = await prisma.companyRequest.create({
+      data: {
+        companyName,
+        requesterName,
+        workEmail,
+        city: city || null,
+        note: note || null,
+        status: 'PENDING',
+      },
+    });
+
+    const internalEmail = await sendCompanyRequestInternalEmail({
+      companyName,
+      requesterName,
+      workEmail,
+      city: city || null,
+      note: note || null,
+    });
+
+    if (!internalEmail.sent) {
+      console.error('Company request internal email failed:', {
+        requestId: request.id,
+        error: internalEmail.error,
+      });
+    }
+
+    res.status(201).json({
+      ok: true,
+      requestId: request.id,
+      message: `Thanks. We received your request to add ${companyName}.`,
+    });
+  } catch (error) {
+    console.error('Create company request error:', error);
+    res.status(500).json({ error: 'Failed to submit company request' });
   }
 });
 

@@ -1,100 +1,62 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { gsap } from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { ArrowRight, Check, Building2, Users, TrendingUp } from 'lucide-react';
+import { ArrowRight, Building2, CheckCircle2, TrendingUp, Users } from 'lucide-react';
 
-gsap.registerPlugin(ScrollTrigger);
+const trustedCompanies = [
+  { name: 'Amazon', src: '/company-logos/amazon.svg', imgClassName: 'h-10 md:h-11' },
+  { name: 'Microsoft', src: '/company-logos/microsoft.svg', imgClassName: 'h-10 md:h-11' },
+  { name: 'Google', src: '/company-logos/google.svg', imgClassName: 'h-10 md:h-11' },
+  { name: 'BC Hydro', src: '/company-logos/bchydro.svg', imgClassName: 'h-12 md:h-[3.35rem]' },
+  {
+    name: 'City of Surrey',
+    src: '/company-logos/cityofsurrey.svg',
+    logoSurfaceClass: 'rounded-xl bg-[#0054A6] px-3 py-2',
+    imgClassName: 'h-10 md:h-11',
+  },
+  { name: 'Fraser Health', src: '/company-logos/fraserhealth.svg', imgClassName: 'h-12 md:h-[3.1rem]' },
+  { name: 'Salesforce', src: '/company-logos/salesforce.svg', imgClassName: 'h-12 md:h-[3.15rem]' },
+  { name: 'Adobe', src: '/company-logos/adobe.svg', imgClassName: 'h-10 md:h-11' },
+  { name: 'Shopify', src: '/company-logos/shopify.svg', imgClassName: 'h-12 md:h-[3.15rem]' },
+  { name: 'Dell', src: '/company-logos/dell.svg', imgClassName: 'h-12 md:h-[3.2rem]' },
+  { name: 'Samsung', src: '/company-logos/samsung.svg', imgClassName: 'h-11 md:h-12' },
+  { name: 'PayPal', src: '/company-logos/paypal.svg', imgClassName: 'h-11 md:h-12' },
+];
 
-const trustedCompanies = ['Google', 'Microsoft', 'Amazon', 'Meta', 'Apple'];
+const proofPoints = [
+  'Verify your work email once',
+  'Unlock company-specific deals',
+  'Browse trusted offers without waiting for HR',
+];
 
 const HeroSection = () => {
   const sectionRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLDivElement>(null);
-  const statsRef = useRef<HTMLDivElement>(null);
-  const badgesRef = useRef<HTMLDivElement>(null);
+  const trustRef = useRef<HTMLDivElement>(null);
 
-  // Auto-play entrance animation
   useEffect(() => {
     const ctx = gsap.context(() => {
-      const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
+      const timeline = gsap.timeline({ defaults: { ease: 'power3.out' } });
 
-      // Content entrance
-      tl.fromTo(
-        contentRef.current?.querySelectorAll('.animate-in') || [],
-        { opacity: 0, y: 30 },
-        { opacity: 1, y: 0, duration: 0.8, stagger: 0.1 },
-        0.2
+      timeline.fromTo(
+        contentRef.current?.querySelectorAll('.hero-copy') || [],
+        { opacity: 0, y: 28 },
+        { opacity: 1, y: 0, duration: 0.72, stagger: 0.1 },
+        0.1
       );
 
-      // Hero image entrance
-      tl.fromTo(
+      timeline.fromTo(
         imageRef.current,
-        { opacity: 0, scale: 0.95, y: 40 },
-        { opacity: 1, scale: 1, y: 0, duration: 1 },
-        0.3
+        { opacity: 0, x: 40, scale: 0.97 },
+        { opacity: 1, x: 0, scale: 1, duration: 0.9 },
+        0.22
       );
 
-      // Stats entrance
-      tl.fromTo(
-        statsRef.current?.querySelectorAll('.stat-item') || [],
-        { opacity: 0, y: 20 },
-        { opacity: 1, y: 0, duration: 0.6, stagger: 0.08 },
-        0.6
-      );
-
-      // Badges entrance
-      tl.fromTo(
-        badgesRef.current,
-        { opacity: 0 },
-        { opacity: 1, duration: 0.5 },
-        0.8
-      );
-    }, sectionRef);
-
-    return () => ctx.revert();
-  }, []);
-
-  // Scroll-driven exit animation
-  useEffect(() => {
-    const ctx = gsap.context(() => {
-      const scrollTl = gsap.timeline({
-        scrollTrigger: {
-          trigger: sectionRef.current,
-          start: 'top top',
-          end: '+=100%',
-          pin: true,
-          scrub: 0.5,
-          onLeaveBack: () => {
-            gsap.set([contentRef.current, imageRef.current, statsRef.current], {
-              opacity: 1,
-              y: 0,
-              scale: 1,
-            });
-          },
-        },
-      });
-
-      // EXIT (50%-100%)
-      scrollTl.fromTo(
-        contentRef.current,
-        { y: 0, opacity: 1 },
-        { y: '-10vh', opacity: 0, ease: 'power2.in' },
-        0.5
-      );
-
-      scrollTl.fromTo(
-        imageRef.current,
-        { y: 0, opacity: 1, scale: 1 },
-        { y: '-5vh', opacity: 0.3, scale: 0.98, ease: 'power2.in' },
-        0.5
-      );
-
-      scrollTl.fromTo(
-        statsRef.current,
-        { y: 0, opacity: 1 },
-        { y: '5vh', opacity: 0, ease: 'power2.in' },
+      timeline.fromTo(
+        trustRef.current?.querySelectorAll('.hero-trust-item') || [],
+        { opacity: 0, y: 18 },
+        { opacity: 1, y: 0, duration: 0.5, stagger: 0.06 },
         0.5
       );
     }, sectionRef);
@@ -105,153 +67,134 @@ const HeroSection = () => {
   return (
     <section
       ref={sectionRef}
-      className="relative w-full min-h-screen bg-corp-light overflow-hidden z-10"
+      className="relative overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.12),_transparent_34%),linear-gradient(180deg,#ffffff_0%,#f8fbff_54%,#eef4ff_100%)]"
       aria-label="Hero Section"
     >
-      {/* Background gradient */}
-      <div className="absolute inset-0 bg-gradient-to-b from-white via-corp-light to-corp-light" />
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute left-[-8rem] top-[-6rem] h-72 w-72 rounded-full bg-blue-200/35 blur-3xl" />
+        <div className="absolute bottom-[-10rem] right-[-4rem] h-80 w-80 rounded-full bg-amber-100/55 blur-3xl" />
+      </div>
 
-      {/* Main Content Container */}
-      <div className="relative z-10 w-full min-h-screen flex flex-col">
-        
-        {/* Top Content - Text */}
-        <div 
-          ref={contentRef}
-          className="flex-1 flex flex-col items-center justify-center px-6 lg:px-12 pt-24 pb-8"
-        >
-          {/* Eyebrow */}
-          <div className="animate-in flex items-center gap-2 px-4 py-2 bg-corp-highlight rounded-full mb-6">
-            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-            <span className="font-inter text-sm text-corp-blue font-medium">
-              Trusted by employees at 12,000+ companies
-            </span>
+      <div className="relative mx-auto max-w-7xl px-6 pb-14 pt-28 lg:px-12 lg:pb-20 lg:pt-32">
+        <div className="grid items-center gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(460px,1.1fr)] lg:gap-14">
+          <div ref={contentRef} className="max-w-2xl">
+            <div className="hero-copy inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white/90 px-4 py-2 text-sm font-medium text-blue-700 shadow-sm">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              Verified employee discounts by company
+            </div>
+
+            <h1 className="hero-copy mt-6 font-montserrat text-4xl font-bold leading-[1.02] tracking-[-0.03em] text-slate-950 sm:text-5xl lg:text-6xl">
+              Unlock exclusive employee discounts through your company
+            </h1>
+
+            <p className="hero-copy mt-5 max-w-xl text-base leading-7 text-slate-600 sm:text-lg">
+              Search your employer, verify your work email once, and access trusted offers across
+              telecom, banking, travel, wellness, and more.
+            </p>
+
+            <div className="hero-copy mt-8 flex flex-col items-start gap-3 sm:flex-row">
+              <a
+                href="#search"
+                className="inline-flex items-center gap-2 rounded-2xl bg-corp-blue px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:-translate-y-0.5 hover:bg-blue-700"
+              >
+                Find my company deals
+                <ArrowRight className="h-4 w-4" />
+              </a>
+              <Link
+                to="/verify"
+                className="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white px-6 py-3.5 text-sm font-semibold text-slate-800 transition hover:border-slate-400 hover:bg-slate-50"
+              >
+                Verify my work email
+              </Link>
+            </div>
+
+            <div className="hero-copy mt-8 grid gap-3 sm:grid-cols-3">
+              {proofPoints.map((item) => (
+                <div
+                  key={item}
+                  className="rounded-2xl border border-white/80 bg-white/85 px-4 py-4 shadow-sm backdrop-blur"
+                >
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-600" />
+                    <p className="text-sm font-medium leading-6 text-slate-700">{item}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
-          {/* Main Headline */}
-          <h1 className="animate-in heading-1 text-corp-dark text-center max-w-4xl mb-6">
-            EMPLOYEE PERKS AND
-            <br />
-            <span className="text-corp-blue">CORPORATE DISCOUNTS</span>
-          </h1>
-
-          {/* Subheadline */}
-          <p className="animate-in body-text text-lg md:text-xl text-center max-w-2xl mb-8">
-            Search your company, verify your work email, and unlock exclusive deals
-            in minutes.
-          </p>
-
-          {/* CTA Buttons */}
-          <div className="animate-in flex flex-col sm:flex-row items-center gap-4 mb-8">
-            <a 
-              href="#search" 
-              className="btn-primary px-8 py-4 text-base flex items-center gap-2 group"
-            >
-              Find my company deals
-              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-            </a>
-            <Link 
-              to="/verify"
-              className="btn-secondary px-8 py-4 text-base"
-            >
-              Verify my work email
-            </Link>
-          </div>
-
-          {/* Trust Indicators */}
-          <div className="animate-in flex flex-wrap items-center justify-center gap-6 text-sm text-corp-gray">
-            <div className="flex items-center gap-2">
-              <Check className="w-4 h-4 text-green-500" />
-              <span className="font-inter">Free for employees</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Check className="w-4 h-4 text-green-500" />
-              <span className="font-inter">Secure work email verification</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Check className="w-4 h-4 text-green-500" />
-              <span className="font-inter">$2,500+ avg. savings</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Center Hero Image */}
-        <div 
-          ref={imageRef}
-          className="relative w-full px-6 lg:px-12 pb-8"
-        >
-          <div className="max-w-5xl mx-auto">
-            {/* Image Container with rounded corners and shadow */}
-            <div className="relative rounded-3xl overflow-hidden shadow-2xl">
-              <img
-                src="/CorpDeals-hero1.webp"
-                alt="Employees browsing corporate discounts and employee perks"
-                className="w-full h-auto object-cover"
-                loading="eager"
-              />
-              {/* Subtle overlay gradient */}
-              <div className="absolute inset-0 bg-gradient-to-t from-corp-light/30 to-transparent" />
+          <div ref={imageRef} className="relative">
+            <div className="absolute -left-5 top-10 hidden rounded-2xl border border-white/80 bg-white/95 px-4 py-3 shadow-xl backdrop-blur md:block">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">How it works</p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">Search. Verify. Unlock.</p>
             </div>
 
-            {/* Floating Stats Cards - positioned over image */}
-            <div 
-              ref={statsRef}
-              className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-full max-w-3xl px-6"
-            >
-              <div className="bg-white rounded-2xl shadow-card p-4 md:p-6 grid grid-cols-3 gap-4 md:gap-8">
-                <div className="stat-item text-center">
-                  <div className="flex items-center justify-center gap-2 mb-1">
-                    <Building2 className="w-5 h-5 text-corp-blue" />
-                    <span className="font-montserrat font-bold text-2xl md:text-3xl text-corp-dark">
-                      12K+
-                    </span>
-                  </div>
-                  <span className="font-inter text-xs md:text-sm text-corp-gray">
-                    Companies
-                  </span>
-                </div>
-                <div className="stat-item text-center border-x border-gray-100">
-                  <div className="flex items-center justify-center gap-2 mb-1">
-                    <Users className="w-5 h-5 text-corp-blue" />
-                    <span className="font-montserrat font-bold text-2xl md:text-3xl text-corp-dark">
-                      5M+
-                    </span>
-                  </div>
-                  <span className="font-inter text-xs md:text-sm text-corp-gray">
-                    Employees
-                  </span>
-                </div>
-                <div className="stat-item text-center">
-                  <div className="flex items-center justify-center gap-2 mb-1">
-                    <TrendingUp className="w-5 h-5 text-corp-blue" />
-                    <span className="font-montserrat font-bold text-2xl md:text-3xl text-corp-dark">
-                      18%
-                    </span>
-                  </div>
-                  <span className="font-inter text-xs md:text-sm text-corp-gray">
-                    Avg. Redemption
-                  </span>
-                </div>
+            <div className="overflow-hidden rounded-[2rem] border border-white/70 bg-white p-3 shadow-[0_32px_70px_-28px_rgba(15,23,42,0.38)]">
+              <div className="overflow-hidden rounded-[1.5rem]">
+                <img
+                  src="/CorpDeals-hero1.webp"
+                  alt="Professionals reviewing employee discount options together"
+                  className="h-[320px] w-full object-cover object-center sm:h-[420px] lg:h-[520px]"
+                  loading="eager"
+                />
               </div>
             </div>
+
+            <div className="relative z-10 mx-auto -mt-10 grid max-w-xl gap-3 rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-xl sm:grid-cols-3 sm:p-5">
+              <div className="rounded-2xl bg-slate-50 px-4 py-4 text-left">
+                <div className="flex items-center gap-2 text-blue-700">
+                  <Building2 className="h-4 w-4" />
+                  <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Companies</span>
+                </div>
+                <p className="mt-2 text-2xl font-bold text-slate-950">12K+</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">Teams already represented in the network</p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 px-4 py-4 text-left">
+                <div className="flex items-center gap-2 text-violet-700">
+                  <Users className="h-4 w-4" />
+                  <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Employees</span>
+                </div>
+                <p className="mt-2 text-2xl font-bold text-slate-950">5M+</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">Eligible employees exploring verified offers</p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 px-4 py-4 text-left">
+                <div className="flex items-center gap-2 text-emerald-700">
+                  <TrendingUp className="h-4 w-4" />
+                  <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Average savings</span>
+                </div>
+                <p className="mt-2 text-2xl font-bold text-slate-950">$2.5K</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">Typical annual savings across top categories</p>
+              </div>
+            </div>
+
           </div>
         </div>
 
-        {/* Trusted By Section */}
-        <div 
-          ref={badgesRef}
-          className="w-full px-6 lg:px-12 pt-16 pb-12"
+        <div
+          ref={trustRef}
+          className="mt-12 border-t border-slate-200/80 pt-8 sm:mt-14 lg:mt-16"
         >
-          <div className="max-w-4xl mx-auto text-center">
-            <p className="font-inter text-sm text-corp-gray mb-6 uppercase tracking-wider">
-              Trusted by teams at
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-8 md:gap-12">
-              {trustedCompanies.map((company) => (
-                <div 
-                  key={company}
-                  className="font-montserrat font-bold text-xl md:text-2xl text-gray-300 hover:text-corp-blue transition-colors duration-300"
+          <p className="text-left text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">
+            We are trusted by employees at
+          </p>
+
+          <div className="logo-marquee mt-6">
+            <div className="logo-marquee-track">
+              {[...trustedCompanies, ...trustedCompanies].map((company, index) => (
+                <div
+                  key={`${company.name}-${index}`}
+                  className="hero-trust-item logo-marquee-item flex h-16 items-center justify-center"
+                  aria-hidden={index >= trustedCompanies.length}
                 >
-                  {company}
+                  <div className={company.logoSurfaceClass || ''}>
+                    <img
+                      src={company.src}
+                      alt={index < trustedCompanies.length ? company.name : ''}
+                      className={`h-10 w-auto max-w-none object-contain md:h-11 ${company.imgClassName || ''}`}
+                    />
+                  </div>
                 </div>
               ))}
             </div>

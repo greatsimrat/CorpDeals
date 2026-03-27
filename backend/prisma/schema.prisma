@@ -229,6 +229,22 @@ model Company {
   @@map("companies")
 }
 
+model CompanyRequest {
+  id            String        @id @default(uuid())
+  companyName   String        @map("company_name")
+  requesterName String        @map("requester_name")
+  workEmail     String        @map("work_email")
+  city          String?
+  note          String?
+  status        RequestStatus @default(PENDING)
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@index([workEmail])
+  @@map("company_requests")
+}
+
 model HRContact {
   id          String    @id @default(uuid())
   companyId   String    @map("company_id")

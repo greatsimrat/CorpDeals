@@ -416,6 +416,19 @@ class ApiService {
     );
   }
 
+  async submitCompanyRequest(data: {
+    companyName: string;
+    requesterName: string;
+    workEmail: string;
+    city?: string;
+    note?: string;
+  }) {
+    return this.request<{ ok: boolean; requestId: string; message: string }>('/companies/requests', {
+      method: 'POST',
+      body: data,
+    });
+  }
+
   async getCompany(idOrSlug: string) {
     return this.request<any>(`/companies/${encodeURIComponent(idOrSlug)}`);
   }
