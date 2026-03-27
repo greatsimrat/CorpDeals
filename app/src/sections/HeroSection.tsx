@@ -183,7 +183,7 @@ const HeroSection = () => {
             {/* Image Container with rounded corners and shadow */}
             <div className="relative rounded-3xl overflow-hidden shadow-2xl">
               <img
-                src="/hero_main.jpg"
+                src="/CorpDeals-hero1.webp"
                 alt="Employees browsing corporate discounts and employee perks"
                 className="w-full h-auto object-cover"
                 loading="eager"
