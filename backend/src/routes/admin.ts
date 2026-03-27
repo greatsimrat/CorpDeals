@@ -143,6 +143,7 @@ router.get('/stats', async (req: Request, res: Response): Promise<void> => {
       activeOffers,
       totalLeads,
       pendingRequests,
+      pendingCompanyRequests,
       leadSummaryRows,
       dailyLeadRows,
       monthlyLeadRows,
@@ -157,6 +158,7 @@ router.get('/stats', async (req: Request, res: Response): Promise<void> => {
       countActiveApprovedOffers(),
       prisma.lead.count(),
       prisma.vendorRequest.count({ where: { status: 'PENDING' } }),
+      prisma.companyRequest.count({ where: { status: 'PENDING' } }),
       prisma.$queryRaw<LeadSummaryRow[]>`
         SELECT
           COUNT(*) FILTER (WHERE "created_at" >= DATE_TRUNC('day', NOW()))::int AS "today",
@@ -207,6 +209,7 @@ router.get('/stats', async (req: Request, res: Response): Promise<void> => {
         active: activeOffers,
       },
       leads: totalLeads,
+      pendingCompanyRequests,
       leadSubmissions: {
         today: leadSummary.today,
         thisMonth: leadSummary.thisMonth,

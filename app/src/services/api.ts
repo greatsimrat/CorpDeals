@@ -429,6 +429,24 @@ class ApiService {
     });
   }
 
+  async getCompanyRequests(params?: { status?: string }) {
+    const query = this.buildQuery(params as Record<string, unknown> | undefined);
+    return this.request<any[]>(`/companies/requests${query}`);
+  }
+
+  async reviewCompanyRequest(
+    id: string,
+    data: { status: 'APPROVED' | 'REJECTED'; reviewNotes?: string }
+  ) {
+    return this.request<{ ok: boolean; request: any; company: any | null; message: string }>(
+      `/companies/requests/${encodeURIComponent(id)}`,
+      {
+        method: 'PATCH',
+        body: data,
+      }
+    );
+  }
+
   async getCompany(idOrSlug: string) {
     return this.request<any>(`/companies/${encodeURIComponent(idOrSlug)}`);
   }
@@ -804,12 +822,14 @@ class ApiService {
     return this.request<{
       summary: {
         pendingVendorRequests: number;
+        pendingCompanyRequests: number;
         approvedVendors: number;
         draftOffers: number;
         submittedOffers: number;
         liveOffers: number;
       };
       vendorRequests: any[];
+      companyRequests: any[];
       vendors: any[];
       companies: any[];
       categories: any[];

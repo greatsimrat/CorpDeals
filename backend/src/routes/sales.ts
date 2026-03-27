@@ -31,17 +31,20 @@ router.get('/dashboard', async (_req: Request, res: Response): Promise<void> => 
   try {
     const [
       pendingVendorRequests,
+      pendingCompanyRequests,
       approvedVendors,
       draftOffers,
       submittedOffers,
       liveOffers,
       recentVendorRequests,
+      recentCompanyRequests,
       vendorOptions,
       companies,
       categories,
       recentOffers,
     ] = await Promise.all([
       prisma.vendorRequest.count({ where: { status: 'PENDING' } }),
+      prisma.companyRequest.count({ where: { status: 'PENDING' } }),
       prisma.vendor.count({ where: { status: 'APPROVED' } }),
       prisma.offer.count({ where: { complianceStatus: 'DRAFT' } as any }),
       prisma.offer.count({ where: { complianceStatus: 'SUBMITTED' } as any }),
@@ -63,6 +66,20 @@ router.get('/dashboard', async (_req: Request, res: Response): Promise<void> => 
               businessType: true,
               city: true,
               createdAt: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 6,
+      }),
+      prisma.companyRequest.findMany({
+        where: { status: 'PENDING' },
+        include: {
+          reviewedBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
             },
           },
         },
@@ -140,12 +157,14 @@ router.get('/dashboard', async (_req: Request, res: Response): Promise<void> => 
     res.json({
       summary: {
         pendingVendorRequests,
+        pendingCompanyRequests,
         approvedVendors,
         draftOffers,
         submittedOffers,
         liveOffers,
       },
       vendorRequests: recentVendorRequests,
+      companyRequests: recentCompanyRequests,
       vendors: vendorOptions,
       companies,
       categories,

@@ -5,6 +5,7 @@ import api from '../../services/api';
 type DashboardData = {
   summary: {
     pendingVendorRequests: number;
+    pendingCompanyRequests: number;
     approvedVendors: number;
     draftOffers: number;
     submittedOffers: number;
@@ -21,6 +22,21 @@ type DashboardData = {
       businessType?: string | null;
       city?: string | null;
     };
+  }>;
+  companyRequests: Array<{
+    id: string;
+    companyName: string;
+    requesterName: string;
+    workEmail: string;
+    city?: string | null;
+    note?: string | null;
+    status: string;
+    createdAt: string;
+    reviewedBy?: {
+      id: string;
+      name?: string | null;
+      email: string;
+    } | null;
   }>;
   vendors: Array<{
     id: string;
@@ -94,6 +110,7 @@ export default function SalesDashboardPage() {
   const [form, setForm] = useState<OfferFormState>(emptyForm);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isReviewingCompanyRequestId, setIsReviewingCompanyRequestId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
@@ -171,6 +188,24 @@ export default function SalesDashboardPage() {
     }
   };
 
+  const handleCompanyRequestReview = async (
+    requestId: string,
+    status: 'APPROVED' | 'REJECTED'
+  ) => {
+    try {
+      setIsReviewingCompanyRequestId(requestId);
+      setError('');
+      setSuccessMessage('');
+      const result = await api.reviewCompanyRequest(requestId, { status });
+      setSuccessMessage(result.message || 'Company request updated.');
+      await loadDashboard();
+    } catch (err: any) {
+      setError(err.message || 'Failed to review company request');
+    } finally {
+      setIsReviewingCompanyRequestId(null);
+    }
+  };
+
   const summaryCards = data
     ? [
         {
@@ -178,6 +213,12 @@ export default function SalesDashboardPage() {
           value: data.summary.pendingVendorRequests,
           icon: BriefcaseBusiness,
           tone: 'bg-amber-50 text-amber-700 border-amber-200',
+        },
+        {
+          label: 'Company requests',
+          value: data.summary.pendingCompanyRequests,
+          icon: Building2,
+          tone: 'bg-sky-50 text-sky-700 border-sky-200',
         },
         {
           label: 'Approved vendors',
@@ -230,21 +271,21 @@ export default function SalesDashboardPage() {
               </div>
               <h1 className="mt-4 text-3xl font-bold tracking-tight text-slate-900">Vendor pipeline + offer drafting</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-                This workspace is for internal sales staff who help approved vendors get to first draft quickly.
-                Sales can create and shape draft offers, but approval, billing, and role changes remain outside this area.
+                This workspace is for internal sales staff who turn employer demand into supply.
+                Sales can approve employee-requested companies and create draft offers, but billing, user roles, and offer approval remain outside this area.
               </p>
             </div>
             <div className="rounded-2xl bg-slate-950 px-4 py-3 text-right text-white">
               <p className="text-xs uppercase tracking-wide text-slate-400">Role boundary</p>
-              <p className="mt-1 text-lg font-semibold">Create drafts only</p>
+              <p className="mt-1 text-lg font-semibold">Demand + draft enablement</p>
             </div>
           </div>
 
           <div className="mt-8 grid gap-4 md:grid-cols-3">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs uppercase tracking-wide text-slate-500">Step 1</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">Review pending partner applications</p>
-              <p className="mt-1 text-sm text-slate-600">Understand who is in the pipeline and which vendors are ready for enablement.</p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">Review employer demand</p>
+              <p className="mt-1 text-sm text-slate-600">Approve employee-requested companies and understand which employers are asking for access.</p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs uppercase tracking-wide text-slate-500">Step 2</p>
@@ -266,7 +307,7 @@ export default function SalesDashboardPage() {
           </div>
           <div className="mt-5 space-y-3">
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-              Can view vendor pipeline, approved partners, companies, and recent offer queue state.
+              Can review employer demand, approve company requests, and view vendor pipeline, approved partners, companies, and recent offer queue state.
             </div>
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
               Can create draft offers on behalf of approved vendors such as Telus, Bell, or Samsung.
@@ -281,7 +322,7 @@ export default function SalesDashboardPage() {
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">{error}</div> : null}
       {successMessage ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-700">{successMessage}</div> : null}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         {summaryCards.map((card) => {
           const Icon = card.icon;
           return (
@@ -302,6 +343,62 @@ export default function SalesDashboardPage() {
 
       <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-6">
+          <div className="rounded-xl border border-slate-200 bg-white p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Company demand queue</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Employee requests become actionable demand. Approving one adds the company to CorpDeals immediately.
+                </p>
+              </div>
+              <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
+                {data.summary.pendingCompanyRequests} pending
+              </span>
+            </div>
+            <div className="mt-5 space-y-3">
+              {data.companyRequests.length === 0 ? (
+                <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">No pending company requests right now.</p>
+              ) : (
+                data.companyRequests.map((request) => (
+                  <div key={request.id} className="rounded-2xl border border-slate-200 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{request.companyName}</p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {request.requesterName} · {request.workEmail}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {request.city || 'Location not provided'} · {new Date(request.createdAt).toLocaleDateString()}
+                        </p>
+                        {request.note ? (
+                          <p className="mt-2 text-sm leading-6 text-slate-600">{request.note}</p>
+                        ) : null}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleCompanyRequestReview(request.id, 'APPROVED')}
+                          disabled={isReviewingCompanyRequestId === request.id}
+                          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                        >
+                          {isReviewingCompanyRequestId === request.id ? 'Working...' : 'Approve + Add Company'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCompanyRequestReview(request.id, 'REJECTED')}
+                          disabled={isReviewingCompanyRequestId === request.id}
+                          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
           <div className="rounded-xl border border-slate-200 bg-white p-6">
             <div className="flex items-center justify-between">
               <div>

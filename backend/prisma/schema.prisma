@@ -138,6 +138,7 @@ model User {
 
   vendor              Vendor?
   reviewedRequests    VendorRequest[] @relation("ReviewedBy")
+  reviewedCompanyRequests CompanyRequest[] @relation("ReviewedCompanyRequests")
   employeeCompany      Company?              @relation("EmployeeCompany", fields: [employeeCompanyId], references: [id])
   activeCompany        Company?              @relation("ActiveCompany", fields: [activeCompanyId], references: [id])
   employeeVerifications EmployeeVerification[]
@@ -237,8 +238,13 @@ model CompanyRequest {
   city          String?
   note          String?
   status        RequestStatus @default(PENDING)
+  reviewedById  String?       @map("reviewed_by_id")
+  reviewedAt    DateTime?     @map("reviewed_at")
+  reviewNotes   String?       @map("review_notes")
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  reviewedBy    User?         @relation("ReviewedCompanyRequests", fields: [reviewedById], references: [id])
 
   @@index([status, createdAt])
   @@index([workEmail])
