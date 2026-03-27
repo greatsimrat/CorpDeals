@@ -15,6 +15,11 @@ export type AuthUserSummary = {
   loginEmail?: string | null;
   workEmail?: string | null;
   name?: string | null;
+  role?: AppRole;
+  vendor?: {
+    id: string;
+    status: string;
+  } | null;
 };
 
 export const normalizeRole = (role: unknown): AppRole => {
@@ -37,12 +42,16 @@ export const getDefaultRouteForRole = (user: {
   activeVerification?: { company: CompanySummary } | null;
   activeCompany?: CompanySummary | null;
   employeeCompany?: CompanySummary | null;
+  vendor?: {
+    id: string;
+    status: string;
+  } | null;
 } | null) => {
   if (!user) return '/';
 
   if (user.role === 'ADMIN') return '/admin';
   if (user.role === 'FINANCE') return '/finance';
-  if (user.role === 'VENDOR') return '/vendor/dashboard';
+  if (hasVendorWorkspaceAccess(user)) return '/vendor/dashboard';
 
   const companySlug =
     user.activeVerification?.company.slug ||
@@ -58,6 +67,20 @@ export const canAccessPathForRole = (role: AppRole, pathname: string) => {
   if (pathname.startsWith('/vendor')) return role === 'VENDOR';
   if (pathname === '/my-applications' || pathname === '/confirmation') return role === 'USER';
   return true;
+};
+
+export const hasVendorWorkspaceAccess = (
+  user:
+    | {
+        role?: AppRole | null;
+        vendor?: { id: string; status: string } | null;
+      }
+    | null
+    | undefined
+) => {
+  if (!user) return false;
+  if (user.role === 'VENDOR') return true;
+  return String(user.vendor?.status || '').toUpperCase() === 'APPROVED';
 };
 
 export const getUserDisplayName = (user: AuthUserSummary | null | undefined) => {

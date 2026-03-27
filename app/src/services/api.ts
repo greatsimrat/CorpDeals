@@ -207,12 +207,16 @@ class ApiService {
     companyName?: string;
     contactName: string;
     contactEmail?: string;
+    businessEmail?: string;
     email?: string;
     phone?: string;
     website?: string;
     category?: string;
     businessType?: string;
     city?: string;
+    jobTitle?: string;
+    targetCompanies?: string;
+    offerSummary?: string;
     notes?: string;
     description?: string;
     additionalInfo?: string;
@@ -223,13 +227,17 @@ class ApiService {
       businessName: data.businessName || data.companyName || '',
       contactName: data.contactName,
       contactEmail: data.contactEmail || data.email || '',
+      businessEmail: data.businessEmail || '',
       phone: data.phone,
       website: data.website,
       category: data.category || data.businessType,
       city: data.city,
+      jobTitle: data.jobTitle,
+      targetCompanies: data.targetCompanies,
+      offerSummary: data.offerSummary,
       notes: data.notes || data.description || data.additionalInfo,
     };
-    return this.request<{ ok: boolean; message: string; vendorId: string }>('/vendor/apply', {
+    return this.request<{ ok: boolean; message: string; vendorId: string; requestId?: string }>('/vendor/apply', {
       method: 'POST',
       body: payload,
     });

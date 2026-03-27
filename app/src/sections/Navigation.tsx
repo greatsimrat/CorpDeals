@@ -5,7 +5,7 @@ import { useAuth } from '../hooks/useAuth';
 import { getUserDisplayName, getUserInitials } from '../lib/auth';
 
 const Navigation = () => {
-  const { user, isAuthenticated, logout, role } = useAuth();
+  const { user, isAuthenticated, logout, role, hasVendorAccess } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [isScrolled, setIsScrolled] = useState(false);
@@ -73,7 +73,7 @@ const Navigation = () => {
       ? { to: '/admin', label: 'Admin' }
       : role === 'FINANCE'
       ? { to: '/finance', label: 'Finance' }
-      : role === 'VENDOR'
+      : role === 'VENDOR' || hasVendorAccess
       ? { to: '/vendor/dashboard', label: 'Vendor Dashboard' }
       : role === 'USER'
       ? { to: '/my-applications', label: 'My Applications' }
@@ -181,19 +181,13 @@ const Navigation = () => {
             {!isAuthenticated ? (
               <>
                 <Link
-                  to="/signup"
+                  to="/vendor/apply"
                   className="font-inter text-sm text-corp-dark hover:text-corp-blue transition-colors px-4 py-2"
                 >
-                  Create Account
-                </Link>
-                <Link
-                  to="/vendor/login"
-                  className="font-inter text-sm text-corp-dark hover:text-corp-blue transition-colors px-4 py-2"
-                >
-                  Vendor Login
+                  Be Our Partner
                 </Link>
                 <Link to="/login" className="btn-primary text-sm">
-                  Login
+                  Sign In / Sign Up
                 </Link>
               </>
             ) : (
@@ -307,25 +301,18 @@ const Navigation = () => {
             {!isAuthenticated ? (
               <>
                 <Link
-                  to="/signup"
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  className="block w-full text-left px-4 py-3 font-inter text-sm text-corp-dark"
-                >
-                  Create Account
-                </Link>
-                <Link
                   to="/login"
                   onClick={() => setIsMobileMenuOpen(false)}
                   className="btn-primary text-sm w-full block text-center"
                 >
-                  Login
+                  Sign In / Sign Up
                 </Link>
                 <Link
-                  to="/vendor/login"
+                  to="/vendor/apply"
                   onClick={() => setIsMobileMenuOpen(false)}
                   className="block w-full text-left px-4 py-3 font-inter text-sm text-corp-dark"
                 >
-                  Vendor Login
+                  Be Our Partner
                 </Link>
               </>
             ) : (
@@ -360,11 +347,11 @@ const Navigation = () => {
               </Link>
             ) : isAuthenticated ? (
               <Link
-                to="/vendor/login"
+                to="/vendor/apply"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="block w-full text-left px-4 py-3 font-inter text-sm text-corp-dark"
               >
-                Vendor Login
+                Be Our Partner
               </Link>
             ) : null}
             {isAuthenticated && (

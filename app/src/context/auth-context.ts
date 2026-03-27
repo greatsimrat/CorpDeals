@@ -16,6 +16,7 @@ export interface User {
     id: string;
     companyName: string;
     status: string;
+    businessEmail?: string | null;
   } | null;
   activeVerification?: {
     id: string;
@@ -44,6 +45,7 @@ export interface AuthContextType {
   isAdminOrFinance: boolean;
   isVendor: boolean;
   isUser: boolean;
+  hasVendorAccess: boolean;
   role: AppRole | null;
   defaultRoute: string;
   login: (email: string, password: string) => Promise<User>;

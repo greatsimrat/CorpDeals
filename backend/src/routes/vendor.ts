@@ -2,13 +2,14 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../lib/prisma';
-import { authenticateToken, requireVendorOnly } from '../middleware/auth';
+import { authenticateToken, authenticateTokenOptional, requireVendorOnly } from '../middleware/auth';
 import { buildAuthUserPayload } from '../lib/auth-user';
 import {
   sendOfferSubmittedForReviewEmail,
   sendVendorApplicationInternalEmail,
 } from '../lib/mailer';
 import { verifyVendorSetPasswordToken } from '../lib/vendor-password';
+import { DEFAULT_USER_ROLE } from '../lib/roles';
 
 const router = Router();
 
@@ -215,11 +216,14 @@ const requireVendorUser = async (req: Request, res: Response) => {
   return vendor;
 };
 
-router.post('/apply', async (req: Request, res: Response): Promise<void> => {
+router.post('/apply', authenticateTokenOptional, async (req: Request, res: Response): Promise<void> => {
   try {
     const businessName = String(req.body?.businessName || req.body?.business_name || '').trim();
     const contactName = String(req.body?.contactName || req.body?.contact_name || '').trim();
     const contactEmail = String(req.body?.contactEmail || req.body?.contact_email || '')
+      .trim()
+      .toLowerCase();
+    const businessEmail = String(req.body?.businessEmail || req.body?.business_email || '')
       .trim()
       .toLowerCase();
     const phone = String(req.body?.phone || '').trim() || null;
@@ -227,33 +231,108 @@ router.post('/apply', async (req: Request, res: Response): Promise<void> => {
     const category = String(req.body?.category || '').trim() || null;
     const city = String(req.body?.city || '').trim() || null;
     const notes = String(req.body?.notes || '').trim() || null;
+    const jobTitle = String(req.body?.jobTitle || req.body?.job_title || '').trim() || null;
+    const offerSummary =
+      String(req.body?.offerSummary || req.body?.offer_summary || '').trim() || null;
+    const targetCompanies =
+      String(req.body?.targetCompanies || req.body?.target_companies || '').trim() || null;
 
-    if (!businessName || !contactName || !contactEmail) {
+    if (!businessName || !contactName || !contactEmail || !businessEmail) {
       res.status(400).json({
         error: 'Missing required fields',
-        detail: 'business name, contact name, and contact email are required',
+        detail: 'business name, contact name, contact email, and business email are required',
       });
+      return;
+    }
+
+    if (req.user && !['USER', 'VENDOR'].includes(req.user.role)) {
+      res.status(403).json({ error: 'This account cannot be used for vendor applications' });
       return;
     }
 
     const existingUser = await prisma.user.findUnique({
       where: { email: contactEmail },
-      select: { id: true },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        vendorId: true,
+        vendor: {
+          select: {
+            id: true,
+            status: true,
+          },
+        },
+      },
     });
-    if (existingUser) {
-      res.status(400).json({ error: 'Email already registered' });
+    if (existingUser && req.user?.id && existingUser.id !== req.user.id) {
+      res.status(400).json({ error: 'This contact email already belongs to another account' });
       return;
     }
 
-    const created = await prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          email: contactEmail,
-          role: 'VENDOR',
-          name: contactName,
-          passwordHash: null as any,
-        } as any,
+    if (!req.user?.id && existingUser) {
+      if (existingUser.vendor) {
+        const statusLabel =
+          existingUser.vendor.status === 'APPROVED'
+            ? 'already has an approved vendor workspace'
+            : 'already has a vendor application in progress';
+        res.status(409).json({ error: `This email ${statusLabel}. Sign in to continue.` });
+        return;
+      }
+
+      res.status(409).json({
+        error: 'This email already has a CorpDeals account. Sign in first to continue your partner application.',
       });
+      return;
+    }
+
+    const applicantUser = req.user?.id
+      ? await prisma.user.findUnique({
+          where: { id: req.user.id },
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            vendorId: true,
+            vendor: {
+              select: {
+                id: true,
+                status: true,
+              },
+            },
+          },
+        })
+      : existingUser;
+
+    if (applicantUser?.vendor) {
+      const statusLabel =
+        applicantUser.vendor.status === 'APPROVED'
+          ? 'You already have an approved vendor workspace'
+          : 'Your vendor application is already under review';
+      res.status(409).json({ error: statusLabel });
+      return;
+    }
+
+    const additionalInfo = [
+      jobTitle ? `Job title: ${jobTitle}` : null,
+      businessEmail ? `Business email: ${businessEmail}` : null,
+      targetCompanies ? `Target companies: ${targetCompanies}` : null,
+      notes ? `Notes: ${notes}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const created = await prisma.$transaction(async (tx) => {
+      const user =
+        applicantUser ||
+        (await tx.user.create({
+          data: {
+            email: contactEmail,
+            role: DEFAULT_USER_ROLE,
+            name: contactName,
+            passwordHash: null as any,
+          } as any,
+        }));
 
       const vendor = await tx.vendor.create({
         data: {
@@ -261,12 +340,13 @@ router.post('/apply', async (req: Request, res: Response): Promise<void> => {
           companyName: businessName,
           contactName,
           email: contactEmail,
+          businessEmail,
           phone,
           website,
           businessType: category,
           city,
           notes,
-          description: notes,
+          description: offerSummary || notes,
           status: 'PENDING',
         } as any,
       });
@@ -278,7 +358,17 @@ router.post('/apply', async (req: Request, res: Response): Promise<void> => {
         } as any,
       });
 
-      return { user, vendor };
+      const request = await tx.vendorRequest.create({
+        data: {
+          vendorId: vendor.id,
+          businessType: category,
+          description: offerSummary || notes,
+          additionalInfo: additionalInfo || null,
+          status: 'PENDING',
+        } as any,
+      });
+
+      return { user, vendor, request };
     });
 
     const internalEmail = await sendVendorApplicationInternalEmail({
@@ -289,7 +379,16 @@ router.post('/apply', async (req: Request, res: Response): Promise<void> => {
       website,
       category,
       city,
-      notes,
+      notes:
+        [
+          businessEmail ? `Business email: ${businessEmail}` : null,
+          jobTitle ? `Job title: ${jobTitle}` : null,
+          targetCompanies ? `Target companies: ${targetCompanies}` : null,
+          offerSummary ? `Offer summary: ${offerSummary}` : null,
+          notes ? `Notes: ${notes}` : null,
+        ]
+          .filter(Boolean)
+          .join('\n') || null,
     });
 
     if (!internalEmail.sent) {
@@ -302,6 +401,7 @@ router.post('/apply', async (req: Request, res: Response): Promise<void> => {
     res.status(201).json({
       ok: true,
       vendorId: created.vendor.id,
+      requestId: created.request.id,
       message: "We’ll review and contact you within 1–2 business days.",
     });
   } catch (error) {
@@ -324,7 +424,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       where: { email },
       include: { vendor: true },
     });
-    if (!user || user.role !== 'VENDOR') {
+    if (!user || !user.vendor) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
@@ -385,7 +485,7 @@ router.post('/set-password', async (req: Request, res: Response): Promise<void> 
       where: { id: decoded.userId },
       include: { vendor: true },
     });
-    if (!user || user.role !== 'VENDOR' || !user.vendor) {
+    if (!user || !user.vendor) {
       res.status(404).json({ error: 'Vendor user not found' });
       return;
     }

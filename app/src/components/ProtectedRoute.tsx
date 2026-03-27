@@ -10,7 +10,7 @@ interface ProtectedRouteProps {
 }
 
 export default function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
-  const { isAuthenticated, isLoading, role, defaultRoute } = useAuth();
+  const { isAuthenticated, isLoading, role, defaultRoute, hasVendorAccess } = useAuth();
   const location = useLocation();
   const loginPath =
     allowedRoles?.length === 1 && allowedRoles[0] === 'VENDOR' ? '/vendor/login' : '/login';
@@ -33,7 +33,10 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
     );
   }
 
-  if (allowedRoles?.length && (!role || !allowedRoles.includes(role))) {
+  const vendorOnlyRoute =
+    allowedRoles?.length === 1 && allowedRoles[0] === 'VENDOR' && hasVendorAccess;
+
+  if (allowedRoles?.length && !vendorOnlyRoute && (!role || !allowedRoles.includes(role))) {
     return <Navigate to={defaultRoute} replace />;
   }
 

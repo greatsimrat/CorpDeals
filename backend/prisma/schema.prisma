@@ -155,6 +155,7 @@ model Vendor {
   companyName   String       @map("company_name")
   contactName   String       @map("contact_name")
   email         String
+  businessEmail String?      @map("business_email")
   phone         String?
   website       String?
   city          String?

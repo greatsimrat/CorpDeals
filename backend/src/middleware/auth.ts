@@ -154,6 +154,41 @@ export const requireAdminOrFinance = requireAnyRole('ADMIN', 'FINANCE');
 
 export const requireVendor = requireAnyRole('VENDOR', 'ADMIN');
 
-export const requireVendorOnly = requireAnyRole('VENDOR');
+export const requireVendorOnly = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  if (!req.user) {
+    sendUnauthorized(res);
+    return;
+  }
+
+  if (req.user.role === 'VENDOR') {
+    next();
+    return;
+  }
+
+  if (!req.user.vendorId) {
+    sendForbidden(res, 'Approved vendor access required');
+    return;
+  }
+
+  const vendor = await prisma.vendor.findUnique({
+    where: { id: req.user.vendorId },
+    select: {
+      id: true,
+      userId: true,
+      status: true,
+    },
+  });
+
+  if (!vendor || vendor.userId !== req.user.id || vendor.status !== 'APPROVED') {
+    sendForbidden(res, 'Approved vendor access required');
+    return;
+  }
+
+  next();
+};
 
 export const requireUser = requireAnyRole('USER');

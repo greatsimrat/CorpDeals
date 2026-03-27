@@ -698,7 +698,6 @@ router.patch('/vendors/:id', async (req: Request, res: Response): Promise<void> 
       await tx.user.update({
         where: { id: vendor.userId },
         data: {
-          role: 'VENDOR',
           vendorId: vendor.id,
         } as any,
       });

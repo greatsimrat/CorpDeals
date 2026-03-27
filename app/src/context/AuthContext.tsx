@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import api from '../services/api';
 import { AuthContext } from './auth-context';
 import type { User } from './auth-context';
-import { getDefaultRouteForRole, normalizeRole } from '../lib/auth';
+import { getDefaultRouteForRole, hasVendorWorkspaceAccess, normalizeRole } from '../lib/auth';
 
 const normalizeUser = (user: User): User => ({
   ...user,
@@ -77,8 +77,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAdmin: user?.role === 'ADMIN',
         isFinance: user?.role === 'FINANCE',
         isAdminOrFinance: user?.role === 'ADMIN' || user?.role === 'FINANCE',
-        isVendor: user?.role === 'VENDOR',
+        isVendor: !!user && hasVendorWorkspaceAccess(user),
         isUser: user?.role === 'USER',
+        hasVendorAccess: !!user && hasVendorWorkspaceAccess(user),
         role: user?.role || null,
         defaultRoute: getDefaultRouteForRole(user),
         login,
