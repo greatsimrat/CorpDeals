@@ -14,6 +14,7 @@ const Navigation = () => {
   const displayName = getUserDisplayName(user);
   const initials = getUserInitials(user);
   const loginEmail = user?.loginEmail || user?.email || '';
+  const isInternalPortalRole = role === 'ADMIN' || role === 'SALES' || role === 'FINANCE';
 
   const verificationLabel = user?.activeVerification
     ? `Verified: ${user.activeVerification.company.name} (valid until ${new Date(
@@ -80,6 +81,15 @@ const Navigation = () => {
       ? { to: '/my-applications', label: 'My Applications' }
       : null;
 
+  const internalPortalCtaLabel =
+    role === 'ADMIN'
+      ? 'Open Admin Portal'
+      : role === 'SALES'
+      ? 'Open Sales Portal'
+      : role === 'FINANCE'
+      ? 'Open Finance Portal'
+      : accountLink?.label || 'Open Portal';
+
   const accountSummary = isAuthenticated ? (
     <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">
@@ -88,7 +98,11 @@ const Navigation = () => {
       <div className="min-w-0">
         <p className="truncate text-sm font-semibold text-slate-900">{displayName}</p>
         <p className="truncate text-xs text-slate-500">
-          {role === 'USER' ? 'Logged in' : accountLink?.label || 'Logged in'}
+          {isInternalPortalRole
+            ? `${accountLink?.label || 'Portal'} account`
+            : role === 'USER'
+            ? 'Logged in'
+            : accountLink?.label || 'Logged in'}
         </p>
       </div>
     </div>
@@ -163,7 +177,7 @@ const Navigation = () => {
 
           {/* CTA Buttons */}
           <div className="hidden lg:flex items-center gap-3">
-            {verificationLabel && (
+            {verificationLabel && !isInternalPortalRole && (
               <Link
                 to={
                   user?.latestVerification?.company?.slug
@@ -200,26 +214,39 @@ const Navigation = () => {
                 ) : (
                   accountSummary
                 )}
-                <div className="hidden xl:block text-right">
-                  <p className="max-w-[220px] truncate text-sm font-medium text-slate-900">
-                    {loginEmail}
-                  </p>
-                  {user?.workEmail && user?.activeVerification?.company ? (
-                    <p className="max-w-[220px] truncate text-xs text-slate-500">
-                      {user.workEmail} for {user.activeVerification.company.name}
-                    </p>
-                  ) : (
+                {isInternalPortalRole ? (
+                  <div className="hidden xl:block text-right">
+                    <p className="text-sm font-medium text-slate-900">{loginEmail}</p>
                     <p className="text-xs text-slate-500">
-                      Verify work email to unlock company deals
+                      Internal portal account viewing the public site
                     </p>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <div className="hidden xl:block text-right">
+                    <p className="max-w-[220px] truncate text-sm font-medium text-slate-900">
+                      {loginEmail}
+                    </p>
+                    {user?.workEmail && user?.activeVerification?.company ? (
+                      <p className="max-w-[220px] truncate text-xs text-slate-500">
+                        {user.workEmail} for {user.activeVerification.company.name}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-slate-500">
+                        Verify work email to unlock company deals
+                      </p>
+                    )}
+                  </div>
+                )}
                 {accountLink ? (
                   <Link
                     to={accountLink.to}
-                    className="font-inter text-sm text-corp-dark hover:text-corp-blue transition-colors px-4 py-2"
+                    className={`font-inter text-sm transition-colors px-4 py-2 ${
+                      isInternalPortalRole
+                        ? 'rounded-xl bg-slate-900 text-white hover:bg-slate-800'
+                        : 'text-corp-dark hover:text-corp-blue'
+                    }`}
                   >
-                    {accountLink.label}
+                    {isInternalPortalRole ? internalPortalCtaLabel : accountLink.label}
                   </Link>
                 ) : null}
                 <button
@@ -227,7 +254,11 @@ const Navigation = () => {
                     logout();
                     navigate('/');
                   }}
-                  className="btn-primary text-sm"
+                  className={
+                    isInternalPortalRole
+                      ? 'rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50'
+                      : 'btn-primary text-sm'
+                  }
                 >
                   Logout
                 </button>
@@ -283,7 +314,7 @@ const Navigation = () => {
             Pricing
           </Link>
           <div className="pt-4 border-t border-gray-100 space-y-2">
-            {verificationLabel && (
+            {verificationLabel && !isInternalPortalRole && (
               <Link
                 to={
                   user?.latestVerification?.company?.slug
@@ -327,7 +358,11 @@ const Navigation = () => {
                     <p className="truncate text-xs text-slate-500">{loginEmail}</p>
                   </div>
                 </div>
-                {user?.workEmail && user?.activeVerification?.company ? (
+                {isInternalPortalRole ? (
+                  <p className="mt-3 text-xs text-slate-500">
+                    Internal portal account viewing the public site.
+                  </p>
+                ) : user?.workEmail && user?.activeVerification?.company ? (
                   <p className="mt-3 text-xs text-slate-500">
                     Work email verified: {user.workEmail} for {user.activeVerification.company.name}
                   </p>
@@ -342,9 +377,13 @@ const Navigation = () => {
               <Link
                 to={accountLink.to}
                 onClick={() => setIsMobileMenuOpen(false)}
-                className="block w-full text-left px-4 py-3 font-inter text-sm text-corp-dark"
+                className={`block w-full px-4 py-3 font-inter text-sm ${
+                  isInternalPortalRole
+                    ? 'rounded-lg bg-slate-900 text-center text-white'
+                    : 'text-left text-corp-dark'
+                }`}
               >
-                {accountLink.label}
+                {isInternalPortalRole ? internalPortalCtaLabel : accountLink.label}
               </Link>
             ) : isAuthenticated ? (
               <Link
@@ -362,7 +401,11 @@ const Navigation = () => {
                   logout();
                   navigate('/');
                 }}
-                className="btn-primary text-sm w-full"
+                className={
+                  isInternalPortalRole
+                    ? 'w-full rounded-lg border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700'
+                    : 'btn-primary text-sm w-full'
+                }
               >
                 Logout
               </button>
