@@ -159,15 +159,6 @@ export default function LoginPage() {
             </p>
           </div>
         </div>
-
-        {/* Demo Credentials */}
-        <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-          <p className="text-sm font-medium text-amber-800 mb-2">Demo Credentials:</p>
-          <p className="text-sm text-amber-700">Admin: admin@corpdeals.io / admin123</p>
-          <p className="text-sm text-amber-700">Sales: sales@corpdeals.io / sales123</p>
-          <p className="text-sm text-amber-700">Finance: finance@corpdeals.io / finance123</p>
-          <p className="text-sm text-amber-700">Vendor: vendor@coastcapital.com / vendor123</p>
-        </div>
         </div>
       </div>
     </>
