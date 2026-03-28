@@ -20,6 +20,28 @@ const extractEmailDomain = (value: string) => {
 };
 const normalizeSearchQuery = (query: Request['query']) =>
   (asString(query.q) || asString(query.query) || asString(query.search)).trim();
+const SEARCH_STOPWORDS = new Set([
+  'and',
+  'at',
+  'co',
+  'company',
+  'corp',
+  'corporation',
+  'deals',
+  'employee',
+  'employees',
+  'for',
+  'group',
+  'inc',
+  'incorporated',
+  'limited',
+  'llc',
+  'ltd',
+  'of',
+  'organization',
+  'the',
+  'verified',
+]);
 
 const normalizeDomainsInput = (
   input: unknown,
@@ -142,7 +164,10 @@ router.get('/resolve/search', async (req: Request, res: Response): Promise<void>
       },
     });
 
-    const tokens = query.split(/[^a-z0-9]+/).filter((token) => token.length >= 2);
+    const tokens = query
+      .split(/[^a-z0-9]+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 3 && !SEARCH_STOPWORDS.has(token));
     const scored = companies
       .map((company) => {
         const name = company.name.toLowerCase();
@@ -161,7 +186,7 @@ router.get('/resolve/search', async (req: Request, res: Response): Promise<void>
 
         return { company: toPublicCompany(company), score };
       })
-      .filter((item) => item.score > 0)
+      .filter((item) => item.score >= 12)
       .sort((a, b) => b.score - a.score);
 
     res.json({

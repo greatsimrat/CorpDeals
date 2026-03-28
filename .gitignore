@@ -38,6 +38,11 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Playwright
+app/playwright-report/
+app/test-results/
+app/tests/regression/
+
 # OS / editor files
 .DS_Store
 Thumbs.db
