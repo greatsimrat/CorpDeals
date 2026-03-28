@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
-import { authenticateToken, requireVendor } from '../middleware/auth';
+import { authenticateToken, requireUser, requireVendor } from '../middleware/auth';
 import { getUserVerification, isUserVerifiedForCompany, VERIFIED_STATUS } from '../lib/verifications';
 import { sendLeadSubmissionConfirmationEmail, sendVendorLeadNotificationEmail } from '../lib/mailer';
 import { recordLeadDeliveryBillingEvent } from '../lib/lead-billing';
@@ -118,6 +118,14 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
     res.status(400).json({
       error: 'INVALID_LEAD_PAYLOAD',
       detail: 'Required fields: name, email, phone, consent=true',
+    });
+    return;
+  }
+
+  if (email !== user.email.toLowerCase()) {
+    res.status(403).json({
+      error: 'EMAIL_MISMATCH',
+      detail: 'Use the email address on your account when submitting an application.',
     });
     return;
   }
@@ -337,7 +345,7 @@ router.get('/:id/access', authenticateToken, async (req: Request, res: Response)
   }
 });
 
-router.post('/:id/apply', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.post('/:id/apply', authenticateToken, requireUser, async (req: Request, res: Response): Promise<void> => {
   try {
     await createLeadFromOfferApply(req, res);
   } catch (error: any) {
@@ -362,7 +370,7 @@ router.post('/:id/apply', authenticateToken, async (req: Request, res: Response)
 });
 
 // Legacy alias for older clients.
-router.post('/:id/action', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.post('/:id/action', authenticateToken, requireUser, async (req: Request, res: Response): Promise<void> => {
   try {
     await createLeadFromOfferApply(req, res);
   } catch (error: any) {
@@ -412,7 +420,7 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response): Promi
       }
     }
 
-    if (req.user?.role === 'EMPLOYEE') {
+    if (req.user?.role === 'USER') {
       const verified = await isUserVerifiedForCompany(req.user.id, offer.companyId);
       if (!verified) {
         res.status(403).json({

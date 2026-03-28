@@ -9,9 +9,10 @@ datasource db {
 
 enum UserRole {
   ADMIN
+  SALES
   FINANCE
   VENDOR
-  EMPLOYEE
+  USER
 }
 
 enum VendorStatus {
@@ -127,7 +128,7 @@ model User {
   email         String    @unique
   passwordHash  String?   @map("password_hash")
   name          String?
-  role          UserRole  @default(EMPLOYEE)
+  role          UserRole  @default(USER)
   vendorId      String?   @map("vendor_id")
   activeCompanyId String? @map("active_company_id")
   employeeCompanyId    String?   @map("employee_company_id")
@@ -137,6 +138,7 @@ model User {
 
   vendor              Vendor?
   reviewedRequests    VendorRequest[] @relation("ReviewedBy")
+  reviewedCompanyRequests CompanyRequest[] @relation("ReviewedCompanyRequests")
   employeeCompany      Company?              @relation("EmployeeCompany", fields: [employeeCompanyId], references: [id])
   activeCompany        Company?              @relation("ActiveCompany", fields: [activeCompanyId], references: [id])
   employeeVerifications EmployeeVerification[]
@@ -155,6 +157,7 @@ model Vendor {
   companyName   String       @map("company_name")
   contactName   String       @map("contact_name")
   email         String
+  businessEmail String?      @map("business_email")
   phone         String?
   website       String?
   city          String?
@@ -225,6 +228,40 @@ model Company {
   offerClicks           OfferClick[]
 
   @@map("companies")
+}
+
+model CompanyRequest {
+  id            String        @id @default(uuid())
+  companyName   String        @map("company_name")
+  requesterName String        @map("requester_name")
+  workEmail     String        @map("work_email")
+  city          String?
+  note          String?
+  status        RequestStatus @default(PENDING)
+  reviewedById  String?       @map("reviewed_by_id")
+  reviewedAt    DateTime?     @map("reviewed_at")
+  reviewNotes   String?       @map("review_notes")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  reviewedBy    User?         @relation("ReviewedCompanyRequests", fields: [reviewedById], references: [id])
+
+  @@index([status, createdAt])
+  @@index([workEmail])
+  @@map("company_requests")
+}
+
+model ContactMessage {
+  id          String   @id @default(uuid())
+  name        String
+  email       String
+  company     String?
+  message     String
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([createdAt])
+  @@map("contact_messages")
 }
 
 model HRContact {

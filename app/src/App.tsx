@@ -30,6 +30,7 @@ import OfferPage from './pages/OfferPage';
 
 // Auth Pages
 import LoginPage from './pages/auth/LoginPage';
+import RegisterPage from './pages/auth/RegisterPage';
 
 // Admin Pages
 import AdminLayout from './pages/admin/AdminLayout';
@@ -46,9 +47,13 @@ import AdminInvoicesPage from './pages/admin/AdminInvoicesPage';
 import AdminInvoiceDetailPage from './pages/admin/AdminInvoiceDetailPage';
 import FinanceLayout from './pages/finance/FinanceLayout';
 import FinanceDashboard from './pages/finance/FinanceDashboard';
+import SalesLayout from './pages/sales/SalesLayout';
+import SalesDashboardPage from './pages/sales/SalesDashboardPage';
 import SeoContentPage from './pages/SeoContentPage';
 import PolicyTypesPage from './pages/PolicyTypesPage';
 import PricingPage from './pages/PricingPage';
+import LegalPage from './pages/LegalPage';
+import ContactPage from './pages/ContactPage';
 
 function LegacyCompanyRedirect() {
   const { companyId } = useParams<{ companyId: string }>();
@@ -92,7 +97,7 @@ function App() {
                 <Route
                   path="/confirmation"
                   element={
-                    <ProtectedRoute>
+                    <ProtectedRoute allowedRoles={['USER']}>
                       <ConfirmationPage />
                     </ProtectedRoute>
                   }
@@ -100,7 +105,7 @@ function App() {
                 <Route
                   path="/my-applications"
                   element={
-                    <ProtectedRoute>
+                    <ProtectedRoute allowedRoles={['USER']}>
                       <MyApplicationsPage />
                     </ProtectedRoute>
                   }
@@ -108,6 +113,7 @@ function App() {
                 <Route path="/verify" element={<VerifyEmployeePage />} />
                 <Route path="/verify/:companyId" element={<VerifyEmployeePage />} />
                 <Route path="/login" element={<LoginPage />} />
+                <Route path="/signup" element={<RegisterPage />} />
                 <Route path="/become-partner" element={<Navigate to="/vendor/apply" replace />} />
                 <Route path="/vendor/apply" element={<VendorApplyPage />} />
                 <Route path="/vendor/login" element={<VendorLoginPage />} />
@@ -118,6 +124,7 @@ function App() {
                 <Route path="/for-hr-teams" element={<SeoContentPage pageKey="forHrTeams" />} />
                 <Route path="/pricing" element={<PricingPage />} />
                 <Route path="/about" element={<SeoContentPage pageKey="about" />} />
+                <Route path="/contact" element={<ContactPage />} />
                 <Route path="/careers" element={<SeoContentPage pageKey="careers" />} />
                 <Route path="/press" element={<SeoContentPage pageKey="press" />} />
                 <Route path="/blog" element={<SeoContentPage pageKey="blog" />} />
@@ -125,9 +132,9 @@ function App() {
                 <Route path="/api-docs" element={<SeoContentPage pageKey="apiDocs" />} />
                 <Route path="/partner-portal" element={<SeoContentPage pageKey="partnerPortal" />} />
                 <Route path="/case-studies" element={<SeoContentPage pageKey="caseStudies" />} />
-                <Route path="/privacy-policy" element={<SeoContentPage pageKey="privacyPolicy" />} />
-                <Route path="/terms-of-service" element={<SeoContentPage pageKey="termsOfService" />} />
-                <Route path="/cookie-policy" element={<SeoContentPage pageKey="cookiePolicy" />} />
+                <Route path="/privacy-policy" element={<LegalPage pageKey="privacy" />} />
+                <Route path="/terms-of-service" element={<LegalPage pageKey="terms" />} />
+                <Route path="/cookie-policy" element={<LegalPage pageKey="cookies" />} />
                 <Route path="/security" element={<SeoContentPage pageKey="security" />} />
                 <Route path="/policies" element={<PolicyTypesPage />} />
                 <Route path="/privacy" element={<Navigate to="/privacy-policy" replace />} />
@@ -141,7 +148,7 @@ function App() {
                 <Route
                   path="/vendor"
                   element={
-                    <ProtectedRoute requireVendor>
+                    <ProtectedRoute allowedRoles={['VENDOR']}>
                       <VendorLayout />
                     </ProtectedRoute>
                   }
@@ -158,7 +165,7 @@ function App() {
 
                 {/* Admin Routes */}
                 <Route path="/admin" element={
-                  <ProtectedRoute requireAdmin>
+                  <ProtectedRoute allowedRoles={['ADMIN']}>
                     <AdminLayout />
                   </ProtectedRoute>
                 }>
@@ -178,11 +185,22 @@ function App() {
 
                 {/* Finance Routes */}
                 <Route path="/finance" element={
-                  <ProtectedRoute requireFinance>
+                  <ProtectedRoute allowedRoles={['ADMIN', 'FINANCE']}>
                     <FinanceLayout />
                   </ProtectedRoute>
                 }>
                   <Route index element={<FinanceDashboard />} />
+                </Route>
+
+                <Route
+                  path="/sales"
+                  element={
+                    <ProtectedRoute allowedRoles={['ADMIN', 'SALES']}>
+                      <SalesLayout />
+                    </ProtectedRoute>
+                  }
+                >
+                  <Route index element={<SalesDashboardPage />} />
                 </Route>
 
                 <Route path="*" element={<NotFoundPage />} />

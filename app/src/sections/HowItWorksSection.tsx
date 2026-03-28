@@ -91,12 +91,12 @@ const HowItWorksSection = () => {
     <section
       ref={sectionRef}
       id="how-it-works"
-      className="relative w-full bg-corp-light py-20 lg:py-28 z-30"
+      className="relative w-full bg-corp-light py-16 lg:py-20 z-30"
       aria-label="How It Works"
     >
       <div className="w-full px-6 lg:px-12">
         {/* Section Header */}
-        <div className="text-center mb-16">
+        <div className="text-center mb-12">
           <span className="eyebrow mb-4 block">SIMPLE PROCESS</span>
           <h2 className="heading-2 text-corp-dark mb-4">
             HOW CORPDEALS WORKS
@@ -110,7 +110,7 @@ const HowItWorksSection = () => {
         {/* Steps Cards */}
         <div
           ref={cardsRef}
-          className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8 mb-16"
+          className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8 mb-12"
         >
           {steps.map((step, index) => {
             const Icon = step.icon;

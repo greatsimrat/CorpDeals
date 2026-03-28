@@ -516,6 +516,84 @@ export const sendVendorApplicationInternalEmail = async ({
   return sendEmail({ to: supportEmail, subject, text, html });
 };
 
+interface CompanyRequestInternalEmailInput {
+  companyName: string;
+  requesterName: string;
+  workEmail: string;
+  city?: string | null;
+  note?: string | null;
+}
+
+export const sendCompanyRequestInternalEmail = async ({
+  companyName,
+  requesterName,
+  workEmail,
+  city,
+  note,
+}: CompanyRequestInternalEmailInput): Promise<SendEmailResult> => {
+  const supportEmail =
+    process.env.COMPANY_REQUEST_EMAIL ||
+    process.env.VENDOR_SUPPORT_EMAIL ||
+    'support@effectiverenovations.com';
+  const subject = `New Company Request - ${companyName}`;
+  const text = [
+    `Company name: ${companyName}`,
+    `Requester name: ${requesterName}`,
+    `Work email: ${workEmail}`,
+    `City / region: ${city || 'N/A'}`,
+    `Note: ${note || 'N/A'}`,
+  ].join('\n');
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+      <h2 style="margin: 0 0 12px;">New Company Request</h2>
+      <p><strong>Company name:</strong> ${companyName}</p>
+      <p><strong>Requester name:</strong> ${requesterName}</p>
+      <p><strong>Work email:</strong> ${workEmail}</p>
+      <p><strong>City / region:</strong> ${city || 'N/A'}</p>
+      <p><strong>Note:</strong> ${note || 'N/A'}</p>
+    </div>
+  `;
+  return sendEmail({ to: supportEmail, subject, text, html });
+};
+
+interface ContactMessageInternalEmailInput {
+  name: string;
+  email: string;
+  company?: string | null;
+  message: string;
+}
+
+export const sendContactMessageInternalEmail = async ({
+  name,
+  email,
+  company,
+  message,
+}: ContactMessageInternalEmailInput): Promise<SendEmailResult> => {
+  const supportEmail =
+    process.env.CONTACT_SUPPORT_EMAIL ||
+    process.env.COMPANY_REQUEST_EMAIL ||
+    process.env.VENDOR_SUPPORT_EMAIL ||
+    'support@effectiverenovations.com';
+  const subject = `New Contact Message - ${name}`;
+  const text = [
+    `Name: ${name}`,
+    `Email: ${email}`,
+    `Company: ${company || 'N/A'}`,
+    `Message: ${message}`,
+  ].join('\n');
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+      <h2 style="margin: 0 0 12px;">New Contact Message</h2>
+      <p><strong>Name:</strong> ${name}</p>
+      <p><strong>Email:</strong> ${email}</p>
+      <p><strong>Company:</strong> ${company || 'N/A'}</p>
+      <p><strong>Message:</strong></p>
+      <p>${message.replace(/\n/g, '<br />')}</p>
+    </div>
+  `;
+  return sendEmail({ to: supportEmail, subject, text, html });
+};
+
 interface VendorApprovalEmailInput {
   to: string;
   businessName: string;

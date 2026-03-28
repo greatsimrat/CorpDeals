@@ -1,18 +1,29 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import api from '../../services/api';
 import Seo from '../../components/Seo';
+import { getDefaultRouteForRole, hasVendorWorkspaceAccess } from '../../lib/auth';
 
 export default function VendorLoginPage() {
   const navigate = useNavigate();
-  const { refreshUser } = useAuth();
+  const { user, refreshUser, isLoading: authLoading } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const onSubmit = async (e: React.FormEvent) => {
+  useEffect(() => {
+    if (authLoading || !user) return;
+    if (hasVendorWorkspaceAccess(user)) {
+      navigate('/vendor/dashboard', { replace: true });
+      return;
+    }
+    navigate(getDefaultRouteForRole(user), { replace: true });
+  }, [authLoading, navigate, user]);
+
+  const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     setIsSubmitting(true);
@@ -38,7 +49,9 @@ export default function VendorLoginPage() {
       <div className="min-h-screen bg-slate-50 py-10">
         <div className="mx-auto w-full max-w-md px-4">
         <h1 className="mb-2 text-2xl font-semibold text-slate-900">Vendor Login</h1>
-        <p className="mb-6 text-sm text-slate-600">Approved vendors can sign in here.</p>
+        <p className="mb-6 text-sm text-slate-600">
+          Approved partners can sign in here using the same CorpDeals account they applied with.
+        </p>
 
         <form onSubmit={onSubmit} className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
           {error ? (
@@ -79,9 +92,9 @@ export default function VendorLoginPage() {
         </form>
 
         <p className="mt-4 text-sm text-slate-600">
-          New vendor?{' '}
+          New partner?{' '}
           <Link to="/vendor/apply" className="font-medium text-blue-600 hover:underline">
-            Apply here
+            Be our partner
           </Link>
         </p>
         </div>

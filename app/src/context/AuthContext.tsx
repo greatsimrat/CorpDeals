@@ -3,6 +3,13 @@ import type { ReactNode } from 'react';
 import api from '../services/api';
 import { AuthContext } from './auth-context';
 import type { User } from './auth-context';
+import { getDefaultRouteForRole, hasVendorWorkspaceAccess, normalizeRole } from '../lib/auth';
+
+const normalizeUser = (user: User): User => ({
+  ...user,
+  loginEmail: user.loginEmail || user.email,
+  role: normalizeRole(user.role),
+});
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -12,7 +19,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       if (api.getToken()) {
         const userData = await api.getCurrentUser();
-        setUser(userData);
+        setUser(normalizeUser(userData));
+      } else {
+        setUser(null);
       }
     } catch (error) {
       console.error('Failed to refresh user:', error);
@@ -26,11 +35,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         if (api.getToken()) {
           const userData = await api.getCurrentUser();
-          setUser(userData);
+          setUser(normalizeUser(userData));
         }
       } catch (error) {
         console.error('Auth init error:', error);
         api.logout();
+        setUser(null);
       } finally {
         setIsLoading(false);
       }
@@ -41,12 +51,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string) => {
     const result = await api.login(email, password);
-    setUser(result.user);
+    const nextUser = normalizeUser(result.user);
+    setUser(nextUser);
+    return nextUser;
   };
 
   const register = async (data: { email: string; password: string; name?: string }) => {
     const result = await api.register(data);
-    setUser(result.user);
+    const nextUser = normalizeUser(result.user);
+    setUser(nextUser);
+    return nextUser;
   };
 
   const logout = () => {
@@ -62,8 +76,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!user,
         isAdmin: user?.role === 'ADMIN',
         isFinance: user?.role === 'FINANCE',
+        isSales: user?.role === 'SALES',
         isAdminOrFinance: user?.role === 'ADMIN' || user?.role === 'FINANCE',
-        isVendor: user?.role === 'VENDOR',
+        isAdminOrSales: user?.role === 'ADMIN' || user?.role === 'SALES',
+        isVendor: !!user && hasVendorWorkspaceAccess(user),
+        isUser: user?.role === 'USER',
+        hasVendorAccess: !!user && hasVendorWorkspaceAccess(user),
+        role: user?.role || null,
+        defaultRoute: getDefaultRouteForRole(user),
         login,
         register,
         logout,

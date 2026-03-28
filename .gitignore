@@ -18,6 +18,7 @@ coverage/
 !*.env.example
 .env.local
 app/.env.local
+backend/.env.local
 *.local
 app/.env
 app/.env.*
@@ -36,6 +37,11 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+# Playwright
+app/playwright-report/
+app/test-results/
+app/tests/regression/
 
 # OS / editor files
 .DS_Store

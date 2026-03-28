@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../lib/prisma';
-import { authenticateToken, requireAdmin } from '../middleware/auth';
+import { authenticateToken, authenticateTokenOptional, requireAdmin } from '../middleware/auth';
 import {
   canSendEmail,
   getEmailConfig,
@@ -19,6 +19,7 @@ import {
   upsertUserCompanyVerification,
   VERIFIED_STATUS,
 } from '../lib/verifications';
+import { DEFAULT_USER_ROLE } from '../lib/roles';
 
 const router = Router();
 
@@ -99,8 +100,15 @@ router.post(
 );
 
 // Start verification (send code)
-router.post('/start', async (req: Request, res: Response): Promise<void> => {
+router.post('/start', authenticateTokenOptional, async (req: Request, res: Response): Promise<void> => {
   try {
+    if (req.user && req.user.role !== DEFAULT_USER_ROLE) {
+      res.status(403).json({
+        error: 'Only user accounts can start work email verification',
+      });
+      return;
+    }
+
     const companyIdOrSlug = String(
       req.body?.companyIdOrSlug || req.body?.companyId || req.body?.company || ''
     ).trim();
@@ -237,6 +245,7 @@ const completeVerification = async (
   verification: any,
   code: string,
   name: unknown,
+  currentUserId: string | undefined,
   res: Response
 ): Promise<void> => {
   if (verification.status !== 'PENDING') {
@@ -268,13 +277,58 @@ const completeVerification = async (
     return;
   }
 
+  const conflictingVerifiedWorkEmail = await prisma.employeeVerification.findFirst({
+    where: {
+      email: verification.email,
+      status: 'VERIFIED',
+      userId: {
+        not: currentUserId || undefined,
+      },
+    },
+    select: {
+      id: true,
+      userId: true,
+    },
+  });
+
   const existingUser = await prisma.user.findUnique({
     where: { email: verification.email },
   });
 
-  if (existingUser && existingUser.role !== 'EMPLOYEE') {
+  const currentUser = currentUserId
+    ? await prisma.user.findUnique({
+        where: { id: currentUserId },
+      })
+    : null;
+
+  if (currentUser && currentUser.role !== DEFAULT_USER_ROLE) {
+    res.status(403).json({
+      error: 'Only user accounts can attach work email verification',
+    });
+    return;
+  }
+
+  if (currentUser && existingUser && existingUser.id !== currentUser.id) {
     res.status(409).json({
-      error: 'This email is already linked to a vendor or admin account',
+      error: 'This work email is already linked to another account',
+    });
+    return;
+  }
+
+  if (
+    conflictingVerifiedWorkEmail &&
+    conflictingVerifiedWorkEmail.userId &&
+    (!currentUser || conflictingVerifiedWorkEmail.userId !== currentUser.id)
+  ) {
+    res.status(409).json({
+      error: 'This work email is already linked to another account',
+    });
+    return;
+  }
+
+  if (!currentUser && existingUser && existingUser.role !== DEFAULT_USER_ROLE) {
+    res.status(409).json({
+      error: 'This email is already linked to a non-user account',
     });
     return;
   }
@@ -282,20 +336,24 @@ const completeVerification = async (
   const displayName =
     typeof name === 'string' && name.trim().length > 0 ? name.trim() : null;
 
-  const passwordHash = existingUser
+  const accountUser = currentUser || existingUser;
+
+  const passwordHash = accountUser
     ? undefined
     : await bcrypt.hash(
         `emp-${verification.id}-${Math.random().toString(36).slice(2)}`,
         10
       );
 
-  const user = existingUser
+  const user = accountUser
     ? await prisma.user.update({
-        where: { id: existingUser.id },
+        where: { id: accountUser.id },
         data: {
+          role: DEFAULT_USER_ROLE,
+          activeCompanyId: verification.companyId,
           employeeCompanyId: verification.companyId,
           employmentVerifiedAt: new Date(),
-          ...(displayName && !existingUser.name ? { name: displayName } : {}),
+          ...(displayName && !accountUser.name ? { name: displayName } : {}),
         },
       })
     : await prisma.user.create({
@@ -303,7 +361,8 @@ const completeVerification = async (
           email: verification.email,
           passwordHash: passwordHash!,
           name: displayName,
-          role: 'EMPLOYEE',
+          role: DEFAULT_USER_ROLE,
+          activeCompanyId: verification.companyId,
           employeeCompanyId: verification.companyId,
           employmentVerifiedAt: new Date(),
         },
@@ -349,7 +408,7 @@ const completeVerification = async (
 };
 
 // Verify code and issue employee token
-router.post('/verify', async (req: Request, res: Response): Promise<void> => {
+router.post('/verify', authenticateTokenOptional, async (req: Request, res: Response): Promise<void> => {
   try {
     const verificationId = String(req.body?.verificationId || '').trim();
     const code = String(req.body?.code || req.body?.otp || '').trim();
@@ -372,7 +431,7 @@ router.post('/verify', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    await completeVerification(verification, code, name, res);
+    await completeVerification(verification, code, name, req.user?.id, res);
   } catch (error) {
     console.error('Verify code error:', error);
     res.status(500).json({ error: 'Failed to verify code' });
@@ -380,7 +439,7 @@ router.post('/verify', async (req: Request, res: Response): Promise<void> => {
 });
 
 // Alias used by new frontend flow
-router.post('/confirm', async (req: Request, res: Response): Promise<void> => {
+router.post('/confirm', authenticateTokenOptional, async (req: Request, res: Response): Promise<void> => {
   try {
     const verificationId = String(req.body?.verificationId || '').trim();
     const companyIdOrSlug = String(
@@ -443,7 +502,7 @@ router.post('/confirm', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    await completeVerification(verification, code, name, res);
+    await completeVerification(verification, code, name, req.user?.id, res);
   } catch (error) {
     console.error('Confirm verification error:', error);
     res.status(500).json({ error: 'Failed to verify code' });

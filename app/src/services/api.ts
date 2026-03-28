@@ -1,4 +1,7 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const rawApiBaseUrl = import.meta.env.VITE_API_URL?.trim() || 'http://localhost:3001';
+const API_BASE_URL = rawApiBaseUrl.replace(/\/$/, '').endsWith('/api')
+  ? rawApiBaseUrl.replace(/\/$/, '')
+  : `${rawApiBaseUrl.replace(/\/$/, '')}/api`;
 
 interface RequestOptions {
   method?: string;
@@ -104,7 +107,7 @@ class ApiService {
     return result;
   }
 
-  async register(data: { email: string; password: string; name?: string; role?: string }) {
+  async register(data: { email: string; password: string; name?: string }) {
     const result = await this.request<{ user: any; token: string }>('/auth/register', {
       method: 'POST',
       body: data,
@@ -204,13 +207,18 @@ class ApiService {
     companyName?: string;
     contactName: string;
     contactEmail?: string;
+    businessEmail?: string;
     email?: string;
     phone?: string;
     website?: string;
     category?: string;
     businessType?: string;
     city?: string;
+    jobTitle?: string;
+    targetCompanies?: string;
+    offerSummary?: string;
     notes?: string;
+    captchaToken?: string;
     description?: string;
     additionalInfo?: string;
     password?: string;
@@ -220,13 +228,18 @@ class ApiService {
       businessName: data.businessName || data.companyName || '',
       contactName: data.contactName,
       contactEmail: data.contactEmail || data.email || '',
+      businessEmail: data.businessEmail || '',
       phone: data.phone,
       website: data.website,
       category: data.category || data.businessType,
       city: data.city,
+      jobTitle: data.jobTitle,
+      targetCompanies: data.targetCompanies,
+      offerSummary: data.offerSummary,
+      captchaToken: data.captchaToken,
       notes: data.notes || data.description || data.additionalInfo,
     };
-    return this.request<{ ok: boolean; message: string; vendorId: string }>('/vendor/apply', {
+    return this.request<{ ok: boolean; message: string; vendorId: string; requestId?: string }>('/vendor/apply', {
       method: 'POST',
       body: payload,
     });
@@ -400,6 +413,49 @@ class ApiService {
     const params = new URLSearchParams({ q: query });
     return this.request<{ query: string; company: any | null; matches: any[] }>(
       `/companies/resolve/search?${params.toString()}`
+    );
+  }
+
+  async submitCompanyRequest(data: {
+    companyName: string;
+    requesterName: string;
+    workEmail: string;
+    city?: string;
+    note?: string;
+  }) {
+    return this.request<{ ok: boolean; requestId: string; message: string }>('/companies/requests', {
+      method: 'POST',
+      body: data,
+    });
+  }
+
+  async submitContactMessage(data: {
+    name: string;
+    email: string;
+    company?: string;
+    message: string;
+  }) {
+    return this.request<{ ok: boolean; message: string; contactMessageId: string }>('/contact', {
+      method: 'POST',
+      body: data,
+    });
+  }
+
+  async getCompanyRequests(params?: { status?: string }) {
+    const query = this.buildQuery(params as Record<string, unknown> | undefined);
+    return this.request<any[]>(`/companies/requests${query}`);
+  }
+
+  async reviewCompanyRequest(
+    id: string,
+    data: { status: 'APPROVED' | 'REJECTED'; reviewNotes?: string }
+  ) {
+    return this.request<{ ok: boolean; request: any; company: any | null; message: string }>(
+      `/companies/requests/${encodeURIComponent(id)}`,
+      {
+        method: 'PATCH',
+        body: data,
+      }
     );
   }
 
@@ -771,6 +827,48 @@ class ApiService {
   async getFinanceInvoices(params?: { month?: string }) {
     const query = this.buildQuery(params as Record<string, unknown> | undefined);
     return this.request<any>(`/finance/invoices${query}`);
+  }
+
+  // Sales
+  async getSalesDashboard() {
+    return this.request<{
+      summary: {
+        pendingVendorRequests: number;
+        pendingCompanyRequests: number;
+        approvedVendors: number;
+        draftOffers: number;
+        submittedOffers: number;
+        liveOffers: number;
+      };
+      vendorRequests: any[];
+      companyRequests: any[];
+      vendors: any[];
+      companies: any[];
+      categories: any[];
+      recentOffers: any[];
+    }>('/sales/dashboard');
+  }
+
+  async createSalesOffer(data: {
+    vendorId: string;
+    companyId: string;
+    categoryId?: string;
+    title: string;
+    description: string;
+    productName?: string;
+    productModel?: string;
+    productUrl?: string;
+    expiryDate?: string;
+  }) {
+    return this.request<{ ok: boolean; message: string; offer: any }>('/sales/offers', {
+      method: 'POST',
+      body: data,
+    });
+  }
+
+  async getSalesOffers(params?: { status?: string; vendorId?: string }) {
+    const query = this.buildQuery(params as Record<string, unknown> | undefined);
+    return this.request<any[]>(`/sales/offers${query}`);
   }
 }
 

@@ -1,15 +1,18 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
 
-// Load environment variables
-dotenv.config();
+// Load base env first, then let .env.local override for local development.
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local'), override: true });
 
 // Import routes
 import authRoutes from './routes/auth';
 import vendorRoutes from './routes/vendors';
 import vendorJourneyRoutes from './routes/vendor';
 import companyRoutes from './routes/companies';
+import contactRoutes from './routes/contact';
 import categoryRoutes from './routes/categories';
 import offerRoutes from './routes/offers';
 import hrContactRoutes from './routes/hr-contacts';
@@ -17,6 +20,7 @@ import adminRoutes from './routes/admin';
 import leadRoutes from './routes/leads';
 import employeeVerificationRoutes from './routes/employee-verifications';
 import financeRoutes from './routes/finance';
+import salesRoutes from './routes/sales';
 import { sendTestEmail } from './lib/mailer';
 import devRoutes from './routes/dev';
 import myApplicationsRoutes from './routes/my-applications';
@@ -116,8 +120,8 @@ app.get('/api/me', authenticateTokenOptional, async (req, res) => {
       user,
       verified_companies: verifiedCompanies,
       verifiedCompanies,
-      active_company_id: user.employeeCompany?.id || null,
-      activeCompanyId: user.employeeCompany?.id || null,
+      active_company_id: user.activeCompany?.id || user.employeeCompany?.id || null,
+      activeCompanyId: user.activeCompany?.id || user.employeeCompany?.id || null,
     });
   } catch (error) {
     console.error('Get /api/me error:', error);
@@ -165,11 +169,13 @@ app.use('/api/auth', authRoutes);
 app.use('/api/vendors', vendorRoutes);
 app.use('/api/vendor', vendorJourneyRoutes);
 app.use('/api/companies', companyRoutes);
+app.use('/api/contact', contactRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/offers', offerRoutes);
 app.use('/api/hr-contacts', hrContactRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/finance', financeRoutes);
+app.use('/api/sales', salesRoutes);
 app.use('/api/leads', leadRoutes);
 app.use('/api/employee-verifications', employeeVerificationRoutes);
 app.use('/api/verify', employeeVerificationRoutes);

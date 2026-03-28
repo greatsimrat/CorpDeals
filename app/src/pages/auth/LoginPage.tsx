@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { FormEvent } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Mail, Lock, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import Seo from '../../components/Seo';
+import { canAccessPathForRole, getDefaultRouteForRole } from '../../lib/auth';
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, login, isLoading: authLoading } = useAuth();
+  const { user, login, isLoading: authLoading, defaultRoute } = useAuth();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,26 +20,28 @@ export default function LoginPage() {
   const from = fromState?.pathname
     ? `${fromState.pathname}${fromState.search || ''}`
     : '/';
-  const lastActiveCompanyPath = useMemo(() => {
-    const slug = user?.employeeCompany?.slug || user?.activeVerification?.company?.slug;
-    return slug ? `/c/${slug}` : '/';
-  }, [user]);
-
   useEffect(() => {
     if (authLoading) return;
     if (!user) return;
-    if (fromState?.pathname) return;
-    navigate(lastActiveCompanyPath, { replace: true });
-  }, [authLoading, fromState?.pathname, lastActiveCompanyPath, navigate, user]);
+    if (fromState?.pathname && canAccessPathForRole(user.role, fromState.pathname)) {
+      navigate(from, { replace: true });
+      return;
+    }
+    navigate(defaultRoute, { replace: true });
+  }, [authLoading, defaultRoute, from, fromState?.pathname, navigate, user]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
     try {
-      await login(email, password);
-      navigate(from, { replace: true });
+      const nextUser = await login(email, password);
+      const target =
+        fromState?.pathname && canAccessPathForRole(nextUser.role, fromState.pathname)
+          ? from
+          : getDefaultRouteForRole(nextUser);
+      navigate(target, { replace: true });
     } catch (err: any) {
       setError(err.message || 'Invalid credentials');
     } finally {
@@ -72,7 +76,9 @@ export default function LoginPage() {
               <span className="text-white font-bold text-xl">C</span>
             </div>
             <h1 className="text-2xl font-bold text-slate-900">Welcome Back</h1>
-            <p className="text-slate-600 mt-1">Sign in to access your account</p>
+            <p className="text-slate-600 mt-1">
+              Sign in with your account email. Work email verification happens after login.
+            </p>
           </div>
 
           {/* Form */}
@@ -95,10 +101,13 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  placeholder="you@company.com"
+                  placeholder="you@gmail.com"
                   className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 />
               </div>
+              <p className="mt-2 text-xs text-slate-500">
+                Use your personal or preferred login email. Your work email is used separately to unlock company deals.
+              </p>
             </div>
 
             <div>
@@ -137,6 +146,12 @@ export default function LoginPage() {
           {/* Footer */}
           <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 text-center">
             <p className="text-sm text-slate-600">
+              New here?{' '}
+              <Link to="/signup" state={location.state} className="text-blue-600 hover:underline font-medium">
+                Create an account
+              </Link>
+            </p>
+            <p className="text-sm text-slate-600 mt-2">
               Want to become a vendor?{' '}
               <Link to="/become-partner" className="text-blue-600 hover:underline font-medium">
                 Apply here
@@ -149,6 +164,8 @@ export default function LoginPage() {
         <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
           <p className="text-sm font-medium text-amber-800 mb-2">Demo Credentials:</p>
           <p className="text-sm text-amber-700">Admin: admin@corpdeals.io / admin123</p>
+          <p className="text-sm text-amber-700">Sales: sales@corpdeals.io / sales123</p>
+          <p className="text-sm text-amber-700">Finance: finance@corpdeals.io / finance123</p>
           <p className="text-sm text-amber-700">Vendor: vendor@coastcapital.com / vendor123</p>
         </div>
         </div>

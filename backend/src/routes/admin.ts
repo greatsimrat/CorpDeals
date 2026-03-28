@@ -7,6 +7,7 @@ import {
   sendVendorRejectionEmail,
 } from '../lib/mailer';
 import { createVendorSetPasswordToken } from '../lib/vendor-password';
+import { isAppRole, normalizeRole } from '../lib/roles';
 
 const router = Router();
 
@@ -142,6 +143,7 @@ router.get('/stats', async (req: Request, res: Response): Promise<void> => {
       activeOffers,
       totalLeads,
       pendingRequests,
+      pendingCompanyRequests,
       leadSummaryRows,
       dailyLeadRows,
       monthlyLeadRows,
@@ -156,6 +158,7 @@ router.get('/stats', async (req: Request, res: Response): Promise<void> => {
       countActiveApprovedOffers(),
       prisma.lead.count(),
       prisma.vendorRequest.count({ where: { status: 'PENDING' } }),
+      prisma.companyRequest.count({ where: { status: 'PENDING' } }),
       prisma.$queryRaw<LeadSummaryRow[]>`
         SELECT
           COUNT(*) FILTER (WHERE "created_at" >= DATE_TRUNC('day', NOW()))::int AS "today",
@@ -206,6 +209,7 @@ router.get('/stats', async (req: Request, res: Response): Promise<void> => {
         active: activeOffers,
       },
       leads: totalLeads,
+      pendingCompanyRequests,
       leadSubmissions: {
         today: leadSummary.today,
         thisMonth: leadSummary.thisMonth,
@@ -548,11 +552,17 @@ router.post('/offers-review/:id/reject', async (req: Request, res: Response): Pr
 // Get all users
 router.get('/users', async (req: Request, res: Response): Promise<void> => {
   try {
-    const role = firstString(req.query.role);
+    const roleParam = firstString(req.query.role);
     const search = firstString(req.query.search);
 
     const where: any = {};
-    if (role) where.role = role;
+    if (roleParam) {
+      if (!isAppRole(roleParam) && String(roleParam).trim().toUpperCase() !== 'EMPLOYEE') {
+        res.status(400).json({ error: 'Invalid role filter' });
+        return;
+      }
+      where.role = normalizeRole(roleParam);
+    }
     if (search) {
       where.OR = [
         { email: { contains: search as string, mode: 'insensitive' } },
@@ -591,12 +601,14 @@ router.patch('/users/:id/role', async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    const { role } = req.body;
+    const requestedRole = req.body?.role;
 
-    if (!['ADMIN', 'FINANCE', 'VENDOR', 'EMPLOYEE'].includes(role)) {
+    if (!isAppRole(requestedRole)) {
       res.status(400).json({ error: 'Invalid role' });
       return;
     }
+
+    const role = normalizeRole(requestedRole);
 
     const user = await prisma.user.update({
       where: { id },
@@ -689,7 +701,6 @@ router.patch('/vendors/:id', async (req: Request, res: Response): Promise<void> 
       await tx.user.update({
         where: { id: vendor.userId },
         data: {
-          role: 'VENDOR',
           vendorId: vendor.id,
         } as any,
       });

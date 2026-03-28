@@ -34,6 +34,40 @@ async function main() {
   });
   console.log('Created admin user:', admin.email);
 
+  const financePassword = await bcrypt.hash('finance123', 10);
+  const finance = await prisma.user.upsert({
+    where: { email: 'finance@corpdeals.io' },
+    update: {
+      passwordHash: financePassword,
+      name: 'Finance User',
+      role: 'FINANCE',
+    },
+    create: {
+      email: 'finance@corpdeals.io',
+      passwordHash: financePassword,
+      name: 'Finance User',
+      role: 'FINANCE',
+    },
+  });
+  console.log('Created finance user:', finance.email);
+
+  const salesPassword = await bcrypt.hash('sales123', 10);
+  const sales = await prisma.user.upsert({
+    where: { email: 'sales@corpdeals.io' },
+    update: {
+      passwordHash: salesPassword,
+      name: 'Sales User',
+      role: 'SALES',
+    },
+    create: {
+      email: 'sales@corpdeals.io',
+      passwordHash: salesPassword,
+      name: 'Sales User',
+      role: 'SALES',
+    },
+  });
+  console.log('Created sales user:', sales.email);
+
   // Create categories
   const categories = [
     { name: 'Banking & Finance', slug: 'banking', icon: 'Building2', color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
@@ -960,6 +994,8 @@ async function main() {
   console.log('Seeding completed!');
   console.log('\nTest credentials:');
   console.log('Admin: admin@corpdeals.io / admin123');
+  console.log('Sales: sales@corpdeals.io / sales123');
+  console.log('Finance: finance@corpdeals.io / finance123');
   console.log('Vendor: vendor@coastcapital.com / vendor123');
   console.log('Vendor (BMO): vendor@bmo.com / vendor123');
 }

@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import prisma from '../lib/prisma';
 import { authenticateToken } from '../middleware/auth';
 import { buildAuthUserPayload } from '../lib/auth-user';
+import { DEFAULT_USER_ROLE } from '../lib/roles';
 
 const router = Router();
 const jwtExpiresIn = (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'];
@@ -11,7 +12,14 @@ const jwtExpiresIn = (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['ex
 // Register
 router.post('/register', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password, name, role } = req.body;
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const password = String(req.body?.password || '');
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : undefined;
+
+    if (!email || !password) {
+      res.status(400).json({ error: 'Email and password are required' });
+      return;
+    }
 
     // Check if user exists
     const existingUser = await prisma.user.findUnique({
@@ -32,7 +40,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
         email,
         passwordHash,
         name,
-        role: role || 'EMPLOYEE',
+        role: DEFAULT_USER_ROLE,
       },
     });
 
@@ -62,7 +70,13 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
 // Login
 router.post('/login', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password } = req.body;
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const password = String(req.body?.password || '');
+
+    if (!email || !password) {
+      res.status(400).json({ error: 'Email and password are required' });
+      return;
+    }
 
     // Find user
     const user = await prisma.user.findUnique({ where: { email } });

@@ -60,11 +60,11 @@ export default function PolicyTypesPage() {
   return (
     <>
       <Seo
-        title="Policy Types | CorpDeals"
-        description="Browse CorpDeals policy types including privacy policy, terms of service, cookie policy, and security overview."
-        keywords="policy types, privacy policy, terms of service, cookie policy, security policy"
+        title="Policies | CorpDeals"
+        description="Browse the core CorpDeals policy pages including privacy, terms, cookies, and security."
+        keywords="policies, privacy policy, terms of service, cookie policy, security policy"
         path="/policies"
-        image="/hero_main.jpg"
+        image="/CorpDeals-hero1.webp"
         structuredData={structuredData}
       />
       <div className="min-h-screen bg-slate-50">
@@ -82,10 +82,9 @@ export default function PolicyTypesPage() {
         <main className="mx-auto max-w-6xl px-6 py-10">
           <section className="rounded-2xl border border-slate-200 bg-white p-8 mb-8">
             <p className="text-xs font-semibold tracking-widest uppercase text-blue-700 mb-3">Legal and Trust Center</p>
-            <h1 className="text-3xl font-bold text-slate-900 mb-4">Policy Types</h1>
+            <h1 className="text-3xl font-bold text-slate-900 mb-4">Policies</h1>
             <p className="text-slate-700 leading-7">
-              This page summarizes key policy types used on CorpDeals so employees, vendors, and admins can quickly find
-              the right governance document.
+              This page brings together the core policy documents that govern how CorpDeals handles privacy, cookies, service usage, and trust-related operational expectations.
             </p>
           </section>
 
@@ -94,7 +93,7 @@ export default function PolicyTypesPage() {
               <article key={card.title} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
                 <img src={card.image} alt={card.title} className="h-44 w-full object-cover" loading="lazy" />
                 <div className="p-6">
-                  <h2 className="text-xl font-semibold text-slate-900 mb-3">{card.title}</h2>
+              <h2 className="text-xl font-semibold text-slate-900 mb-3">{card.title}</h2>
                   <p className="text-slate-700 mb-4 leading-7">{card.summary}</p>
                   <ul className="list-disc pl-5 space-y-1 text-sm text-slate-700 mb-5">
                     {card.bullets.map((item) => (
@@ -105,7 +104,7 @@ export default function PolicyTypesPage() {
                     to={card.path}
                     className="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
                   >
-                    Read {card.title}
+                    Read policy
                   </Link>
                 </div>
               </article>
@@ -115,14 +114,14 @@ export default function PolicyTypesPage() {
           <section className="rounded-2xl border border-blue-200 bg-blue-50 p-6 flex flex-wrap items-center justify-between gap-4">
             <div>
               <h2 className="text-xl font-semibold text-slate-900">Need Clarification?</h2>
-              <p className="text-slate-700">If you need help interpreting a policy, contact support.</p>
+              <p className="text-slate-700">If you need help understanding one of these policies, contact the CorpDeals team.</p>
             </div>
-            <Link
-              to="/help-center"
+            <a
+              href="mailto:hello@corpdeals.io"
               className="inline-flex items-center rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
             >
-              Go to Help Center
-            </Link>
+              Email hello@corpdeals.io
+            </a>
           </section>
         </main>
       </div>

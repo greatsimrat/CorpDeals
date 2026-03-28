@@ -39,14 +39,18 @@ interface Stats {
     yearly: Array<{ bucket: string; count: number }>;
   };
   pendingRequests: number;
+  pendingCompanyRequests: number;
 }
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [pendingRequests, setPendingRequests] = useState<any[]>([]);
+  const [pendingCompanyRequests, setPendingCompanyRequests] = useState<any[]>([]);
   const [invoiceData, setInvoiceData] = useState<{ month: string; totals: { count: number; amountCents: number }; invoices: any[] } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isReviewingCompanyRequestId, setIsReviewingCompanyRequestId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
   useEffect(() => {
     loadData();
@@ -57,18 +61,38 @@ export default function AdminDashboard() {
       setIsLoading(true);
       const now = new Date();
       const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      const [statsData, requestsData, invoicesData] = await Promise.all([
+      const [statsData, requestsData, companyRequestsData, invoicesData] = await Promise.all([
         api.getAdminStats(),
         api.getVendorRequests({ status: 'PENDING' }),
+        api.getCompanyRequests({ status: 'PENDING' }),
         api.getFinanceInvoices({ month: monthKey }),
       ]);
       setStats(statsData);
       setPendingRequests(requestsData.slice(0, 5));
+      setPendingCompanyRequests(companyRequestsData.slice(0, 5));
       setInvoiceData(invoicesData);
     } catch (err: any) {
       setError(err.message || 'Failed to load data');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleCompanyRequestReview = async (
+    requestId: string,
+    status: 'APPROVED' | 'REJECTED'
+  ) => {
+    try {
+      setIsReviewingCompanyRequestId(requestId);
+      setError('');
+      setSuccessMessage('');
+      const result = await api.reviewCompanyRequest(requestId, { status });
+      setSuccessMessage(result.message || 'Company request updated.');
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to review company request');
+    } finally {
+      setIsReviewingCompanyRequestId(null);
     }
   };
 
@@ -164,11 +188,18 @@ export default function AdminDashboard() {
       link: '/finance',
     },
     {
-      label: 'Pending Requests',
+      label: 'Vendor Requests',
       value: stats?.pendingRequests || 0,
       icon: FileCheck,
       color: 'orange',
       link: '/admin/vendor-requests',
+    },
+    {
+      label: 'Company Requests',
+      value: stats?.pendingCompanyRequests || 0,
+      icon: Building2,
+      color: 'blue',
+      link: '/admin/companies',
     },
   ];
 
@@ -188,6 +219,12 @@ export default function AdminDashboard() {
         <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
         <p className="text-slate-600 mt-1">Overview of your CorpDeals platform</p>
       </div>
+
+      {successMessage ? (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 text-emerald-700">
+          {successMessage}
+        </div>
+      ) : null}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -322,6 +359,64 @@ export default function AdminDashboard() {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200">
+        <div className="flex items-center justify-between p-5 border-b border-slate-200">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <Building2 className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-slate-900">Pending Company Requests</h2>
+              <p className="text-sm text-slate-500">Approve employee-requested companies and add them to the platform</p>
+            </div>
+          </div>
+        </div>
+
+        {pendingCompanyRequests.length === 0 ? (
+          <div className="p-8 text-center">
+            <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-3" />
+            <p className="text-slate-600">No pending company requests</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-200">
+            {pendingCompanyRequests.map((request) => (
+              <div key={request.id} className="p-4 hover:bg-slate-50">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <p className="font-medium text-slate-900">{request.companyName}</p>
+                    <p className="text-sm text-slate-500">
+                      {request.requesterName} · {request.workEmail}
+                    </p>
+                    <p className="text-sm text-slate-500">{request.city || 'Location not provided'}</p>
+                    {request.note ? (
+                      <p className="mt-1 text-sm text-slate-600">{request.note}</p>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleCompanyRequestReview(request.id, 'APPROVED')}
+                      disabled={isReviewingCompanyRequestId === request.id}
+                      className="px-3 py-1.5 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {isReviewingCompanyRequestId === request.id ? 'Working...' : 'Approve + Add Company'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCompanyRequestReview(request.id, 'REJECTED')}
+                      disabled={isReviewingCompanyRequestId === request.id}
+                      className="px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Pending Vendor Requests */}

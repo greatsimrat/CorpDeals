@@ -185,6 +185,40 @@ img.loaded {
   animation: fadeInUp 0.6s ease-out forwards;
 }
 
+@keyframes logoMarquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.logo-marquee {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+}
+
+.logo-marquee-track {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  width: max-content;
+  animation: logoMarquee 46s linear infinite;
+}
+
+.logo-marquee-item {
+  flex: 0 0 auto;
+  padding-inline: 0.25rem;
+}
+
+.logo-marquee:hover .logo-marquee-track {
+  animation-play-state: paused;
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -197,6 +231,11 @@ img.loaded {
   
   html {
     scroll-behavior: auto;
+  }
+
+  .logo-marquee-track {
+    animation: none !important;
+    transform: none !important;
   }
 }
 

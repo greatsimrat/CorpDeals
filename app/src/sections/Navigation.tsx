@@ -2,14 +2,18 @@ import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { getUserDisplayName, getUserInitials } from '../lib/auth';
 
 const Navigation = () => {
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, logout, role, hasVendorAccess } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState('');
+  const displayName = getUserDisplayName(user);
+  const initials = getUserInitials(user);
+  const loginEmail = user?.loginEmail || user?.email || '';
 
   const verificationLabel = user?.activeVerification
     ? `Verified: ${user.activeVerification.company.name} (valid until ${new Date(
@@ -26,7 +30,7 @@ const Navigation = () => {
 
     // Track active section for highlighting
     const handleSectionObserver = () => {
-      const sections = ['search', 'how-it-works', 'categories', 'vendors', 'testimonial'];
+      const sections = ['search', 'how-it-works', 'vendors', 'testimonial'];
       const observerOptions = {
         rootMargin: '-50% 0px -50% 0px',
         threshold: 0,
@@ -60,9 +64,35 @@ const Navigation = () => {
   const navLinks = [
     { label: 'Find Perks', href: '#search', id: 'search' },
     { label: 'How It Works', href: '#how-it-works', id: 'how-it-works' },
-    { label: 'Categories', href: '#categories', id: 'categories' },
     { label: 'For Vendors', href: '#vendors', id: 'vendors' },
   ];
+
+  const accountLink =
+    role === 'ADMIN'
+      ? { to: '/admin', label: 'Admin' }
+      : role === 'SALES'
+      ? { to: '/sales', label: 'Sales' }
+      : role === 'FINANCE'
+      ? { to: '/finance', label: 'Finance' }
+      : role === 'VENDOR' || hasVendorAccess
+      ? { to: '/vendor/dashboard', label: 'Vendor Dashboard' }
+      : role === 'USER'
+      ? { to: '/my-applications', label: 'My Applications' }
+      : null;
+
+  const accountSummary = isAuthenticated ? (
+    <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">
+        {initials}
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-slate-900">{displayName}</p>
+        <p className="truncate text-xs text-slate-500">
+          {role === 'USER' ? 'Logged in' : accountLink?.label || 'Logged in'}
+        </p>
+      </div>
+    </div>
+  ) : null;
 
   const scrollToSection = (href: string) => {
     if (pathname !== '/') {
@@ -149,20 +179,59 @@ const Navigation = () => {
                 {verificationLabel}
               </Link>
             )}
-            <Link
-              to="/vendor/login"
-              className="font-inter text-sm text-corp-dark hover:text-corp-blue transition-colors px-4 py-2"
-            >
-              Vendor Login
-            </Link>
             {!isAuthenticated ? (
-              <Link to="/login" className="btn-primary text-sm">
-                Login
-              </Link>
+              <>
+                <Link
+                  to="/vendor/apply"
+                  className="font-inter text-sm text-corp-dark hover:text-corp-blue transition-colors px-4 py-2"
+                >
+                  Be Our Partner
+                </Link>
+                <Link to="/login" className="btn-primary text-sm">
+                  Sign In / Sign Up
+                </Link>
+              </>
             ) : (
-              <button onClick={logout} className="btn-primary text-sm">
-                Logout
-              </button>
+              <>
+                {accountLink ? (
+                  <Link to={accountLink.to} className="transition-transform hover:-translate-y-0.5">
+                    {accountSummary}
+                  </Link>
+                ) : (
+                  accountSummary
+                )}
+                <div className="hidden xl:block text-right">
+                  <p className="max-w-[220px] truncate text-sm font-medium text-slate-900">
+                    {loginEmail}
+                  </p>
+                  {user?.workEmail && user?.activeVerification?.company ? (
+                    <p className="max-w-[220px] truncate text-xs text-slate-500">
+                      {user.workEmail} for {user.activeVerification.company.name}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      Verify work email to unlock company deals
+                    </p>
+                  )}
+                </div>
+                {accountLink ? (
+                  <Link
+                    to={accountLink.to}
+                    className="font-inter text-sm text-corp-dark hover:text-corp-blue transition-colors px-4 py-2"
+                  >
+                    {accountLink.label}
+                  </Link>
+                ) : null}
+                <button
+                  onClick={() => {
+                    logout();
+                    navigate('/');
+                  }}
+                  className="btn-primary text-sm"
+                >
+                  Logout
+                </button>
+              </>
             )}
           </div>
 
@@ -230,19 +299,71 @@ const Navigation = () => {
                 {verificationLabel}
               </Link>
             )}
-            <Link
-              to="/vendor/login"
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="block w-full text-left px-4 py-3 font-inter text-sm text-corp-dark"
-            >
-              Vendor Login
-            </Link>
             {!isAuthenticated ? (
-              <Link to="/login" className="btn-primary text-sm w-full block text-center">
-                Login
-              </Link>
+              <>
+                <Link
+                  to="/login"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="btn-primary text-sm w-full block text-center"
+                >
+                  Sign In / Sign Up
+                </Link>
+                <Link
+                  to="/vendor/apply"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="block w-full text-left px-4 py-3 font-inter text-sm text-corp-dark"
+                >
+                  Be Our Partner
+                </Link>
+              </>
             ) : (
-              <button onClick={logout} className="btn-primary text-sm w-full">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">
+                    {initials}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-900">{displayName}</p>
+                    <p className="truncate text-xs text-slate-500">{loginEmail}</p>
+                  </div>
+                </div>
+                {user?.workEmail && user?.activeVerification?.company ? (
+                  <p className="mt-3 text-xs text-slate-500">
+                    Work email verified: {user.workEmail} for {user.activeVerification.company.name}
+                  </p>
+                ) : (
+                  <p className="mt-3 text-xs text-slate-500">
+                    Verify your work email to unlock company deals.
+                  </p>
+                )}
+              </div>
+            )}
+            {isAuthenticated && accountLink ? (
+              <Link
+                to={accountLink.to}
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="block w-full text-left px-4 py-3 font-inter text-sm text-corp-dark"
+              >
+                {accountLink.label}
+              </Link>
+            ) : isAuthenticated ? (
+              <Link
+                to="/vendor/apply"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="block w-full text-left px-4 py-3 font-inter text-sm text-corp-dark"
+              >
+                Be Our Partner
+              </Link>
+            ) : null}
+            {isAuthenticated && (
+              <button
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  logout();
+                  navigate('/');
+                }}
+                className="btn-primary text-sm w-full"
+              >
                 Logout
               </button>
             )}

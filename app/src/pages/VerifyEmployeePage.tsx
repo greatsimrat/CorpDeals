@@ -13,6 +13,7 @@ import {
 import api from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import Seo from '../components/Seo';
+import { getUserDisplayName, getUserInitials } from '../lib/auth';
 
 interface CompanySummary {
   id: string;
@@ -31,6 +32,8 @@ const VerifyEmployeePage = () => {
   const queryParams = new URLSearchParams(location.search);
   const companyFromQuery =
     queryParams.get('companyId') || queryParams.get('company') || '';
+  const displayName = getUserDisplayName(user);
+  const initials = getUserInitials(user);
 
   const [step, setStep] = useState(1);
   const [companies, setCompanies] = useState<CompanySummary[]>([]);
@@ -91,6 +94,11 @@ const VerifyEmployeePage = () => {
       setStep(2);
     }
   }, [companyId, companyFromQuery, companies]);
+
+  useEffect(() => {
+    if (!user?.name || fullName.trim()) return;
+    setFullName(user.name);
+  }, [fullName, user?.name]);
 
   useEffect(() => {
     const targetCompany = companyId || companyFromQuery;
@@ -231,13 +239,26 @@ const VerifyEmployeePage = () => {
                 CorpDeals
               </span>
             </Link>
-            <button
-              onClick={() => navigate(-1)}
-              className="flex items-center gap-2 text-corp-gray hover:text-corp-blue transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-              <span className="font-inter text-sm">Back</span>
-            </button>
+            <div className="flex items-center gap-3">
+              {user && (
+                <div className="hidden sm:flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">
+                    {initials}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-900">{displayName}</p>
+                    <p className="truncate text-xs text-slate-500">{user.loginEmail || user.email}</p>
+                  </div>
+                </div>
+              )}
+              <button
+                onClick={() => navigate(-1)}
+                className="flex items-center gap-2 text-corp-gray hover:text-corp-blue transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5" />
+                <span className="font-inter text-sm">Back</span>
+              </button>
+            </div>
           </div>
         </div>
       </nav>
@@ -418,6 +439,37 @@ const VerifyEmployeePage = () => {
                   </div>
                 </div>
 
+                {user ? (
+                  <div className="mt-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-slate-700">
+                    <p className="font-medium text-slate-900">Signed in account</p>
+                    <p className="mt-1">
+                      Login email: <span className="font-medium">{user.loginEmail || user.email}</span>
+                    </p>
+                    <p className="mt-1">
+                      Work email: <span className="font-medium">used only for employment verification</span>
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                    <p className="font-medium">Using a personal email for login?</p>
+                    <p className="mt-1">
+                      Create your account first, then verify your work email to unlock company deals.
+                    </p>
+                    <Link
+                      to="/signup"
+                      state={{
+                        from: {
+                          pathname: location.pathname,
+                          search: location.search,
+                        },
+                      }}
+                      className="mt-3 inline-flex text-sm font-medium text-amber-900 underline underline-offset-2"
+                    >
+                      Create account with personal email
+                    </Link>
+                  </div>
+                )}
+
                 <div className="mt-6 flex flex-wrap items-center gap-4">
                   <button
                     onClick={handleSendCode}
@@ -472,7 +524,7 @@ const VerifyEmployeePage = () => {
                 )}
 
                 <p className="mt-4 text-xs text-slate-500">
-                  We'll never email your employer. We only verify your domain.
+                  We only send a one-time verification code to your work email. Login and offer emails stay on your account email.
                 </p>
 
                 {error && (

@@ -2,13 +2,19 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../lib/prisma';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, authenticateTokenOptional, requireVendorOnly } from '../middleware/auth';
 import { buildAuthUserPayload } from '../lib/auth-user';
 import {
   sendOfferSubmittedForReviewEmail,
   sendVendorApplicationInternalEmail,
 } from '../lib/mailer';
 import { verifyVendorSetPasswordToken } from '../lib/vendor-password';
+import { DEFAULT_USER_ROLE } from '../lib/roles';
+import { verifyTurnstileToken } from '../lib/turnstile';
+import {
+  normalizePhone,
+  vendorApplicationSchema,
+} from '../lib/vendor-application';
 
 const router = Router();
 
@@ -198,13 +204,13 @@ const requireVendorUser = async (req: Request, res: Response) => {
     res.status(401).json({ error: 'Unauthorized' });
     return null;
   }
-  if (req.user.role !== 'VENDOR') {
-    res.status(403).json({ error: 'Vendor access required' });
+  if (!req.user.vendorId) {
+    res.status(403).json({ error: 'Vendor profile not found' });
     return null;
   }
 
   const vendor = await prisma.vendor.findUnique({
-    where: { userId: req.user.id },
+    where: { id: req.user.vendorId },
   });
 
   if (!vendor) {
@@ -215,45 +221,195 @@ const requireVendorUser = async (req: Request, res: Response) => {
   return vendor;
 };
 
-router.post('/apply', async (req: Request, res: Response): Promise<void> => {
+router.post('/apply', authenticateTokenOptional, async (req: Request, res: Response): Promise<void> => {
   try {
-    const businessName = String(req.body?.businessName || req.body?.business_name || '').trim();
-    const contactName = String(req.body?.contactName || req.body?.contact_name || '').trim();
-    const contactEmail = String(req.body?.contactEmail || req.body?.contact_email || '')
-      .trim()
-      .toLowerCase();
-    const phone = String(req.body?.phone || '').trim() || null;
-    const website = String(req.body?.website || '').trim() || null;
-    const category = String(req.body?.category || '').trim() || null;
-    const city = String(req.body?.city || '').trim() || null;
-    const notes = String(req.body?.notes || '').trim() || null;
+    const parsed = vendorApplicationSchema.safeParse({
+      businessName: req.body?.businessName || req.body?.business_name,
+      contactName: req.body?.contactName || req.body?.contact_name,
+      contactEmail: req.body?.contactEmail || req.body?.contact_email,
+      businessEmail: req.body?.businessEmail || req.body?.business_email,
+      phone: req.body?.phone,
+      website: req.body?.website,
+      category: req.body?.category,
+      city: req.body?.city,
+      notes: req.body?.notes,
+      jobTitle: req.body?.jobTitle || req.body?.job_title,
+      offerSummary: req.body?.offerSummary || req.body?.offer_summary,
+      targetCompanies: req.body?.targetCompanies || req.body?.target_companies,
+      captchaToken: req.body?.captchaToken || req.body?.captcha_token,
+    });
 
-    if (!businessName || !contactName || !contactEmail) {
+    if (!parsed.success) {
+      const fieldErrors = parsed.error.flatten().fieldErrors;
+      const firstError =
+        Object.values(fieldErrors)
+          .flat()
+          .find(Boolean) || 'Invalid application details';
       res.status(400).json({
-        error: 'Missing required fields',
-        detail: 'business name, contact name, and contact email are required',
+        error: firstError,
+        fieldErrors,
       });
+      return;
+    }
+
+    const {
+      businessName,
+      contactName,
+      contactEmail,
+      businessEmail,
+      phone,
+      website,
+      category,
+      city,
+      notes,
+      jobTitle,
+      offerSummary,
+      targetCompanies,
+      captchaToken,
+    } = parsed.data;
+
+    const turnstileResult = await verifyTurnstileToken(captchaToken, req.ip || null);
+    if (!turnstileResult.success) {
+      res.status(400).json({
+        error: 'Captcha verification failed. Please try again.',
+        code: 'CAPTCHA_FAILED',
+      });
+      return;
+    }
+
+    if (req.user && !['USER', 'VENDOR'].includes(req.user.role)) {
+      res.status(403).json({ error: 'This account cannot be used for vendor applications' });
       return;
     }
 
     const existingUser = await prisma.user.findUnique({
       where: { email: contactEmail },
-      select: { id: true },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        vendorId: true,
+        vendor: {
+          select: {
+            id: true,
+            status: true,
+          },
+        },
+      },
     });
-    if (existingUser) {
-      res.status(400).json({ error: 'Email already registered' });
+    if (existingUser && req.user?.id && existingUser.id !== req.user.id) {
+      res.status(400).json({ error: 'This contact email already belongs to another account' });
       return;
     }
 
-    const created = await prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          email: contactEmail,
-          role: 'VENDOR',
-          name: contactName,
-          passwordHash: null as any,
-        } as any,
+    if (!req.user?.id && existingUser) {
+      if (existingUser.vendor) {
+        const statusLabel =
+          existingUser.vendor.status === 'APPROVED'
+            ? 'already has an approved vendor workspace'
+            : 'already has a vendor application in progress';
+        res.status(409).json({ error: `This email ${statusLabel}. Sign in to continue.` });
+        return;
+      }
+
+      res.status(409).json({
+        error: 'This email already has a CorpDeals account. Sign in first to continue your partner application.',
       });
+      return;
+    }
+
+    const applicantUser = req.user?.id
+      ? await prisma.user.findUnique({
+          where: { id: req.user.id },
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            vendorId: true,
+            vendor: {
+              select: {
+                id: true,
+                status: true,
+              },
+            },
+          },
+        })
+      : existingUser;
+
+    if (applicantUser?.vendor) {
+      const statusLabel =
+        applicantUser.vendor.status === 'APPROVED'
+          ? 'You already have an approved vendor workspace'
+          : 'Your vendor application is already under review';
+      res.status(409).json({ error: statusLabel });
+      return;
+    }
+
+    const duplicateVendorByEmail = await prisma.vendor.findFirst({
+      where: {
+        OR: [
+          { email: contactEmail },
+          { email: businessEmail },
+          { businessEmail: contactEmail },
+          { businessEmail },
+        ],
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+    if (duplicateVendorByEmail) {
+      res.status(409).json({
+        error: 'A partner application already exists for this email address',
+      });
+      return;
+    }
+
+    if (phone) {
+      const vendorPhones = await prisma.vendor.findMany({
+        where: {
+          NOT: {
+            phone: null,
+          },
+        },
+        select: {
+          id: true,
+          phone: true,
+          status: true,
+        },
+      });
+      const duplicatePhone = vendorPhones.find(
+        (vendor) => normalizePhone(vendor.phone || '') === phone
+      );
+      if (duplicatePhone) {
+        res.status(409).json({
+          error: 'A partner application already exists for this phone number',
+        });
+        return;
+      }
+    }
+
+    const additionalInfo = [
+      jobTitle ? `Job title: ${jobTitle}` : null,
+      businessEmail ? `Business email: ${businessEmail}` : null,
+      targetCompanies ? `Target companies: ${targetCompanies}` : null,
+      notes ? `Notes: ${notes}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const created = await prisma.$transaction(async (tx) => {
+      const user =
+        applicantUser ||
+        (await tx.user.create({
+          data: {
+            email: contactEmail,
+            role: DEFAULT_USER_ROLE,
+            name: contactName,
+            passwordHash: null as any,
+          } as any,
+        }));
 
       const vendor = await tx.vendor.create({
         data: {
@@ -261,12 +417,13 @@ router.post('/apply', async (req: Request, res: Response): Promise<void> => {
           companyName: businessName,
           contactName,
           email: contactEmail,
-          phone,
-          website,
-          businessType: category,
-          city,
-          notes,
-          description: notes,
+          businessEmail,
+          phone: phone || null,
+          website: website || null,
+          businessType: category || null,
+          city: city || null,
+          notes: notes || null,
+          description: offerSummary || notes || null,
           status: 'PENDING',
         } as any,
       });
@@ -278,18 +435,37 @@ router.post('/apply', async (req: Request, res: Response): Promise<void> => {
         } as any,
       });
 
-      return { user, vendor };
+      const request = await tx.vendorRequest.create({
+        data: {
+          vendorId: vendor.id,
+          businessType: category || null,
+          description: offerSummary || notes || null,
+          additionalInfo: additionalInfo || null,
+          status: 'PENDING',
+        } as any,
+      });
+
+      return { user, vendor, request };
     });
 
     const internalEmail = await sendVendorApplicationInternalEmail({
       businessName,
       contactName,
       contactEmail,
-      phone,
-      website,
-      category,
-      city,
-      notes,
+      phone: phone || null,
+      website: website || null,
+      category: category || null,
+      city: city || null,
+      notes:
+        [
+          businessEmail ? `Business email: ${businessEmail}` : null,
+          jobTitle ? `Job title: ${jobTitle}` : null,
+          targetCompanies ? `Target companies: ${targetCompanies}` : null,
+          offerSummary ? `Offer summary: ${offerSummary}` : null,
+          notes ? `Notes: ${notes}` : null,
+        ]
+          .filter(Boolean)
+          .join('\n') || null,
     });
 
     if (!internalEmail.sent) {
@@ -302,6 +478,7 @@ router.post('/apply', async (req: Request, res: Response): Promise<void> => {
     res.status(201).json({
       ok: true,
       vendorId: created.vendor.id,
+      requestId: created.request.id,
       message: "We’ll review and contact you within 1–2 business days.",
     });
   } catch (error) {
@@ -324,7 +501,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       where: { email },
       include: { vendor: true },
     });
-    if (!user || user.role !== 'VENDOR') {
+    if (!user || !user.vendor) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
@@ -385,7 +562,7 @@ router.post('/set-password', async (req: Request, res: Response): Promise<void> 
       where: { id: decoded.userId },
       include: { vendor: true },
     });
-    if (!user || user.role !== 'VENDOR' || !user.vendor) {
+    if (!user || !user.vendor) {
       res.status(404).json({ error: 'Vendor user not found' });
       return;
     }
@@ -403,7 +580,7 @@ router.post('/set-password', async (req: Request, res: Response): Promise<void> 
   }
 });
 
-router.get('/dashboard', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/dashboard', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -424,7 +601,7 @@ router.get('/dashboard', authenticateToken, async (req: Request, res: Response):
   }
 });
 
-router.get('/dashboard/summary', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/dashboard/summary', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -440,6 +617,7 @@ router.get('/dashboard/summary', authenticateToken, async (req: Request, res: Re
 router.get(
   '/dashboard/company-breakdown',
   authenticateToken,
+  requireVendorOnly,
   async (req: Request, res: Response): Promise<void> => {
     try {
       const vendor = await requireVendorUser(req, res);
@@ -510,6 +688,7 @@ router.get(
 router.get(
   '/dashboard/offer-performance',
   authenticateToken,
+  requireVendorOnly,
   async (req: Request, res: Response): Promise<void> => {
     try {
       const vendor = await requireVendorUser(req, res);
@@ -573,7 +752,7 @@ router.get(
   }
 );
 
-router.get('/dashboard/lead-trend', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/dashboard/lead-trend', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -624,7 +803,7 @@ router.get('/dashboard/lead-trend', authenticateToken, async (req: Request, res:
   }
 });
 
-router.get('/billing', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/billing', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -660,7 +839,7 @@ router.get('/billing', authenticateToken, async (req: Request, res: Response): P
   }
 });
 
-router.get('/billing/invoices/:id/csv', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/billing/invoices/:id/csv', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -716,7 +895,7 @@ router.get('/billing/invoices/:id/csv', authenticateToken, async (req: Request, 
   }
 });
 
-router.get('/offers', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/offers', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -739,7 +918,7 @@ router.get('/offers', authenticateToken, async (req: Request, res: Response): Pr
   }
 });
 
-router.get('/policies/defaults', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/policies/defaults', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -761,7 +940,7 @@ router.get('/policies/defaults', authenticateToken, async (req: Request, res: Re
   }
 });
 
-router.post('/offers', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.post('/offers', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -1016,10 +1195,10 @@ const updateDraftOffer = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-router.put('/offers/:id', authenticateToken, updateDraftOffer);
-router.patch('/offers/:id', authenticateToken, updateDraftOffer);
+router.put('/offers/:id', authenticateToken, requireVendorOnly, updateDraftOffer);
+router.patch('/offers/:id', authenticateToken, requireVendorOnly, updateDraftOffer);
 
-router.post('/offers/:id/submit', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.post('/offers/:id/submit', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -1169,7 +1348,7 @@ router.post('/offers/:id/submit', authenticateToken, async (req: Request, res: R
   }
 });
 
-router.get('/leads', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/leads', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -1256,7 +1435,7 @@ router.get('/leads', authenticateToken, async (req: Request, res: Response): Pro
   }
 });
 
-router.get('/leads/:id', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.get('/leads/:id', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
@@ -1290,7 +1469,7 @@ router.get('/leads/:id', authenticateToken, async (req: Request, res: Response):
   }
 });
 
-router.patch('/leads/:id', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+router.patch('/leads/:id', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;

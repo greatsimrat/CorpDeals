@@ -6,6 +6,18 @@ type Faq = {
   answer: string;
 };
 
+type ContentSection = {
+  heading: string;
+  paragraphs?: string[];
+  bullets?: string[];
+};
+
+type ImagePanel = {
+  title: string;
+  body: string;
+  image: string;
+};
+
 type SeoPage = {
   path: string;
   title: string;
@@ -15,9 +27,12 @@ type SeoPage = {
   heroImage: string;
   intro: string;
   highlights: string[];
+  sections?: ContentSection[];
+  imagePanels?: ImagePanel[];
   faqs: Faq[];
   ctaLabel: string;
   ctaPath: string;
+  structuredData?: Array<Record<string, unknown>>;
 };
 
 export type SeoPageKey =
@@ -70,15 +85,102 @@ const genericPage = (
 });
 
 const PAGES: Record<SeoPageKey, SeoPage> = {
-  forEmployees: genericPage(
-    '/for-employees',
-    'For Employees',
-    'Employee guide to verification, company-scoped offers, and lead-only requests.',
-    'employee perks, employee verification, corporate discounts',
-    '/hero_main.jpg',
-    'Verify My Work Email',
-    '/verify'
-  ),
+  forEmployees: {
+    path: '/for-employees',
+    title: 'For Employees',
+    metaTitle: 'For Employees | Corporate Discounts, Employee Perks, and Verified Company Deals',
+    metaDescription:
+      'Learn how employees use CorpDeals to verify work email, unlock corporate discounts, and access company-specific employee perks and savings.',
+    keywords:
+      'for employees, employee perks, employee discounts, corporate discounts, work email verification, employee savings, company specific deals, employee benefits platform',
+    heroImage: '/hero_main.jpg',
+    intro:
+      'CorpDeals is built for employees who want a cleaner way to access workplace perks, corporate discounts, and company-specific savings. Instead of browsing generic public deals, employees can search their employer, verify work email once, and unlock offers that are actually relevant to their company.',
+    highlights: [
+      'Search your employer and see if company-specific offers are available',
+      'Verify work email once to unlock relevant employee discounts',
+      'Access featured deals and categories tied to your company',
+      'Apply for offers through a structured and trusted employee flow',
+    ],
+    sections: [
+      {
+        heading: 'Why Employees Use CorpDeals',
+        paragraphs: [
+          'Employees often hear that their company has discounts, but finding them can be confusing. Offers may be scattered across vendor pages, HR portals, PDFs, or outdated internal links. CorpDeals gives employees one place to search by company and unlock the benefits that match their employer.',
+          'That makes the experience faster, more trustworthy, and more useful for employees who want real savings without digging through generic coupon sites.',
+        ],
+      },
+      {
+        heading: 'How CorpDeals Helps Employees',
+        paragraphs: [
+          'CorpDeals helps employees discover corporate discounts, employee perks, and workplace savings that are organized by company. Once verified, employees can browse featured deals, explore categories, and apply to relevant offers with less friction.',
+          'This is especially useful for employees who want clarity on what is actually available through their employer instead of guessing which offers apply to them.',
+        ],
+        bullets: [
+          'Find your company quickly',
+          'Verify eligibility through work email',
+          'Unlock employer-specific offers',
+          'Browse a cleaner employee savings experience',
+        ],
+      },
+      {
+        heading: 'How the Employee Journey Works',
+        paragraphs: [
+          'The employee journey on CorpDeals is simple. First, search for your company. Second, verify your work email. Third, access the deals and perks available to your employer. Once verified, you can return to your company page and browse featured offers, categories, and the full deal list.',
+        ],
+        bullets: [
+          'Search your company by name',
+          'Complete work email verification',
+          'Unlock featured deals and categories',
+          'Apply to offers and track your activity',
+        ],
+      },
+      {
+        heading: 'Why Verification Matters',
+        paragraphs: [
+          'Verification helps keep employee-only deals relevant and protected. It allows CorpDeals to show company-specific offers only to the employees who are eligible to access them.',
+          'That creates a better experience for employees and better trust for vendors who want to provide targeted corporate discount programs.',
+        ],
+      },
+    ],
+    faqs: [
+      {
+        question: 'How do employees use CorpDeals?',
+        answer: 'Employees search their company, verify their work email, and unlock the corporate discounts and employee perks available to their employer.'
+      },
+      {
+        question: 'Do I need to verify my work email?',
+        answer: 'Yes. Work email verification helps confirm eligibility and unlock company-specific employee offers.'
+      },
+      {
+        question: 'What kinds of employee perks can I find on CorpDeals?',
+        answer: 'Employees may find corporate discounts across categories such as telecom, travel, finance, wellness, fitness, insurance, and everyday lifestyle savings.'
+      },
+      {
+        question: 'Why not just use public coupon sites?',
+        answer: 'Public coupon sites are usually generic and noisy. CorpDeals is designed to help employees access offers that are structured around their employer and verification status.'
+      },
+      {
+        question: 'Can I use a personal email on CorpDeals?',
+        answer: 'Yes. Your account email can be personal, but your work email is used to verify your company eligibility for employee-only deals.'
+      },
+      {
+        question: 'What if my company is not listed?',
+        answer: 'You can submit a company request from the homepage search area and the CorpDeals team can review adding your employer.'
+      },
+    ],
+    ctaLabel: 'Verify My Work Email',
+    ctaPath: '/verify',
+    structuredData: [
+      {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        name: 'For Employees',
+        description:
+          'Employee guide to corporate discounts, employee perks, work email verification, and company-specific deals on CorpDeals.',
+      },
+    ],
+  },
   forVendors: genericPage(
     '/for-vendors',
     'For Vendors',
@@ -88,15 +190,114 @@ const PAGES: Record<SeoPageKey, SeoPage> = {
     'Apply as a Vendor',
     '/vendor/apply'
   ),
-  forHrTeams: genericPage(
-    '/for-hr-teams',
-    'For HR Teams',
-    'HR resource for verified access controls and scalable employee perk operations.',
-    'hr benefits platform, employee engagement, benefits operations',
-    '/hero_card_c.jpg',
-    'Open Verification Flow',
-    '/verify'
-  ),
+  forHrTeams: {
+    path: '/for-hr-teams',
+    title: 'For HR Teams',
+    metaTitle: 'For HR Teams | Employee Benefits, Corporate Discounts, and HR-Friendly Perks Access',
+    metaDescription:
+      'Learn how CorpDeals helps HR teams offer extra employee benefits, improve employee engagement, and give staff easier access to verified corporate discounts and company-specific perks.',
+    keywords:
+      'for hr teams, employee benefits platform, employee perks platform, corporate discounts for employees, hr employee engagement, hr benefits access, company perks platform, employee savings program',
+    heroImage: '/hero_card_c.jpg',
+    intro:
+      'CorpDeals helps HR teams provide extra employee benefits without adding another heavy manual process. Instead of asking HR to maintain scattered discount pages, vendor lists, and internal links, CorpDeals gives employees a cleaner way to verify eligibility and access company-specific perks through one structured platform.',
+    highlights: [
+      'Give employees easier access to company-specific perks and corporate discounts',
+      'Support employee engagement with benefits that feel more visible and useful',
+      'Reduce the overhead of manually maintaining perk access and vendor information',
+      'Use verification to create a cleaner and more trusted employee benefits experience',
+    ],
+    sections: [
+      {
+        heading: 'Why HR Teams Need a Better Benefits Access Layer',
+        paragraphs: [
+          'Many HR teams want to offer more value to employees, but benefits discovery is often fragmented. Employees may not know which discounts exist, which vendors are active, or where to find the right links. Over time, this makes even strong employee perks programs feel underused.',
+          'CorpDeals exists to solve that discovery and access problem. We help HR teams make employee benefits more visible, more structured, and easier to use without forcing HR to manually manage every offer relationship day to day.',
+        ],
+      },
+      {
+        heading: 'How CorpDeals Helps HR Teams',
+        paragraphs: [
+          'CorpDeals helps HR teams support employee benefits in a more scalable way. Employees can search their company, verify work email, and unlock the perks that apply to them. That reduces confusion and creates a more modern employee experience around corporate discounts and workplace savings.',
+          'For HR, the value is not just more offers. It is better access, clearer employee understanding, and less operational clutter around how benefits are surfaced.',
+        ],
+        bullets: [
+          'Support extra employee benefits without adding more HR admin burden',
+          'Improve visibility of employee discounts and corporate savings programs',
+          'Give employees a clearer self-serve path to discover perks',
+          'Use work-email verification to keep employer access more structured',
+        ],
+      },
+      {
+        heading: 'How We Help Employees While Supporting HR Goals',
+        paragraphs: [
+          'HR teams want employees to actually use the benefits that exist. CorpDeals helps by turning benefits access into a simple employee journey: search company, verify eligibility, browse featured deals, and explore categories.',
+          'That supports employee engagement because the benefits feel easier to find, easier to trust, and easier to use. It also makes the program feel more current than a static internal perks list.',
+        ],
+      },
+      {
+        heading: 'Why Verification Matters for HR',
+        paragraphs: [
+          'Verification creates a stronger boundary around employee-only benefits. It helps ensure that company-specific offers are shown to the employees who are meant to access them.',
+          'For HR teams, that can improve trust in the program and create a cleaner relationship between employer identity, employee access, and vendor participation.',
+        ],
+      },
+    ],
+    imagePanels: [
+      {
+        title: 'Make benefits easier to discover',
+        body: 'Employees should not have to dig through outdated pages or ask around to find company perks. CorpDeals helps centralize discovery around the employer itself.',
+        image: '/cta_image.jpg',
+      },
+      {
+        title: 'Support engagement with visible value',
+        body: 'A benefits program is stronger when employees can actually see and use it. CorpDeals helps turn invisible perks into an easier employee experience.',
+        image: '/vendor_analytics.jpg',
+      },
+      {
+        title: 'Offer extra benefits without more manual upkeep',
+        body: 'HR teams can support a more modern perks layer without owning a bloated internal directory of discounts, categories, and vendor links.',
+        image: '/hero_card_d.jpg',
+      },
+    ],
+    faqs: [
+      {
+        question: 'How does CorpDeals help HR teams?',
+        answer: 'CorpDeals helps HR teams offer a clearer employee benefits experience by making corporate discounts and company-specific perks easier for employees to find and unlock.'
+      },
+      {
+        question: 'Why is this useful for employee engagement?',
+        answer: 'Employees engage more with benefits when they can actually discover and use them. CorpDeals improves visibility and access, which can make benefits feel more valuable in practice.'
+      },
+      {
+        question: 'Does HR need to manage every deal manually?',
+        answer: 'No. The goal is to reduce manual overhead by giving employees a structured platform to discover benefits, while still keeping employer-specific access and verification in place.'
+      },
+      {
+        question: 'Can CorpDeals help companies provide extra employee benefits?',
+        answer: 'Yes. CorpDeals is designed to help companies extend the employee value proposition through a more organized perks and corporate discounts experience.'
+      },
+      {
+        question: 'Why does verification matter for HR teams?',
+        answer: 'Verification helps keep employer-specific offers tied to the right employee audience, which improves trust for employees, HR teams, and participating vendors.'
+      },
+      {
+        question: 'What kinds of benefits can employees access through CorpDeals?',
+        answer: 'Employees may access benefits and discounts across categories such as telecom, travel, banking, wellness, fitness, insurance, and other workplace-relevant savings areas.'
+      },
+    ],
+    ctaLabel: 'Contact Us',
+    ctaPath: '/about',
+    structuredData: [
+      {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        name: 'For HR Teams',
+        description:
+          'HR-focused page about how CorpDeals helps companies offer extra employee benefits, improve employee engagement, and organize corporate discounts.',
+      },
+    ],
+  },
   pricing: genericPage(
     '/pricing',
     'Pricing',
@@ -108,28 +309,108 @@ const PAGES: Record<SeoPageKey, SeoPage> = {
   ),
   about: {
     path: '/about',
-    title: 'About Us',
-    metaTitle: 'About CorpDeals | Verified Employee Marketplace Platform',
+    title: 'About CorpDeals',
+    metaTitle: 'About CorpDeals | Employee Perks Platform for Verified Corporate Discounts',
     metaDescription:
-      'Learn how CorpDeals connects verified employees and vendors using a lead-only marketplace model designed for trust and conversion quality.',
+      'Learn why CorpDeals exists, how we help employees unlock verified corporate discounts, and how our employee perks platform connects companies, vendors, and trusted offers.',
     keywords:
-      'about corpdeals, employee marketplace, verified employee offers, lead-only offers',
+      'about corpdeals, employee perks platform, corporate discounts platform, verified employee offers, employee benefits marketplace, company specific deals, employee savings platform',
     heroImage: '/hero_main.jpg',
     intro:
-      'CorpDeals is built to make employee perks simpler and more trustworthy. We use company verification and lead-only offer workflows to avoid coupon noise and improve vendor outcomes.',
+      'CorpDeals exists to make employee perks easier to access, easier to trust, and more relevant to the companies people actually work for. Instead of sending employees through generic coupon pages, we use company verification and company-scoped offer access so employees can unlock corporate discounts, employee savings, and verified workplace perks with more confidence.',
     highlights: [
-      'Lead-only architecture with no ecommerce redirects',
-      'Company-scoped offer access model',
-      'Consent-first lead capture and tracking',
-      'Clear value for employees, HR teams, and vendors',
+      'Employee perks platform built around company verification and trust',
+      'Corporate discounts and employee savings organized by employer',
+      'Lead-only marketplace model focused on quality, consent, and relevance',
+      'Clear value for employees, vendors, and HR teams',
+    ],
+    sections: [
+      {
+        heading: 'Why CorpDeals Exists',
+        paragraphs: [
+          'Most employee perks programs are fragmented. Employees often do not know which corporate discounts apply to their company, vendors struggle to reach the right audience, and HR teams do not want to maintain another manual benefits catalog. CorpDeals exists to simplify that experience.',
+          'We built CorpDeals to give employees a cleaner path: search your company, verify your work email, and unlock the employee deals that match your workplace. That makes the experience more useful than a generic discounts page and more trustworthy than open coupon marketplaces.',
+        ],
+      },
+      {
+        heading: 'How We Help Employees',
+        paragraphs: [
+          'For employees, CorpDeals helps answer a simple question fast: what discounts and perks can I actually access through my company? Instead of browsing random public offers, employees can verify once and see company-specific deals that fit their employment status.',
+          'That means less noise, fewer dead ends, and a more relevant employee benefits experience across categories like telecom, travel, finance, wellness, fitness, insurance, and everyday savings.',
+        ],
+        bullets: [
+          'Search by company instead of browsing a generic deal marketplace',
+          'Verify employment with work email to unlock relevant offers',
+          'Browse featured deals and categories tied to your employer',
+          'Access a cleaner employee savings experience with better trust signals',
+        ],
+      },
+      {
+        heading: 'How We Help Vendors and Employers',
+        paragraphs: [
+          'Vendors use CorpDeals to reach verified employee audiences with more relevance and better lead quality. Because the platform is scoped by company and verification status, vendors can launch offers that are more targeted than broad public campaigns.',
+          'Employers and HR teams benefit from a simpler benefits-access model. Instead of owning every vendor relationship manually, they can use verification-driven access and let employees discover offers in a structured way.',
+        ],
+        bullets: [
+          'Verified audience access for vendor offers',
+          'Higher-quality lead and application flows',
+          'Less operational noise for HR and benefits teams',
+          'A more structured employee discount and corporate perks workflow',
+        ],
+      },
+      {
+        heading: 'What Makes CorpDeals Different',
+        paragraphs: [
+          'CorpDeals is not trying to be a generic coupon site. Our model is built around verified employee access, company-specific offer discovery, and role-based workflows for admins, vendors, finance, and sales teams.',
+          'That operational structure helps the platform stay useful as it scales. Employees get relevance, vendors get cleaner demand, and internal teams get clearer review and approval flows.',
+        ],
+      },
     ],
     faqs: [
-      { question: 'Is CorpDeals a coupon platform?', answer: 'No. CorpDeals is a verified lead-only marketplace.' },
-      { question: 'Who benefits from the platform?', answer: 'Employees, HR teams, and approved vendor partners.' },
-      { question: 'How are offers targeted?', answer: 'Each offer is tied to one company with optional product metadata.' },
+      {
+        question: 'What is CorpDeals?',
+        answer: 'CorpDeals is an employee perks platform that helps verified employees unlock company-specific corporate discounts, perks, and savings.'
+      },
+      {
+        question: 'Why does CorpDeals exist?',
+        answer: 'CorpDeals exists because employee discounts are often hard to find, hard to trust, and poorly organized. We simplify that by making company verification and employer-specific offer access the core workflow.'
+      },
+      {
+        question: 'How does CorpDeals help users?',
+        answer: 'CorpDeals helps users search their employer, verify their work email once, and access relevant employee offers without sorting through generic public coupon pages.'
+      },
+      {
+        question: 'Is CorpDeals a coupon platform?',
+        answer: 'No. CorpDeals is a verified employee marketplace and employee benefits access platform, not a broad public coupon aggregator.'
+      },
+      {
+        question: 'Who benefits from CorpDeals?',
+        answer: 'Employees benefit from cleaner access to relevant savings. Vendors benefit from better audience targeting. HR teams benefit from a simpler and more structured perks-access model.'
+      },
+      {
+        question: 'How are offers targeted on CorpDeals?',
+        answer: 'Offers can be tied to a specific company so only verified employees from that employer can access the most relevant deals.'
+      },
     ],
     ctaLabel: 'See Employee Journey',
     ctaPath: '/for-employees',
+    structuredData: [
+      {
+        '@context': 'https://schema.org',
+        '@type': 'Organization',
+        name: 'CorpDeals',
+        url: 'https://corpdeals.io/about',
+        description:
+          'CorpDeals is an employee perks platform for verified corporate discounts, company-specific deals, and employee savings.',
+      },
+      {
+        '@context': 'https://schema.org',
+        '@type': 'AboutPage',
+        name: 'About CorpDeals',
+        description:
+          'Learn why CorpDeals exists and how it helps employees, vendors, and HR teams access verified employee perks and corporate discounts.',
+      },
+    ],
   },
   careers: {
     path: '/careers',
@@ -357,6 +638,7 @@ export default function SeoContentPage({ pageKey }: { pageKey: SeoPageKey }) {
         acceptedAnswer: { '@type': 'Answer', text: faq.answer },
       })),
     },
+    ...(page.structuredData || []),
   ];
 
   return (
@@ -399,6 +681,49 @@ export default function SeoContentPage({ pageKey }: { pageKey: SeoPageKey }) {
               ))}
             </ul>
           </section>
+
+          {page.sections?.map((section) => (
+            <section key={section.heading} className="rounded-2xl border border-slate-200 bg-white p-8">
+              <h2 className="text-2xl font-semibold text-slate-900 mb-4">{section.heading}</h2>
+              {section.paragraphs?.map((paragraph) => (
+                <p key={paragraph} className="mt-4 first:mt-0 text-slate-700 leading-7">
+                  {paragraph}
+                </p>
+              ))}
+              {section.bullets ? (
+                <ul className="mt-4 list-disc pl-6 space-y-2 text-slate-700">
+                  {section.bullets.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </section>
+          ))}
+
+          {page.imagePanels ? (
+            <section className="rounded-2xl border border-slate-200 bg-white p-8">
+              <h2 className="text-2xl font-semibold text-slate-900 mb-6">How CorpDeals Supports HR</h2>
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+                {page.imagePanels.map((panel) => (
+                  <article
+                    key={panel.title}
+                    className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
+                  >
+                    <img
+                      src={panel.image}
+                      alt={panel.title}
+                      className="h-44 w-full object-cover"
+                      loading="lazy"
+                    />
+                    <div className="p-5">
+                      <h3 className="text-lg font-semibold text-slate-900">{panel.title}</h3>
+                      <p className="mt-3 text-sm leading-6 text-slate-700">{panel.body}</p>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <section className="rounded-2xl border border-slate-200 bg-white p-8">
             <h2 className="text-2xl font-semibold text-slate-900 mb-4">Frequently Asked Questions</h2>

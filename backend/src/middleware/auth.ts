@@ -1,35 +1,81 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import prisma from '../lib/prisma';
+import type { AppRole } from '../lib/roles';
+import { normalizeRole } from '../lib/roles';
 
 interface JwtPayload {
   userId: string;
   email: string;
-  role: string;
+  role: AppRole | string;
+}
+
+export interface AuthenticatedRequestUser {
+  id: string;
+  email: string;
+  role: AppRole;
+  vendorId: string | null;
+  activeCompanyId: string | null;
+  employeeCompanyId: string | null;
 }
 
 declare global {
   namespace Express {
     interface Request {
-      user?: {
-        id: string;
-        email: string;
-        role: string;
-      };
+      user?: AuthenticatedRequestUser;
     }
   }
 }
+
+const getBearerToken = (req: Request) => {
+  const authHeader = req.headers['authorization'];
+  return authHeader && authHeader.startsWith('Bearer ')
+    ? authHeader.split(' ')[1]
+    : null;
+};
+
+const sendUnauthorized = (res: Response, error = 'Authentication required') => {
+  res.status(401).json({ error });
+};
+
+const sendForbidden = (res: Response, error = 'Forbidden') => {
+  res.status(403).json({ error });
+};
+
+const hydrateRequestUser = async (userId: string) => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      vendorId: true,
+      activeCompanyId: true,
+      employeeCompanyId: true,
+    },
+  });
+
+  if (!user) return null;
+
+  return {
+    id: user.id,
+    email: user.email,
+    role: normalizeRole(user.role),
+    vendorId: user.vendorId,
+    activeCompanyId: user.activeCompanyId,
+    employeeCompanyId: user.employeeCompanyId,
+  };
+};
 
 export const authenticateToken = async (
   req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const token = getBearerToken(req);
 
   if (!token) {
-    res.status(401).json({ error: 'Access token required' });
+    sendUnauthorized(res, 'Access token required');
     return;
   }
 
@@ -39,24 +85,18 @@ export const authenticateToken = async (
       process.env.JWT_SECRET || 'secret'
     ) as JwtPayload;
 
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-    });
+    const user = await hydrateRequestUser(decoded.userId);
 
     if (!user) {
-      res.status(401).json({ error: 'User not found' });
+      sendUnauthorized(res, 'User not found');
       return;
     }
 
-    req.user = {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-    };
+    req.user = user;
 
     next();
   } catch (error) {
-    res.status(403).json({ error: 'Invalid or expired token' });
+    sendUnauthorized(res, 'Invalid or expired token');
   }
 };
 
@@ -65,8 +105,7 @@ export const authenticateTokenOptional = async (
   res: Response,
   next: NextFunction
 ): Promise<void> => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const token = getBearerToken(req);
 
   if (!token) {
     next();
@@ -79,16 +118,10 @@ export const authenticateTokenOptional = async (
       process.env.JWT_SECRET || 'secret'
     ) as JwtPayload;
 
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-    });
+    const user = await hydrateRequestUser(decoded.userId);
 
     if (user) {
-      req.user = {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-      };
+      req.user = user;
     }
   } catch {
     // Optional auth should not block the request.
@@ -97,38 +130,67 @@ export const authenticateTokenOptional = async (
   next();
 };
 
-export const requireAdmin = (
+export const requireAnyRole =
+  (...roles: AppRole[]) =>
+  (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      sendUnauthorized(res);
+      return;
+    }
+
+    if (!roles.includes(req.user.role)) {
+      sendForbidden(res, `${roles.join(' or ')} access required`);
+      return;
+    }
+
+    next();
+  };
+
+export const requireRole = requireAnyRole;
+
+export const requireAdmin = requireAnyRole('ADMIN');
+
+export const requireAdminOrSales = requireAnyRole('ADMIN', 'SALES');
+
+export const requireAdminOrFinance = requireAnyRole('ADMIN', 'FINANCE');
+
+export const requireVendor = requireAnyRole('VENDOR', 'ADMIN');
+
+export const requireVendorOnly = async (
   req: Request,
   res: Response,
   next: NextFunction
-): void => {
-  if (req.user?.role !== 'ADMIN') {
-    res.status(403).json({ error: 'Admin access required' });
+): Promise<void> => {
+  if (!req.user) {
+    sendUnauthorized(res);
     return;
   }
+
+  if (req.user.role === 'VENDOR') {
+    next();
+    return;
+  }
+
+  if (!req.user.vendorId) {
+    sendForbidden(res, 'Approved vendor access required');
+    return;
+  }
+
+  const vendor = await prisma.vendor.findUnique({
+    where: { id: req.user.vendorId },
+    select: {
+      id: true,
+      userId: true,
+      status: true,
+    },
+  });
+
+  if (!vendor || vendor.userId !== req.user.id || vendor.status !== 'APPROVED') {
+    sendForbidden(res, 'Approved vendor access required');
+    return;
+  }
+
   next();
 };
 
-export const requireAdminOrFinance = (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): void => {
-  if (req.user?.role !== 'ADMIN' && req.user?.role !== 'FINANCE') {
-    res.status(403).json({ error: 'Admin or finance access required' });
-    return;
-  }
-  next();
-};
-
-export const requireVendor = (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): void => {
-  if (req.user?.role !== 'VENDOR' && req.user?.role !== 'ADMIN') {
-    res.status(403).json({ error: 'Vendor access required' });
-    return;
-  }
-  next();
-};
+export const requireUser = requireAnyRole('USER');

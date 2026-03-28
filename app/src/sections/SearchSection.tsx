@@ -1,28 +1,24 @@
 import { useRef, useLayoutEffect, useState, useEffect } from 'react';
+import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { Search, Building2, Plane, Heart, UtensilsCrossed, Laptop, Dumbbell, Shield, Ticket, ShoppingBag, ArrowRight, Sparkles } from 'lucide-react';
+import { Search, Building2, ArrowRight, Sparkles } from 'lucide-react';
 import api from '../services/api';
 
 gsap.registerPlugin(ScrollTrigger);
-
-const categories = [
-  { label: 'Travel', icon: Plane, color: 'bg-blue-50 text-blue-600' },
-  { label: 'Wellness', icon: Heart, color: 'bg-rose-50 text-rose-600' },
-  { label: 'Food', icon: UtensilsCrossed, color: 'bg-orange-50 text-orange-600' },
-  { label: 'Tech', icon: Laptop, color: 'bg-purple-50 text-purple-600' },
-  { label: 'Fitness', icon: Dumbbell, color: 'bg-green-50 text-green-600' },
-  { label: 'Insurance', icon: Shield, color: 'bg-teal-50 text-teal-600' },
-  { label: 'Entertainment', icon: Ticket, color: 'bg-pink-50 text-pink-600' },
-  { label: 'Shopping', icon: ShoppingBag, color: 'bg-amber-50 text-amber-600' },
-];
+const initialCompanyRequestForm = {
+  companyName: '',
+  requesterName: '',
+  workEmail: '',
+  city: '',
+  note: '',
+};
 
 const SearchSection = () => {
   const navigate = useNavigate();
   const sectionRef = useRef<HTMLDivElement>(null);
   const searchCardRef = useRef<HTMLDivElement>(null);
-  const categoriesRef = useRef<HTMLDivElement>(null);
   const companiesRef = useRef<HTMLDivElement>(null);
   
   const [searchQuery, setSearchQuery] = useState('');
@@ -30,9 +26,15 @@ const SearchSection = () => {
   const [selectedCompany, setSelectedCompany] = useState<any | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
+  const [showCompanyRequestForm, setShowCompanyRequestForm] = useState(false);
+  const [isSubmittingCompanyRequest, setIsSubmittingCompanyRequest] = useState(false);
+  const [companyRequestSuccess, setCompanyRequestSuccess] = useState('');
+  const [companyRequestError, setCompanyRequestError] = useState('');
+  const [companyRequestForm, setCompanyRequestForm] = useState(initialCompanyRequestForm);
   const [companies, setCompanies] = useState<any[]>([]);
   const hasImageLogo = (logo: unknown) =>
     typeof logo === 'string' && (logo.startsWith('http://') || logo.startsWith('https://') || logo.startsWith('/'));
+  const normalizedCompanyRequest = searchQuery.trim() || 'your company';
 
   useEffect(() => {
     const loadCompanies = async () => {
@@ -50,6 +52,42 @@ const SearchSection = () => {
     };
     loadCompanies();
   }, []);
+
+  const openCompanyRequestForm = () => {
+    const companyName = searchQuery.trim();
+    setCompanyRequestForm((current) => ({
+      ...current,
+      companyName: companyName || current.companyName,
+    }));
+    setCompanyRequestError('');
+    setCompanyRequestSuccess('');
+    setShowCompanyRequestForm(true);
+    setShowDropdown(false);
+  };
+
+  const updateCompanyRequestField = (field: keyof typeof initialCompanyRequestForm, value: string) => {
+    setCompanyRequestForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+    setCompanyRequestError('');
+  };
+
+  const validateCompanyRequest = () => {
+    const companyName = companyRequestForm.companyName.trim();
+    const requesterName = companyRequestForm.requesterName.trim();
+    const workEmail = companyRequestForm.workEmail.trim();
+
+    if (!companyName || !requesterName || !workEmail) {
+      return 'Company name, your name, and work email are required.';
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(workEmail)) {
+      return 'Please enter a valid work email.';
+    }
+
+    return '';
+  };
 
   useLayoutEffect(() => {
     const ctx = gsap.context(() => {
@@ -69,28 +107,6 @@ const SearchSection = () => {
           },
         }
       );
-
-      const chips = categoriesRef.current?.querySelectorAll('.category-chip');
-      if (chips) {
-        gsap.fromTo(
-          chips,
-          { opacity: 0, y: 30, scale: 0.9 },
-          {
-            opacity: 1,
-            y: 0,
-            scale: 1,
-            duration: 0.5,
-            stagger: 0.05,
-            ease: 'back.out(1.5)',
-            scrollTrigger: {
-              trigger: categoriesRef.current,
-              start: 'top 85%',
-              end: 'top 60%',
-              scrub: true,
-            },
-          }
-        );
-      }
 
       const companyItems = companiesRef.current?.querySelectorAll('.company-item');
       if (companyItems) {
@@ -134,11 +150,14 @@ const SearchSection = () => {
 
       if (!company) {
         setSelectedCompany(null);
-        setSearchError('Company not found. Request to add company.');
+        setSearchError('We could not find that company yet.');
+        setCompanyRequestSuccess('');
         return;
       }
 
       setSelectedCompany(company);
+      setShowCompanyRequestForm(false);
+      setCompanyRequestSuccess('');
       goToCompanyDeals(company);
     } catch (error: any) {
       console.error('Failed to resolve company search', {
@@ -156,7 +175,46 @@ const SearchSection = () => {
     setSelectedCompany(company);
     setSearchQuery(company.name);
     setSearchError('');
+    setShowCompanyRequestForm(false);
+    setCompanyRequestSuccess('');
     setShowDropdown(false);
+  };
+
+  const handleCompanyRequestSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const validationError = validateCompanyRequest();
+    if (validationError) {
+      setCompanyRequestError(validationError);
+      return;
+    }
+
+    setIsSubmittingCompanyRequest(true);
+    setCompanyRequestError('');
+
+    try {
+      const response = await api.submitCompanyRequest({
+        companyName: companyRequestForm.companyName.trim(),
+        requesterName: companyRequestForm.requesterName.trim(),
+        workEmail: companyRequestForm.workEmail.trim(),
+        city: companyRequestForm.city.trim(),
+        note: companyRequestForm.note.trim(),
+      });
+
+      setCompanyRequestSuccess(
+        response.message || `Thanks. We received your request to add ${companyRequestForm.companyName.trim()}.`
+      );
+      setCompanyRequestForm(initialCompanyRequestForm);
+      setSearchError('');
+      setShowCompanyRequestForm(false);
+    } catch (error: any) {
+      if (error?.company?.slug) {
+        setSelectedCompany(error.company);
+      }
+      setCompanyRequestError(error?.message || 'Unable to submit your request right now.');
+    } finally {
+      setIsSubmittingCompanyRequest(false);
+    }
   };
 
   const filteredCompanies = companies.filter((company) => {
@@ -175,13 +233,13 @@ const SearchSection = () => {
     <section
       ref={sectionRef}
       id="search"
-      className="relative w-full bg-corp-light py-20 lg:py-28 z-20"
+      className="relative w-full bg-corp-light py-14 lg:py-18 z-20"
       aria-label="Find Your Company"
     >
       <div className="w-full px-6 lg:px-12">
         <div className="max-w-6xl mx-auto">
           
-          <div className="text-center mb-12">
+          <div className="text-center mb-10">
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-corp-highlight rounded-full mb-4">
               <Sparkles className="w-4 h-4 text-corp-blue" />
               <span className="font-inter text-sm text-corp-blue font-medium">
@@ -199,9 +257,9 @@ const SearchSection = () => {
 
           <div
             ref={searchCardRef}
-            className="bg-white rounded-3xl shadow-card p-6 lg:p-10 mb-10"
+            className="bg-white rounded-3xl shadow-card p-6 lg:p-8"
           >
-            <div className="relative mb-8">
+            <div className="relative mb-6">
               <div className="flex flex-col sm:flex-row gap-3">
                 <div className="flex-1 relative">
                   <div className="absolute left-4 top-1/2 -translate-y-1/2">
@@ -260,10 +318,16 @@ const SearchSection = () => {
                         ))
                       ) : (
                         <div className="px-4 py-4 text-center">
-                          <p className="text-corp-gray font-inter mb-2">
+                          <p className="text-corp-gray font-inter mb-1">
                             Company not found?
                           </p>
-                          <button className="text-corp-blue font-inter text-sm hover:underline">
+                          <p className="mx-auto mb-3 max-w-sm text-sm leading-6 text-corp-gray">
+                            Send us a quick request and we will review adding {normalizedCompanyRequest}.
+                          </p>
+                          <button
+                            onClick={openCompanyRequestForm}
+                            className="text-corp-blue font-inter text-sm font-medium hover:underline"
+                          >
                             Request your company to be added
                           </button>
                         </div>
@@ -340,7 +404,147 @@ const SearchSection = () => {
 
             {searchError && (
               <div className="mb-8 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                {searchError}
+                <p>{searchError}</p>
+                <p className="mt-2 text-amber-700">
+                  Example: if you work at City of Vancouver, open the short request form and we
+                  will review adding it.
+                </p>
+                <button
+                  onClick={openCompanyRequestForm}
+                  className="mt-3 inline-flex items-center gap-2 font-medium text-amber-900 underline decoration-amber-400 underline-offset-4"
+                >
+                  Request {normalizedCompanyRequest} to be added
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+
+            {(showCompanyRequestForm || companyRequestSuccess || companyRequestError) && (
+              <div className="mb-8 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:p-6">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Add your company
+                    </p>
+                    <h3 className="mt-1 font-montserrat text-2xl font-bold text-corp-dark">
+                      Request your company in one short step
+                    </h3>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-corp-gray">
+                      If we do not have your employer yet, send us your company name and work email.
+                      Example: City of Vancouver.
+                    </p>
+                  </div>
+                  {showCompanyRequestForm && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCompanyRequestForm(false);
+                        setCompanyRequestError('');
+                      }}
+                      className="text-sm font-medium text-slate-500 hover:text-slate-700"
+                    >
+                      Close
+                    </button>
+                  )}
+                </div>
+
+                {companyRequestSuccess && (
+                  <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                    {companyRequestSuccess}
+                  </div>
+                )}
+
+                {showCompanyRequestForm && (
+                  <form className="mt-5 grid gap-4" onSubmit={handleCompanyRequestSubmit}>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          Company name
+                        </label>
+                        <input
+                          type="text"
+                          value={companyRequestForm.companyName}
+                          onChange={(e) => updateCompanyRequestField('companyName', e.target.value)}
+                          placeholder="City of Vancouver"
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-corp-dark outline-none transition focus:border-corp-blue focus:ring-2 focus:ring-corp-blue/20"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          Your name
+                        </label>
+                        <input
+                          type="text"
+                          value={companyRequestForm.requesterName}
+                          onChange={(e) => updateCompanyRequestField('requesterName', e.target.value)}
+                          placeholder="Jane Smith"
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-corp-dark outline-none transition focus:border-corp-blue focus:ring-2 focus:ring-corp-blue/20"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          Work email
+                        </label>
+                        <input
+                          type="email"
+                          value={companyRequestForm.workEmail}
+                          onChange={(e) => updateCompanyRequestField('workEmail', e.target.value)}
+                          placeholder="you@vancouver.ca"
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-corp-dark outline-none transition focus:border-corp-blue focus:ring-2 focus:ring-corp-blue/20"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          City or region
+                        </label>
+                        <input
+                          type="text"
+                          value={companyRequestForm.city}
+                          onChange={(e) => updateCompanyRequestField('city', e.target.value)}
+                          placeholder="Vancouver, BC"
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-corp-dark outline-none transition focus:border-corp-blue focus:ring-2 focus:ring-corp-blue/20"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                        Brief note
+                      </label>
+                      <textarea
+                        value={companyRequestForm.note}
+                        onChange={(e) => updateCompanyRequestField('note', e.target.value)}
+                        rows={3}
+                        placeholder="I work at City of Vancouver and would like employee deals for our organization."
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-corp-dark outline-none transition focus:border-corp-blue focus:ring-2 focus:ring-corp-blue/20"
+                      />
+                    </div>
+
+                    {companyRequestError && (
+                      <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                        {companyRequestError}
+                      </div>
+                    )}
+
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-sm text-corp-gray">
+                        We use this only to review and verify new company requests.
+                      </p>
+                      <button
+                        type="submit"
+                        className="btn-primary px-6 py-3"
+                        disabled={isSubmittingCompanyRequest}
+                      >
+                        {isSubmittingCompanyRequest ? 'Sending request...' : 'Send request'}
+                      </button>
+                    </div>
+                  </form>
+                )}
               </div>
             )}
 
@@ -364,30 +568,6 @@ const SearchSection = () => {
                   </button>
                 ))}
               </div>
-            </div>
-          </div>
-
-          <div ref={categoriesRef}>
-            <p className="font-inter text-sm text-corp-gray text-center mb-6">
-              Or explore employee perks by category:
-            </p>
-            <div className="flex flex-wrap justify-center gap-3">
-              {categories.map((category) => {
-                const Icon = category.icon;
-                return (
-                  <button
-                    key={category.label}
-                    className="category-chip flex items-center gap-2 px-5 py-3 bg-white rounded-xl shadow-sm hover:shadow-card transition-all duration-300 group"
-                  >
-                    <div className={`w-9 h-9 ${category.color} rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform`}>
-                      <Icon className="w-5 h-5" />
-                    </div>
-                    <span className="font-inter text-sm font-medium text-corp-dark">
-                      {category.label}
-                    </span>
-                  </button>
-                );
-              })}
             </div>
           </div>
         </div>
