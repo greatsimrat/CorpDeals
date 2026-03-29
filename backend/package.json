@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "routes:audit": "tsx src/scripts/route-audit.ts",
+    "routes:test": "powershell -ExecutionPolicy Bypass -File scripts/test-routes.ps1",
     "prestart": "prisma generate",
     "start": "node dist/index.js",
     "db:generate": "prisma generate",

@@ -52,6 +52,46 @@ const isFutureDate = (date: Date) => {
   return date.getTime() > today.getTime();
 };
 
+const getOfferForUserAccess = async (offerId: string, userId: string) => {
+  const offer = await prisma.offer.findUnique({
+    where: { id: offerId },
+    include: {
+      vendor: {
+        select: { id: true, companyName: true, logo: true, website: true },
+      },
+      company: {
+        select: {
+          id: true,
+          slug: true,
+          name: true,
+          domain: true,
+          allowedDomains: true,
+          logo: true,
+        },
+      },
+      category: {
+        select: { id: true, name: true, slug: true, icon: true },
+      },
+    },
+  });
+
+  if (!offer) {
+    return { offer: null, verification: null, canAccess: false };
+  }
+
+  if (!offer.active || String((offer as any).complianceStatus || '') !== 'APPROVED') {
+    return { offer: null, verification: null, canAccess: false };
+  }
+
+  const verification = await getUserVerification(userId, offer.companyId);
+  const canAccess =
+    !!verification &&
+    verification.status === VERIFIED_STATUS &&
+    verification.expiresAt > new Date();
+
+  return { offer, verification, canAccess };
+};
+
 const createLeadFromOfferApply = async (req: Request, res: Response): Promise<void> => {
   const offerId = String(req.params.id);
   const offer: any = await prisma.offer.findUnique({
@@ -288,42 +328,12 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 router.get('/:id/access', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
     const offerId = String(req.params.id);
-    const offer = await prisma.offer.findUnique({
-      where: { id: offerId },
-      include: {
-        vendor: {
-          select: { id: true, companyName: true, logo: true, website: true },
-        },
-        company: {
-          select: {
-            id: true,
-            slug: true,
-            name: true,
-            domain: true,
-            allowedDomains: true,
-            logo: true,
-          },
-        },
-        category: {
-          select: { id: true, name: true, slug: true, icon: true },
-        },
-      },
-    });
+    const { offer, verification, canAccess } = await getOfferForUserAccess(offerId, req.user!.id);
 
     if (!offer) {
       res.status(404).json({ error: 'Offer not found' });
       return;
     }
-    if (!offer.active || String((offer as any).complianceStatus || '') !== 'APPROVED') {
-      res.status(404).json({ error: 'Offer not found' });
-      return;
-    }
-
-    const verification = await getUserVerification(req.user!.id, offer.companyId);
-    const canAccess =
-      !!verification &&
-      verification.status === VERIFIED_STATUS &&
-      verification.expiresAt > new Date();
 
     res.json({
       canAccess,
@@ -342,6 +352,145 @@ router.get('/:id/access', authenticateToken, async (req: Request, res: Response)
   } catch (error) {
     console.error('Offer access check error:', error);
     res.status(500).json({ error: 'Failed to check offer access' });
+  }
+});
+
+router.get('/:id/claim-status', authenticateToken, requireUser, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const offerId = String(req.params.id);
+    const { offer, verification, canAccess } = await getOfferForUserAccess(offerId, req.user!.id);
+
+    if (!offer) {
+      res.status(404).json({ error: 'Offer not found' });
+      return;
+    }
+
+    if (!canAccess) {
+      res.status(403).json({
+        error: 'Employment verification required',
+        code: 'NOT_VERIFIED',
+        company: {
+          id: offer.company.id,
+          slug: offer.company.slug,
+          name: offer.company.name,
+        },
+        verification: verification
+          ? {
+              id: verification.id,
+              status: verification.status,
+              verifiedAt: verification.verifiedAt,
+              expiresAt: verification.expiresAt,
+              verificationMethod: verification.verificationMethod,
+            }
+          : null,
+      });
+      return;
+    }
+
+    const claim = await prisma.offerClaim.findFirst({
+      where: {
+        userId: req.user!.id,
+        offerId: offer.id,
+      },
+      select: {
+        id: true,
+        claimedAt: true,
+      },
+    });
+
+    res.json({
+      hasClaimed: !!claim,
+      claim: claim
+        ? {
+            id: claim.id,
+            claimedAt: claim.claimedAt,
+          }
+        : null,
+    });
+  } catch (error) {
+    console.error('Offer claim status error:', error);
+    res.status(500).json({ error: 'Failed to fetch claim status' });
+  }
+});
+
+router.post('/:id/claim', authenticateToken, requireUser, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const offerId = String(req.params.id);
+    const { offer, verification, canAccess } = await getOfferForUserAccess(offerId, req.user!.id);
+
+    if (!offer) {
+      res.status(404).json({ error: 'Offer not found' });
+      return;
+    }
+
+    if (!canAccess) {
+      res.status(403).json({
+        error: 'Employment verification required',
+        code: 'NOT_VERIFIED',
+        company: {
+          id: offer.company.id,
+          slug: offer.company.slug,
+          name: offer.company.name,
+        },
+        verification: verification
+          ? {
+              id: verification.id,
+              status: verification.status,
+              verifiedAt: verification.verifiedAt,
+              expiresAt: verification.expiresAt,
+              verificationMethod: verification.verificationMethod,
+            }
+          : null,
+      });
+      return;
+    }
+
+    const existingClaim = await prisma.offerClaim.findFirst({
+      where: {
+        userId: req.user!.id,
+        offerId: offer.id,
+      },
+      select: {
+        id: true,
+        claimedAt: true,
+      },
+    });
+
+    if (existingClaim) {
+      res.status(409).json({
+        error: 'ALREADY_CLAIMED',
+        message: 'You have already claimed this offer.',
+        claim: existingClaim,
+      });
+      return;
+    }
+
+    const claim = await prisma.offerClaim.create({
+      data: {
+        userId: req.user!.id,
+        offerId: offer.id,
+      },
+      select: {
+        id: true,
+        claimedAt: true,
+      },
+    });
+
+    res.json({
+      ok: true,
+      claim,
+      message: 'Offer claimed successfully.',
+    });
+  } catch (error: any) {
+    if (error?.code === 'P2002') {
+      res.status(409).json({
+        error: 'ALREADY_CLAIMED',
+        message: 'You have already claimed this offer.',
+      });
+      return;
+    }
+    console.error('Offer claim error:', error);
+    res.status(500).json({ error: 'Failed to claim offer' });
   }
 });
 

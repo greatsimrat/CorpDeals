@@ -26,6 +26,14 @@ app/.env.*
 backend/.env
 backend/.env.*
 !backend/.env.example
+app/.env
+app/.env.local
+app/.env.development
+app/.env.production
+.env
+.env.local
+.env.development
+.env.production
 
 # Prisma local databases
 backend/prisma/*.db
