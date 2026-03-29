@@ -1,4 +1,4 @@
-const rawApiBaseUrl = import.meta.env.VITE_API_URL?.trim() || 'http://localhost:3001';
+const rawApiBaseUrl = import.meta.env.VITE_API_URL?.trim() || 'http://api.corpddeals.ca/api';
 const API_BASE_URL = rawApiBaseUrl.replace(/\/$/, '').endsWith('/api')
   ? rawApiBaseUrl.replace(/\/$/, '')
   : `${rawApiBaseUrl.replace(/\/$/, '')}/api`;
