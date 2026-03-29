@@ -27,6 +27,7 @@ import VendorLeadDetailPage from './pages/vendor/VendorLeadDetailPage';
 import VendorBillingPage from './pages/vendor/VendorBillingPage';
 import VendorTermsPage from './pages/vendor/VendorTermsPage';
 import OfferPage from './pages/OfferPage';
+import OfferClaimPage from './pages/OfferClaimPage';
 
 // Auth Pages
 import LoginPage from './pages/auth/LoginPage';
@@ -93,7 +94,7 @@ function App() {
                 <Route path="/company/:companyId/category/:categoryId" element={<CategoryPage />} />
                 <Route path="/offer/:offerId" element={<OfferPage />} />
                 <Route path="/offers/:offerId" element={<OfferPage />} />
-                <Route path="/offers/:offerId/claim" element={<Navigate to="/" replace />} />
+                <Route path="/offers/:offerId/claim" element={<OfferClaimPage />} />
                 <Route
                   path="/confirmation"
                   element={
