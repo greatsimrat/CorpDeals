@@ -28,10 +28,14 @@ import qaRoutes from './routes/qa';
 import { authenticateTokenOptional } from './middleware/auth';
 import { buildAuthUserPayload } from './lib/auth-user';
 import { listUserVerifications, VERIFIED_STATUS } from './lib/verifications';
+import { mountRouter, printRoutesTable } from './lib/route-inspector';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const isDevelopment = process.env.NODE_ENV !== 'production';
+const shouldPrintRoutes =
+  process.env.PRINT_ROUTES === 'true' ||
+  (isDevelopment && process.env.PRINT_ROUTES !== 'false');
 app.set('trust proxy', true);
 
 // Middleware
@@ -165,24 +169,24 @@ if (isDevelopment) {
 }
 
 // Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/vendors', vendorRoutes);
-app.use('/api/vendor', vendorJourneyRoutes);
-app.use('/api/companies', companyRoutes);
-app.use('/api/contact', contactRoutes);
-app.use('/api/categories', categoryRoutes);
-app.use('/api/offers', offerRoutes);
-app.use('/api/hr-contacts', hrContactRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/finance', financeRoutes);
-app.use('/api/sales', salesRoutes);
-app.use('/api/leads', leadRoutes);
-app.use('/api/employee-verifications', employeeVerificationRoutes);
-app.use('/api/verify', employeeVerificationRoutes);
-app.use('/api/my-applications', myApplicationsRoutes);
+mountRouter(app, '/api/auth', authRoutes);
+mountRouter(app, '/api/vendors', vendorRoutes);
+mountRouter(app, '/api/vendor', vendorJourneyRoutes);
+mountRouter(app, '/api/companies', companyRoutes);
+mountRouter(app, '/api/contact', contactRoutes);
+mountRouter(app, '/api/categories', categoryRoutes);
+mountRouter(app, '/api/offers', offerRoutes);
+mountRouter(app, '/api/hr-contacts', hrContactRoutes);
+mountRouter(app, '/api/admin', adminRoutes);
+mountRouter(app, '/api/finance', financeRoutes);
+mountRouter(app, '/api/sales', salesRoutes);
+mountRouter(app, '/api/leads', leadRoutes);
+mountRouter(app, '/api/employee-verifications', employeeVerificationRoutes);
+mountRouter(app, '/api/verify', employeeVerificationRoutes);
+mountRouter(app, '/api/my-applications', myApplicationsRoutes);
 if (isDevelopment) {
-  app.use('/dev', devRoutes);
-  app.use('/qa', qaRoutes);
+  mountRouter(app, '/dev', devRoutes);
+  mountRouter(app, '/qa', qaRoutes);
 }
 
 // Error handling middleware
@@ -198,8 +202,14 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+if (shouldPrintRoutes) {
+  printRoutesTable(app);
+}
+
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
 
 export default app;

@@ -82,6 +82,91 @@ const toPublicCompany = (company: CompanyListItem) => {
   };
 };
 
+const COMPANY_SUFFIXES = new Set([
+  'and',
+  'co',
+  'company',
+  'corp',
+  'corporation',
+  'group',
+  'holdings',
+  'inc',
+  'incorporated',
+  'limited',
+  'llc',
+  'ltd',
+  'plc',
+]);
+
+const COMPANY_DECORATOR_SUFFIX = /\b(regression|test|qa|demo|staging|sandbox|temp|tmp)\b[\s-]*\d*$/i;
+
+const normalizeCompanyIdentity = (value: string) => {
+  const cleaned = value
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(COMPANY_DECORATOR_SUFFIX, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+  if (!cleaned) return '';
+
+  const tokens = cleaned
+    .split(/\s+/)
+    .filter((token) => token && !COMPANY_SUFFIXES.has(token));
+
+  return tokens.join('');
+};
+
+const rankCompanyCandidate = (company: CompanyListItem) => {
+  const offerCount = company._count?.offers ?? 0;
+  const hrContactsCount = company._count?.hrContacts ?? 0;
+  const isDecorated = COMPANY_DECORATOR_SUFFIX.test(company.name);
+  const hasNaturalSpacing = /\s/.test(company.name);
+  return [
+    company.verified ? 1 : 0,
+    offerCount,
+    hrContactsCount,
+    isDecorated ? 0 : 1,
+    hasNaturalSpacing ? 1 : 0,
+    company.name.length ? -company.name.length : 0,
+  ];
+};
+
+const preferCanonicalCompany = (left: CompanyListItem, right: CompanyListItem) => {
+  const leftRank = rankCompanyCandidate(left);
+  const rightRank = rankCompanyCandidate(right);
+
+  for (let index = 0; index < leftRank.length; index += 1) {
+    if (leftRank[index] === rightRank[index]) continue;
+    return leftRank[index] > rightRank[index] ? left : right;
+  }
+
+  return left.name.localeCompare(right.name) <= 0 ? left : right;
+};
+
+const dedupeCompanies = <T extends CompanyListItem>(companies: T[]) => {
+  const grouped = new Map<string, T>();
+
+  for (const company of companies) {
+    const identity =
+      normalizeCompanyIdentity(company.name) ||
+      normalizeCompanyIdentity(company.slug) ||
+      (company.domain || '').toLowerCase();
+    const key = identity || company.id;
+    const existing = grouped.get(key);
+
+    if (!existing) {
+      grouped.set(key, company);
+      continue;
+    }
+
+    grouped.set(key, preferCanonicalCompany(existing, company) as T);
+  }
+
+  return Array.from(grouped.values());
+};
+
 const buildCompanySlug = (value: string) =>
   value
     .trim()
@@ -100,6 +185,63 @@ const getUniqueCompanySlug = async (tx: any, companyName: string) => {
   }
 
   return candidate;
+};
+
+type CompanyLookupClient = {
+  company: {
+    findMany: typeof prisma.company.findMany;
+  };
+};
+
+const findPotentialDuplicateCompany = async (
+  db: CompanyLookupClient,
+  input: {
+    companyName: string;
+    domain?: string | null;
+    excludeCompanyId?: string;
+  }
+) => {
+  const normalizedName = normalizeCompanyIdentity(input.companyName);
+  const normalizedSlug = normalizeCompanyIdentity(buildCompanySlug(input.companyName));
+  const normalizedDomain = input.domain ? input.domain.trim().toLowerCase() : '';
+
+  const candidates = await db.company.findMany({
+    where: input.excludeCompanyId
+      ? { id: { not: input.excludeCompanyId } }
+      : undefined,
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      domain: true,
+      allowedDomains: true,
+      logo: true,
+      verified: true,
+      _count: { select: { offers: true, hrContacts: true } },
+    },
+  });
+
+  const matches = candidates.filter((company) => {
+    const candidateName = normalizeCompanyIdentity(company.name);
+    const candidateSlug = normalizeCompanyIdentity(company.slug);
+    const candidateDomains = new Set(
+      [company.domain, ...(company.allowedDomains || [])]
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+
+    return (
+      (!!normalizedName && (candidateName === normalizedName || candidateSlug === normalizedName)) ||
+      (!!normalizedSlug && (candidateName === normalizedSlug || candidateSlug === normalizedSlug)) ||
+      (!!normalizedDomain && candidateDomains.has(normalizedDomain))
+    );
+  });
+
+  if (matches.length === 0) {
+    return null;
+  }
+
+  return dedupeCompanies(matches)[0] || matches[0];
 };
 
 // Get all companies (public)
@@ -134,7 +276,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       orderBy: { name: 'asc' },
     });
 
-    res.json({ companies: companies.map(toPublicCompany) });
+    res.json({ companies: dedupeCompanies(companies).map(toPublicCompany) });
   } catch (error) {
     console.error('Get companies error:', {
       query: req.query,
@@ -168,7 +310,7 @@ router.get('/resolve/search', async (req: Request, res: Response): Promise<void>
       .split(/[^a-z0-9]+/)
       .map((token) => token.trim())
       .filter((token) => token.length >= 3 && !SEARCH_STOPWORDS.has(token));
-    const scored = companies
+    const scored = dedupeCompanies(companies)
       .map((company) => {
         const name = company.name.toLowerCase();
         const slug = company.slug.toLowerCase();
@@ -223,22 +365,9 @@ router.post('/requests', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const existingCompany = await prisma.company.findFirst({
-      where: {
-        OR: [
-          { name: { equals: companyName, mode: 'insensitive' } },
-          { slug: { equals: companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-'), mode: 'insensitive' } },
-        ],
-      },
-      select: {
-        id: true,
-        slug: true,
-        name: true,
-        domain: true,
-        logo: true,
-        verified: true,
-        _count: { select: { offers: true, hrContacts: true } },
-      },
+    const existingCompany = await findPotentialDuplicateCompany(prisma, {
+      companyName,
+      domain: extractEmailDomain(workEmail),
     });
 
     if (existingCompany) {
@@ -249,13 +378,17 @@ router.post('/requests', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const existingRequest = await prisma.companyRequest.findFirst({
-      where: {
-        companyName: { equals: companyName, mode: 'insensitive' },
-        workEmail: { equals: workEmail, mode: 'insensitive' },
-        status: 'PENDING',
-      },
-      select: { id: true },
+    const pendingRequests = await prisma.companyRequest.findMany({
+      where: { status: 'PENDING' },
+      select: { id: true, companyName: true, workEmail: true },
+    });
+
+    const requestedIdentity = normalizeCompanyIdentity(companyName);
+    const existingRequest = pendingRequests.find((item) => {
+      return (
+        normalizeCompanyIdentity(item.companyName) === requestedIdentity &&
+        item.workEmail.trim().toLowerCase() === workEmail
+      );
     });
 
     if (existingRequest) {
@@ -366,24 +499,9 @@ router.patch('/requests/:id', authenticateToken, requireAdminOrSales, async (req
       let createdCompany: CompanyListItem | null = null;
 
       if (status === 'APPROVED') {
-        const existingCompany = await tx.company.findFirst({
-          where: {
-            OR: [
-              { name: { equals: companyName, mode: 'insensitive' } },
-              ...(workDomain
-                ? [{ domain: { equals: workDomain, mode: 'insensitive' as const } }]
-                : []),
-            ],
-          },
-          select: {
-            id: true,
-            slug: true,
-            name: true,
-            domain: true,
-            logo: true,
-            verified: true,
-            _count: { select: { offers: true, hrContacts: true } },
-          },
+        const existingCompany = await findPotentialDuplicateCompany(tx, {
+          companyName,
+          domain: workDomain || null,
         });
 
         if (existingCompany) {
@@ -587,6 +705,18 @@ router.post('/', authenticateToken, requireAdmin, async (req: Request, res: Resp
 
     // Generate slug if not provided
     const finalSlug = slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const existingCompany = await findPotentialDuplicateCompany(prisma, {
+      companyName: String(name || ''),
+      domain: typeof domain === 'string' ? domain : null,
+    });
+
+    if (existingCompany) {
+      res.status(409).json({
+        error: `Company looks like a duplicate of ${existingCompany.name}`,
+        company: toPublicCompany(existingCompany),
+      });
+      return;
+    }
 
     const company = await prisma.company.create({
       data: {
@@ -632,6 +762,19 @@ router.patch('/:id', authenticateToken, requireAdmin, async (req: Request, res: 
       bannerImage,
       brandColor,
     } = req.body;
+    const existingCompany = await findPotentialDuplicateCompany(prisma, {
+      companyName: String(name || ''),
+      domain: typeof domain === 'string' ? domain : null,
+      excludeCompanyId: companyId,
+    });
+
+    if (existingCompany) {
+      res.status(409).json({
+        error: `Company looks like a duplicate of ${existingCompany.name}`,
+        company: toPublicCompany(existingCompany),
+      });
+      return;
+    }
 
     const company = await prisma.company.update({
       where: { id: companyId },
