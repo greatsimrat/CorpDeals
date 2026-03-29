@@ -1,7 +1,6 @@
 const rawApiBaseUrl =
-  import.meta.env.VITE_API_URL?.trim() || 'https://api.corpdeals.ca/api';
-
-const rawApiBaseUrl = import.meta.env.VITE_API_URL?.trim() || 'https://api.corpdeals.ca/api';
+  import.meta.env.VITE_API_URL?.trim() ||
+  (import.meta.env.DEV ? 'http://localhost:3001/api' : 'https://api.corpdeals.ca/api');
 const API_BASE_URL = rawApiBaseUrl.replace(/\/$/, '').endsWith('/api')
   ? rawApiBaseUrl.replace(/\/$/, '')
   : `${rawApiBaseUrl.replace(/\/$/, '')}/api`;
