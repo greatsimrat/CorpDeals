@@ -67,7 +67,7 @@ class ApiService {
       });
     } catch (networkError: any) {
       const err: any = new Error(
-        `Unable to connect to backend API at ${API_BASE_URL}. Please start/restart the backend server.`
+        `Unable to reach backend API at ${API_BASE_URL}. Check that the backend is running and that production CORS allows this frontend origin.`
       );
       err.code = 'NETWORK_ERROR';
       err.endpoint = endpoint;
