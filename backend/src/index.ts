@@ -12,16 +12,16 @@ const loadEnvFile = (filename: string, override = false) => {
   }
 };
 
-// Load shared defaults first.
-loadEnvFile('.env');
-
-// Keep .env.local for local development only. In production, prefer .env.prod.
+// Decide which override file to use before loading shared defaults.
 const requestedAppEnv = (process.env.APP_ENV || process.env.NODE_ENV || '').trim().toLowerCase();
 const hasProdOverride = fs.existsSync(envFilePath('.env.prod')) || fs.existsSync(envFilePath('.env.production'));
 const shouldUseProductionEnv =
   requestedAppEnv === 'production' ||
   requestedAppEnv === 'prod' ||
   (!requestedAppEnv && hasProdOverride);
+
+// Load shared defaults first.
+loadEnvFile('.env');
 
 if (shouldUseProductionEnv) {
   loadEnvFile('.env.production', true);
