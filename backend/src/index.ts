@@ -1,11 +1,34 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import fs from 'fs';
 import path from 'path';
 
-// Load base env first, then let .env.local override for local development.
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
-dotenv.config({ path: path.resolve(process.cwd(), '.env.local'), override: true });
+const envFilePath = (filename: string) => path.resolve(process.cwd(), filename);
+const loadEnvFile = (filename: string, override = false) => {
+  const filePath = envFilePath(filename);
+  if (fs.existsSync(filePath)) {
+    dotenv.config({ path: filePath, override });
+  }
+};
+
+// Decide which override file to use before loading shared defaults.
+const requestedAppEnv = (process.env.APP_ENV || process.env.NODE_ENV || '').trim().toLowerCase();
+const hasProdOverride = fs.existsSync(envFilePath('.env.prod')) || fs.existsSync(envFilePath('.env.production'));
+const shouldUseProductionEnv =
+  requestedAppEnv === 'production' ||
+  requestedAppEnv === 'prod' ||
+  (!requestedAppEnv && hasProdOverride);
+
+// Load shared defaults first.
+loadEnvFile('.env');
+
+if (shouldUseProductionEnv) {
+  loadEnvFile('.env.production', true);
+  loadEnvFile('.env.prod', true);
+} else {
+  loadEnvFile('.env.local', true);
+}
 
 // Import routes
 import authRoutes from './routes/auth';
@@ -39,10 +62,23 @@ const shouldPrintRoutes =
 app.set('trust proxy', true);
 
 // Middleware
-const explicitOrigins = [
+const normalizeOrigin = (value: string) => value.trim().replace(/\/$/, '');
+const parseConfiguredOrigins = (...values: Array<string | undefined>) =>
+  Array.from(
+    new Set(
+      values
+        .flatMap((value) => String(value || '').split(','))
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .map(normalizeOrigin)
+    )
+  );
+
+const explicitOrigins = parseConfiguredOrigins(
   process.env.FRONTEND_URL,
-  'http://localhost:5173',
-].filter(Boolean) as string[];
+  process.env.FRONTEND_URLS,
+  'http://localhost:5173'
+);
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -54,11 +90,15 @@ app.use(cors({
       callback(null, true);
       return;
     }
-    if (explicitOrigins.includes(origin)) {
+    const normalizedOrigin = normalizeOrigin(origin);
+    if (explicitOrigins.includes(normalizedOrigin)) {
       callback(null, true);
       return;
     }
-    if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+    if (
+      normalizedOrigin.startsWith('http://localhost:') ||
+      normalizedOrigin.startsWith('http://127.0.0.1:')
+    ) {
       callback(null, true);
       return;
     }
