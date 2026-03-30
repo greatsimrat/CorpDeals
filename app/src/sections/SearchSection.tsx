@@ -406,7 +406,7 @@ const SearchSection = () => {
               <div className="mb-8 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
                 <p>{searchError}</p>
                 <p className="mt-2 text-amber-700">
-                  Example: if you work at City of Vancouver, open the short request form and we
+                  If we do not support your organization yet, open the short request form and we
                   will review adding it.
                 </p>
                 <button
@@ -430,8 +430,8 @@ const SearchSection = () => {
                       Request your company in one short step
                     </h3>
                     <p className="mt-2 max-w-2xl text-sm leading-6 text-corp-gray">
-                      If we do not have your employer yet, send us your company name and work email.
-                      Example: City of Vancouver.
+                      If we do not have your organization yet, send us your company name and work
+                      email and we will review it.
                     </p>
                   </div>
                   {showCompanyRequestForm && (
@@ -465,7 +465,7 @@ const SearchSection = () => {
                           type="text"
                           value={companyRequestForm.companyName}
                           onChange={(e) => updateCompanyRequestField('companyName', e.target.value)}
-                          placeholder="City of Vancouver"
+                          placeholder="Your organization"
                           className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-corp-dark outline-none transition focus:border-corp-blue focus:ring-2 focus:ring-corp-blue/20"
                         />
                       </div>
@@ -520,7 +520,7 @@ const SearchSection = () => {
                         value={companyRequestForm.note}
                         onChange={(e) => updateCompanyRequestField('note', e.target.value)}
                         rows={3}
-                        placeholder="I work at City of Vancouver and would like employee deals for our organization."
+                        placeholder="I work at my organization and would like employee deals for our team."
                         className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-corp-dark outline-none transition focus:border-corp-blue focus:ring-2 focus:ring-corp-blue/20"
                       />
                     </div>
