@@ -5,8 +5,8 @@ import prisma from '../lib/prisma';
 const router = Router();
 
 const isDevMode = process.env.NODE_ENV !== 'production';
-const testDomain = 'effectiverenovations.com';
-const vendorNotificationEmail = 'vendor-test@effectiverenovations.com';
+const testDomain = 'corpdeals.ca';
+const vendorNotificationEmail = 'vendor-test@corpdeals.ca';
 
 const uniq = (values: string[]) =>
   Array.from(
@@ -101,14 +101,14 @@ router.get('/seed', async (_req: Request, res: Response): Promise<void> => {
     ]);
 
     const bmoUser = await prisma.user.upsert({
-      where: { email: 'dev.bmo.vendor@effectiverenovations.com' },
+      where: { email: 'dev.bmo.vendor@corpdeals.ca' },
       update: {
         role: 'VENDOR',
         name: 'BMO Test Vendor',
         passwordHash,
       },
       create: {
-        email: 'dev.bmo.vendor@effectiverenovations.com',
+        email: 'dev.bmo.vendor@corpdeals.ca',
         role: 'VENDOR',
         name: 'BMO Test Vendor',
         passwordHash,
@@ -117,14 +117,14 @@ router.get('/seed', async (_req: Request, res: Response): Promise<void> => {
     });
 
     const kiaUser = await prisma.user.upsert({
-      where: { email: 'dev.kia.vendor@effectiverenovations.com' },
+      where: { email: 'dev.kia.vendor@corpdeals.ca' },
       update: {
         role: 'VENDOR',
         name: 'Kia Surrey Test Vendor',
         passwordHash,
       },
       create: {
-        email: 'dev.kia.vendor@effectiverenovations.com',
+        email: 'dev.kia.vendor@corpdeals.ca',
         role: 'VENDOR',
         name: 'Kia Surrey Test Vendor',
         passwordHash,
@@ -133,14 +133,14 @@ router.get('/seed', async (_req: Request, res: Response): Promise<void> => {
     });
 
     const expediaUser = await prisma.user.upsert({
-      where: { email: 'dev.expedia.vendor@effectiverenovations.com' },
+      where: { email: 'dev.expedia.vendor@corpdeals.ca' },
       update: {
         role: 'VENDOR',
         name: 'Expedia Test Vendor',
         passwordHash,
       },
       create: {
-        email: 'dev.expedia.vendor@effectiverenovations.com',
+        email: 'dev.expedia.vendor@corpdeals.ca',
         role: 'VENDOR',
         name: 'Expedia Test Vendor',
         passwordHash,

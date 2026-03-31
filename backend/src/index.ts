@@ -176,7 +176,11 @@ app.get('/api/me', authenticateTokenOptional, async (req, res) => {
 // Public SMTP test endpoint (development only)
 if (isDevelopment) {
   app.get('/test-email', async (req, res) => {
-    const recipient = 'vendor-test@effectiverenovations.com';
+    const recipient =
+      process.env.VENDOR_NOTIFICATION_TEST_EMAIL ||
+      process.env.SUPPORT_EMAIL ||
+      process.env.MAIL_FROM_ADDRESS ||
+      'support@corpdeals.ca';
     const subject = 'SMTP Test Successful';
     const body =
       'If you received this email, Hostinger SMTP is configured correctly.';

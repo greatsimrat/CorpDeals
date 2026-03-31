@@ -25,14 +25,14 @@ router.get('/test-email', async (_req: Request, res: Response): Promise<void> =>
       emailType: 'user_confirmation',
       to: 'qa.amazon.employee@amazon.com',
       subject: 'QA User Confirmation Test',
-      body: 'If you received this at user@effectiverenovations.com, routing works.',
+      body: 'If you received this at user-test@corpdeals.ca, routing works.',
     });
 
     const vendorTest = await sendQaTypedTestEmail({
       emailType: 'vendor_lead',
       to: 'anyvendor@example.com',
       subject: 'QA Vendor Lead Test',
-      body: 'If you received this at vendor-test@effectiverenovations.com, routing works.',
+      body: 'If you received this at vendor-test@corpdeals.ca, routing works.',
     });
 
     res.json({
