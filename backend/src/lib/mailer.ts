@@ -7,14 +7,19 @@ const mailPassword = process.env.MAIL_PASSWORD || '';
 const mailEncryption = (process.env.MAIL_ENCRYPTION || '').toLowerCase();
 const fromEmail = process.env.MAIL_FROM_ADDRESS || mailUsername;
 const fromName = process.env.MAIL_FROM_NAME || 'CorpDeals';
+const supportEmail =
+  process.env.SUPPORT_EMAIL ||
+  process.env.VENDOR_SUPPORT_EMAIL ||
+  process.env.MAIL_FROM_ADDRESS ||
+  'support@corpdeals.ca';
 const appEnv = (process.env.APP_ENV || '').toLowerCase();
 const nodeEnv = (process.env.NODE_ENV || '').toLowerCase();
 const devUserConfirmationInbox =
   process.env.USER_CONFIRMATION_TEST_EMAIL ||
-  'user@effectiverenovations.com';
+  supportEmail;
 const vendorNotificationTestInbox =
   process.env.VENDOR_NOTIFICATION_TEST_EMAIL ||
-  'vendor-test@effectiverenovations.com';
+  supportEmail;
 const isLocalOrDev = appEnv === 'local' || nodeEnv === 'development';
 const vendorOverrideEnabledRaw = (process.env.VENDOR_EMAIL_OVERRIDE_ENABLED || '').toLowerCase();
 const vendorOverrideEnabled = vendorOverrideEnabledRaw
@@ -324,14 +329,14 @@ export const sendLeadSubmissionConfirmationEmail = async ({
   vendorName,
   leadId,
 }: LeadConfirmationEmailInput): Promise<SendEmailResult> => {
-  const subject = `We received your request – ${offerTitle}`;
+  const subject = `We received your request - ${offerTitle}`;
   const text = [
     `Thanks for your request for "${offerTitle}".`,
     `Company: ${companyName}`,
     `Vendor: ${vendorName}`,
     `Reference ID: ${leadId}`,
     'Vendor follow-up window: 2-3 business days.',
-    'Support: support@effectiverenovations.com',
+    `Support: ${supportEmail}`,
   ].join('\n');
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6;">
@@ -341,7 +346,7 @@ export const sendLeadSubmissionConfirmationEmail = async ({
       <p><strong>Vendor:</strong> ${vendorName}</p>
       <p><strong>Reference ID:</strong> ${leadId}</p>
       <p>Vendor follow-up window: <strong>2-3 business days</strong>.</p>
-      <p>Support: <a href="mailto:support@effectiverenovations.com">support@effectiverenovations.com</a></p>
+      <p>Support: <a href="mailto:${supportEmail}">${supportEmail}</a></p>
     </div>
   `;
   return sendEmail({
@@ -399,7 +404,7 @@ export const sendVendorLeadNotificationEmail = async ({
     };
   }
 
-  const subject = `New Lead – ${offerTitle} (${companyName})`;
+  const subject = `New Lead - ${offerTitle} (${companyName})`;
   const leadName = `${lead.firstName} ${lead.lastName}`.trim();
   const consentAtText = lead.consentAt ? lead.consentAt.toISOString() : 'N/A';
   const consentIpText = lead.consentIp || 'N/A';
@@ -488,7 +493,7 @@ export const sendVendorApplicationInternalEmail = async ({
   city,
   notes,
 }: VendorApplicationInternalEmailInput): Promise<SendEmailResult> => {
-  const supportEmail = process.env.VENDOR_SUPPORT_EMAIL || 'support@effectiverenovations.com';
+  const supportEmail = process.env.VENDOR_SUPPORT_EMAIL || process.env.SUPPORT_EMAIL || fromEmail || 'support@corpdeals.ca';
   const subject = `New Vendor Application - ${businessName}`;
   const text = [
     `Business name: ${businessName}`,
@@ -534,7 +539,9 @@ export const sendCompanyRequestInternalEmail = async ({
   const supportEmail =
     process.env.COMPANY_REQUEST_EMAIL ||
     process.env.VENDOR_SUPPORT_EMAIL ||
-    'support@effectiverenovations.com';
+    process.env.SUPPORT_EMAIL ||
+    fromEmail ||
+    'support@corpdeals.ca';
   const subject = `New Company Request - ${companyName}`;
   const text = [
     `Company name: ${companyName}`,
@@ -573,7 +580,9 @@ export const sendContactMessageInternalEmail = async ({
     process.env.CONTACT_SUPPORT_EMAIL ||
     process.env.COMPANY_REQUEST_EMAIL ||
     process.env.VENDOR_SUPPORT_EMAIL ||
-    'support@effectiverenovations.com';
+    process.env.SUPPORT_EMAIL ||
+    fromEmail ||
+    'support@corpdeals.ca';
   const subject = `New Contact Message - ${name}`;
   const text = [
     `Name: ${name}`,
@@ -637,14 +646,14 @@ export const sendVendorRejectionEmail = async ({
   const text = [
     `Thanks for applying with ${businessName}.`,
     'Your vendor application was not approved at this time.',
-    'For questions, contact support@effectiverenovations.com',
+    `For questions, contact ${supportEmail}`,
   ].join('\n');
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6;">
       <h2 style="margin: 0 0 12px;">Vendor Application Update</h2>
       <p>Thanks for applying with <strong>${businessName}</strong>.</p>
       <p>Your vendor application was not approved at this time.</p>
-      <p>Questions: <a href="mailto:support@effectiverenovations.com">support@effectiverenovations.com</a></p>
+      <p>Questions: <a href="mailto:${supportEmail}">${supportEmail}</a></p>
     </div>
   `;
   return sendEmail({ to, subject, text, html });
@@ -677,7 +686,11 @@ export const sendOfferSubmittedForReviewEmail = async ({
   restrictionsText,
   redemptionInstructionsText,
 }: OfferSubmittedForReviewEmailInput): Promise<SendEmailResult> => {
-  const supportEmail = 'support@effectiverenovations.com';
+  const supportEmail =
+    process.env.VENDOR_SUPPORT_EMAIL ||
+    process.env.SUPPORT_EMAIL ||
+    fromEmail ||
+    'support@corpdeals.ca';
   const subject = `Offer submitted for review: ${vendorCompany} - ${offerTitle}`;
   const text = [
     `Offer ID: ${offerId}`,

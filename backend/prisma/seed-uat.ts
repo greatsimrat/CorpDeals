@@ -53,6 +53,16 @@ const companies = [
     verified: true,
     brandColor: '#4285F4',
   },
+  {
+    name: 'Lululemon',
+    slug: 'lululemon',
+    domain: 'lululemon.com',
+    allowedDomains: ['lululemon.com'],
+    headquarters: 'Vancouver, BC',
+    employeeCount: '38K+',
+    verified: true,
+    brandColor: '#D31334',
+  },
 ];
 
 async function upsertVendor(input: {
@@ -132,7 +142,7 @@ async function main() {
     });
   }
 
-  const [banking, automotive, technology, travel, amazon, apple, microsoft, google] =
+  const [banking, automotive, technology, travel, amazon, apple, microsoft, google, lululemon] =
     await Promise.all([
       prisma.category.findUniqueOrThrow({ where: { slug: 'banking' } }),
       prisma.category.findUniqueOrThrow({ where: { slug: 'automotive' } }),
@@ -142,6 +152,7 @@ async function main() {
       prisma.company.findUniqueOrThrow({ where: { slug: 'apple' } }),
       prisma.company.findUniqueOrThrow({ where: { slug: 'microsoft' } }),
       prisma.company.findUniqueOrThrow({ where: { slug: 'google' } }),
+      prisma.company.findUniqueOrThrow({ where: { slug: 'lululemon' } }),
     ]);
 
   const [rbcVendor, telusVendor, marriottVendor, fordVendor] = await Promise.all([
@@ -227,6 +238,18 @@ async function main() {
       discountType: 'FIXED',
       featured: false,
       location: 'North America',
+    },
+    {
+      id: 'uat-lululemon-telus-mobility',
+      vendorId: telusVendor.id,
+      companyId: lululemon.id,
+      categoryId: technology.id,
+      title: 'TELUS Corporate Mobility Plan for Lululemon Employees',
+      description: 'Exclusive TELUS mobility and internet savings for verified Lululemon employees.',
+      discountValue: '25% off',
+      discountType: 'PERCENTAGE',
+      featured: true,
+      location: 'Canada',
     },
   ];
 
