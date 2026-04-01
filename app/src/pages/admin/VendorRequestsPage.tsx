@@ -1,19 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Clock,
-  CheckCircle2,
-  XCircle,
-  Search,
-  Filter,
-  ChevronDown,
-  Eye,
-  Loader2,
   Building2,
-  Mail,
-  Phone,
-  Globe,
+  CalendarRange,
+  CheckCircle2,
+  ChevronDown,
+  Clock,
+  Eye,
   FileText,
+  Filter,
+  Globe,
+  Loader2,
+  Mail,
+  MapPin,
+  Phone,
+  Search,
+  UserRound,
   X,
+  XCircle,
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -21,7 +24,13 @@ interface VendorRequest {
   id: string;
   vendorId: string;
   businessType: string | null;
+  categoryOther: string | null;
   description: string | null;
+  jobTitle: string | null;
+  offerType: string | null;
+  offerTypeOther: string | null;
+  offerValidityStart: string | null;
+  offerValidityEnd: string | null;
   additionalInfo: string | null;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   reviewNotes: string | null;
@@ -32,8 +41,10 @@ interface VendorRequest {
     companyName: string;
     contactName: string;
     email: string;
+    businessEmail: string | null;
     phone: string | null;
     website: string | null;
+    city: string | null;
     description: string | null;
   };
   reviewedBy: {
@@ -41,6 +52,20 @@ interface VendorRequest {
     email: string;
   } | null;
 }
+
+const resolveLabel = (primary?: string | null, secondary?: string | null) => {
+  const first = String(primary || '').trim();
+  if (first) return first;
+  const second = String(secondary || '').trim();
+  return second || '-';
+};
+
+const formatDateRange = (start?: string | null, end?: string | null) => {
+  if (!start && !end) return '-';
+  const formattedStart = start ? new Date(start).toLocaleDateString() : 'Not provided';
+  const formattedEnd = end ? new Date(end).toLocaleDateString() : 'Open-ended';
+  return `${formattedStart} to ${formattedEnd}`;
+};
 
 export default function VendorRequestsPage() {
   const [requests, setRequests] = useState<VendorRequest[]>([]);
@@ -77,15 +102,16 @@ export default function VendorRequestsPage() {
     let filtered = requests;
 
     if (statusFilter && statusFilter !== 'ALL') {
-      filtered = filtered.filter(r => r.status === statusFilter);
+      filtered = filtered.filter((request) => request.status === statusFilter);
     }
 
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(r =>
-        r.vendor.companyName.toLowerCase().includes(query) ||
-        r.vendor.email.toLowerCase().includes(query) ||
-        r.vendor.contactName.toLowerCase().includes(query)
+      filtered = filtered.filter((request) =>
+        request.vendor.companyName.toLowerCase().includes(query) ||
+        request.vendor.email.toLowerCase().includes(query) ||
+        (request.vendor.businessEmail || '').toLowerCase().includes(query) ||
+        request.vendor.contactName.toLowerCase().includes(query)
       );
     }
 
@@ -115,22 +141,22 @@ export default function VendorRequestsPage() {
     switch (status) {
       case 'PENDING':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">
-            <Clock className="w-3 h-3" />
+          <span className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2.5 py-1 text-xs font-medium text-yellow-700">
+            <Clock className="h-3 w-3" />
             Pending
           </span>
         );
       case 'APPROVED':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
-            <CheckCircle2 className="w-3 h-3" />
+          <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-xs font-medium text-green-700">
+            <CheckCircle2 className="h-3 w-3" />
             Approved
           </span>
         );
       case 'REJECTED':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">
-            <XCircle className="w-3 h-3" />
+          <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700">
+            <XCircle className="h-3 w-3" />
             Rejected
           </span>
         );
@@ -141,68 +167,63 @@ export default function VendorRequestsPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      <div className="flex h-64 items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Vendor Requests</h1>
-        <p className="text-slate-600 mt-1">Review and manage vendor partnership applications</p>
+        <p className="mt-1 text-slate-600">Review partner applications, offer details, and campaign readiness.</p>
       </div>
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
-          {error}
-        </div>
-      )}
+      {error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">{error}</div>
+      ) : null}
 
-      {/* Filters */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="flex flex-col gap-4 sm:flex-row">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by company, email, or contact..."
-              className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search by company, contact, or email..."
+              className="w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-4 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
             />
           </div>
           <div className="relative">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Filter className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="pl-9 pr-8 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none bg-white"
+              onChange={(event) => setStatusFilter(event.target.value)}
+              className="appearance-none rounded-lg border border-slate-300 bg-white py-2.5 pl-9 pr-8 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
             >
               <option value="ALL">All Status</option>
               <option value="PENDING">Pending</option>
               <option value="APPROVED">Approved</option>
               <option value="REJECTED">Rejected</option>
             </select>
-            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           </div>
         </div>
       </div>
 
-      {/* Requests Table */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-slate-50 border-b border-slate-200">
+            <thead className="border-b border-slate-200 bg-slate-50">
               <tr>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Company</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Contact</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Type</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Status</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Date</th>
-                <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Actions</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase text-slate-500">Company</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase text-slate-500">Contact</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase text-slate-500">Category</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase text-slate-500">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase text-slate-500">Date</th>
+                <th className="px-6 py-3 text-right text-xs font-semibold uppercase text-slate-500">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
@@ -217,27 +238,25 @@ export default function VendorRequestsPage() {
                   <tr key={request.id} className="hover:bg-slate-50">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center">
-                          <Building2 className="w-5 h-5 text-slate-500" />
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-200">
+                          <Building2 className="h-5 w-5 text-slate-500" />
                         </div>
                         <div>
                           <p className="font-medium text-slate-900">{request.vendor.companyName}</p>
-                          <p className="text-sm text-slate-500">{request.vendor.email}</p>
+                          <p className="text-sm text-slate-500">{request.vendor.city || 'Region not provided'}</p>
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4">
                       <p className="text-slate-900">{request.vendor.contactName}</p>
-                      {request.vendor.phone && (
-                        <p className="text-sm text-slate-500">{request.vendor.phone}</p>
-                      )}
+                      <p className="text-sm text-slate-500">{request.vendor.businessEmail || request.vendor.email}</p>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="text-slate-600">{request.businessType || '-'}</span>
+                      <span className="text-slate-600">
+                        {resolveLabel(request.businessType, request.categoryOther)}
+                      </span>
                     </td>
-                    <td className="px-6 py-4">
-                      {getStatusBadge(request.status)}
-                    </td>
+                    <td className="px-6 py-4">{getStatusBadge(request.status)}</td>
                     <td className="px-6 py-4">
                       <span className="text-sm text-slate-500">
                         {new Date(request.createdAt).toLocaleDateString()}
@@ -250,10 +269,10 @@ export default function VendorRequestsPage() {
                             setSelectedRequest(request);
                             setReviewNotes('');
                           }}
-                          className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-600"
                           title="View Details"
                         >
-                          <Eye className="w-4 h-4" />
+                          <Eye className="h-4 w-4" />
                         </button>
                       </div>
                     </td>
@@ -265,174 +284,205 @@ export default function VendorRequestsPage() {
         </div>
       </div>
 
-      {/* Detail Modal */}
-      {selectedRequest && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+      {selectedRequest ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
               <h2 className="text-xl font-bold text-slate-900">Vendor Request Details</h2>
               <button
                 onClick={() => setSelectedRequest(null)}
-                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                className="rounded-lg p-2 transition-colors hover:bg-slate-100"
               >
-                <X className="w-5 h-5 text-slate-500" />
+                <X className="h-5 w-5 text-slate-500" />
               </button>
             </div>
 
-            {/* Modal Content */}
-            <div className="p-6 space-y-6">
-              {/* Status */}
-              <div className="flex items-center justify-between">
+            <div className="space-y-6 p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 {getStatusBadge(selectedRequest.status)}
                 <span className="text-sm text-slate-500">
                   Submitted: {new Date(selectedRequest.createdAt).toLocaleString()}
                 </span>
               </div>
 
-              {/* Company Info */}
               <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-slate-500 uppercase">Company Information</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <h3 className="text-sm font-semibold uppercase text-slate-500">Company Information</h3>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="flex items-center gap-3">
-                    <Building2 className="w-5 h-5 text-slate-400" />
+                    <Building2 className="h-5 w-5 text-slate-400" />
                     <div>
-                      <p className="text-sm text-slate-500">Company Name</p>
+                      <p className="text-sm text-slate-500">Business name</p>
                       <p className="font-medium text-slate-900">{selectedRequest.vendor.companyName}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <FileText className="w-5 h-5 text-slate-400" />
+                    <FileText className="h-5 w-5 text-slate-400" />
                     <div>
-                      <p className="text-sm text-slate-500">Business Type</p>
-                      <p className="font-medium text-slate-900">{selectedRequest.businessType || '-'}</p>
+                      <p className="text-sm text-slate-500">Category</p>
+                      <p className="font-medium text-slate-900">
+                        {resolveLabel(selectedRequest.businessType, selectedRequest.categoryOther)}
+                      </p>
                     </div>
                   </div>
-                  {selectedRequest.vendor.website && (
-                    <div className="flex items-center gap-3 sm:col-span-2">
-                      <Globe className="w-5 h-5 text-slate-400" />
+                  <div className="flex items-center gap-3">
+                    <MapPin className="h-5 w-5 text-slate-400" />
+                    <div>
+                      <p className="text-sm text-slate-500">City or region</p>
+                      <p className="font-medium text-slate-900">{selectedRequest.vendor.city || '-'}</p>
+                    </div>
+                  </div>
+                  {selectedRequest.vendor.website ? (
+                    <div className="flex items-center gap-3">
+                      <Globe className="h-5 w-5 text-slate-400" />
                       <div>
                         <p className="text-sm text-slate-500">Website</p>
-                        <a href={selectedRequest.vendor.website} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-600 hover:underline">
+                        <a
+                          href={selectedRequest.vendor.website}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium text-blue-600 hover:underline"
+                        >
                           {selectedRequest.vendor.website}
                         </a>
                       </div>
                     </div>
-                  )}
+                  ) : null}
                 </div>
               </div>
 
-              {/* Contact Info */}
               <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-slate-500 uppercase">Contact Information</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <h3 className="text-sm font-semibold uppercase text-slate-500">Contact Information</h3>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center">
-                      <span className="font-medium text-slate-600">
-                        {selectedRequest.vendor.contactName.charAt(0)}
-                      </span>
-                    </div>
+                    <UserRound className="h-5 w-5 text-slate-400" />
                     <div>
-                      <p className="text-sm text-slate-500">Contact Person</p>
+                      <p className="text-sm text-slate-500">Contact name</p>
                       <p className="font-medium text-slate-900">{selectedRequest.vendor.contactName}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <Mail className="w-5 h-5 text-slate-400" />
+                    <FileText className="h-5 w-5 text-slate-400" />
                     <div>
-                      <p className="text-sm text-slate-500">Email</p>
+                      <p className="text-sm text-slate-500">Job title</p>
+                      <p className="font-medium text-slate-900">{selectedRequest.jobTitle || '-'}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Mail className="h-5 w-5 text-slate-400" />
+                    <div>
+                      <p className="text-sm text-slate-500">Work email</p>
+                      <p className="font-medium text-slate-900">
+                        {selectedRequest.vendor.businessEmail || selectedRequest.vendor.email}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Mail className="h-5 w-5 text-slate-400" />
+                    <div>
+                      <p className="text-sm text-slate-500">CorpDeals account email</p>
                       <p className="font-medium text-slate-900">{selectedRequest.vendor.email}</p>
                     </div>
                   </div>
-                  {selectedRequest.vendor.phone && (
+                  {selectedRequest.vendor.phone ? (
                     <div className="flex items-center gap-3">
-                      <Phone className="w-5 h-5 text-slate-400" />
+                      <Phone className="h-5 w-5 text-slate-400" />
                       <div>
                         <p className="text-sm text-slate-500">Phone</p>
                         <p className="font-medium text-slate-900">{selectedRequest.vendor.phone}</p>
                       </div>
                     </div>
-                  )}
+                  ) : null}
                 </div>
               </div>
 
-              {/* Description */}
-              {selectedRequest.description && (
-                <div className="space-y-2">
-                  <h3 className="text-sm font-semibold text-slate-500 uppercase">Offer Description</h3>
-                  <p className="text-slate-700 bg-slate-50 p-4 rounded-lg">{selectedRequest.description}</p>
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold uppercase text-slate-500">Offer Proposal</h3>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="flex items-center gap-3">
+                    <FileText className="h-5 w-5 text-slate-400" />
+                    <div>
+                      <p className="text-sm text-slate-500">Type of offer</p>
+                      <p className="font-medium text-slate-900">
+                        {resolveLabel(selectedRequest.offerType, selectedRequest.offerTypeOther)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <CalendarRange className="h-5 w-5 text-slate-400" />
+                    <div>
+                      <p className="text-sm text-slate-500">Validity window</p>
+                      <p className="font-medium text-slate-900">
+                        {formatDateRange(selectedRequest.offerValidityStart, selectedRequest.offerValidityEnd)}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-              )}
+                {selectedRequest.description ? (
+                  <div className="rounded-lg bg-slate-50 p-4">
+                    <p className="text-sm text-slate-500">Offer description</p>
+                    <p className="mt-2 text-slate-700">{selectedRequest.description}</p>
+                  </div>
+                ) : null}
+              </div>
 
-              {/* Additional Info */}
-              {selectedRequest.additionalInfo && (
+              {selectedRequest.additionalInfo ? (
                 <div className="space-y-2">
-                  <h3 className="text-sm font-semibold text-slate-500 uppercase">Additional Information</h3>
-                  <p className="text-slate-700 bg-slate-50 p-4 rounded-lg">{selectedRequest.additionalInfo}</p>
+                  <h3 className="text-sm font-semibold uppercase text-slate-500">Additional Information</h3>
+                  <p className="rounded-lg bg-slate-50 p-4 text-slate-700">{selectedRequest.additionalInfo}</p>
                 </div>
-              )}
+              ) : null}
 
-              {/* Review Notes (for already reviewed) */}
-              {selectedRequest.reviewNotes && (
+              {selectedRequest.reviewNotes ? (
                 <div className="space-y-2">
-                  <h3 className="text-sm font-semibold text-slate-500 uppercase">Review Notes</h3>
-                  <p className="text-slate-700 bg-slate-50 p-4 rounded-lg">{selectedRequest.reviewNotes}</p>
-                  {selectedRequest.reviewedBy && (
+                  <h3 className="text-sm font-semibold uppercase text-slate-500">Review Notes</h3>
+                  <p className="rounded-lg bg-slate-50 p-4 text-slate-700">{selectedRequest.reviewNotes}</p>
+                  {selectedRequest.reviewedBy ? (
                     <p className="text-sm text-slate-500">
                       Reviewed by {selectedRequest.reviewedBy.name} on{' '}
-                      {new Date(selectedRequest.reviewedAt!).toLocaleString()}
+                      {new Date(selectedRequest.reviewedAt || '').toLocaleString()}
                     </p>
-                  )}
+                  ) : null}
                 </div>
-              )}
+              ) : null}
 
-              {/* Review Actions (for pending) */}
-              {selectedRequest.status === 'PENDING' && (
-                <div className="space-y-4 pt-4 border-t border-slate-200">
+              {selectedRequest.status === 'PENDING' ? (
+                <div className="space-y-4 border-t border-slate-200 pt-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                    <label className="mb-2 block text-sm font-medium text-slate-700">
                       Review Notes (optional)
                     </label>
                     <textarea
                       value={reviewNotes}
-                      onChange={(e) => setReviewNotes(e.target.value)}
+                      onChange={(event) => setReviewNotes(event.target.value)}
                       rows={3}
-                      placeholder="Add notes about your decision..."
-                      className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Add notes about fit, follow-up, or launch readiness..."
+                      className="w-full rounded-lg border border-slate-300 px-4 py-3 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <div className="flex gap-3">
                     <button
                       onClick={() => handleReview('REJECTED')}
                       disabled={isProcessing}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors font-medium disabled:opacity-50"
+                      className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-red-300 px-4 py-3 font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
                     >
-                      {isProcessing ? (
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                      ) : (
-                        <XCircle className="w-5 h-5" />
-                      )}
+                      {isProcessing ? <Loader2 className="h-5 w-5 animate-spin" /> : <XCircle className="h-5 w-5" />}
                       Reject
                     </button>
                     <button
                       onClick={() => handleReview('APPROVED')}
                       disabled={isProcessing}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium disabled:opacity-50"
+                      className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-3 font-medium text-white transition-colors hover:bg-green-700 disabled:opacity-50"
                     >
-                      {isProcessing ? (
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                      ) : (
-                        <CheckCircle2 className="w-5 h-5" />
-                      )}
+                      {isProcessing ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
                       Approve
                     </button>
                   </div>
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
