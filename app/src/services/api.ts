@@ -216,9 +216,15 @@ class ApiService {
     phone?: string;
     website?: string;
     category?: string;
+    categoryOther?: string;
     businessType?: string;
     city?: string;
     jobTitle?: string;
+    offerType?: string;
+    offerTypeOther?: string;
+    offerDescription?: string;
+    offerValidityStart?: string;
+    offerValidityEnd?: string;
     targetCompanies?: string;
     offerSummary?: string;
     notes?: string;
@@ -236,8 +242,14 @@ class ApiService {
       phone: data.phone,
       website: data.website,
       category: data.category || data.businessType,
+      categoryOther: data.categoryOther,
       city: data.city,
       jobTitle: data.jobTitle,
+      offerType: data.offerType,
+      offerTypeOther: data.offerTypeOther,
+      offerDescription: data.offerDescription || data.offerSummary || data.description || '',
+      offerValidityStart: data.offerValidityStart,
+      offerValidityEnd: data.offerValidityEnd,
       targetCompanies: data.targetCompanies,
       offerSummary: data.offerSummary,
       captchaToken: data.captchaToken,
