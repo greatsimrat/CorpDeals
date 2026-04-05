@@ -220,15 +220,8 @@ class ApiService {
     businessType?: string;
     city?: string;
     jobTitle?: string;
-    offerType?: string;
-    offerTypeOther?: string;
-    offerDescription?: string;
-    offerValidityStart?: string;
-    offerValidityEnd?: string;
     targetCompanies?: string;
-    offerSummary?: string;
     notes?: string;
-    captchaToken?: string;
     description?: string;
     additionalInfo?: string;
     password?: string;
@@ -241,20 +234,13 @@ class ApiService {
       businessEmail: data.businessEmail || '',
       phone: data.phone,
       website: data.website,
-      category: data.category || data.businessType,
-      categoryOther: data.categoryOther,
-      city: data.city,
-      jobTitle: data.jobTitle,
-      offerType: data.offerType,
-      offerTypeOther: data.offerTypeOther,
-      offerDescription: data.offerDescription || data.offerSummary || data.description || '',
-      offerValidityStart: data.offerValidityStart,
-      offerValidityEnd: data.offerValidityEnd,
-      targetCompanies: data.targetCompanies,
-      offerSummary: data.offerSummary,
-      captchaToken: data.captchaToken,
-      notes: data.notes || data.description || data.additionalInfo,
-    };
+        category: data.category || data.businessType,
+        categoryOther: data.categoryOther,
+        city: data.city,
+        jobTitle: data.jobTitle,
+        targetCompanies: data.targetCompanies,
+        notes: data.notes || data.description || data.additionalInfo,
+      };
     return this.request<{ ok: boolean; message: string; vendorId: string; requestId?: string }>('/vendor/apply', {
       method: 'POST',
       body: payload,
@@ -483,6 +469,13 @@ class ApiService {
     return this.request<any>(`/companies/${encodeURIComponent(idOrSlug)}/deals`);
   }
 
+  async searchCompanyDeals(idOrSlug: string, query: string) {
+    const searchParams = new URLSearchParams({ q: query });
+    return this.request<any>(
+      `/companies/${encodeURIComponent(idOrSlug)}/deals/search?${searchParams.toString()}`
+    );
+  }
+
   async createCompany(data: any) {
     return this.request<any>('/companies', {
       method: 'POST',
@@ -558,7 +551,16 @@ class ApiService {
 
   async performOfferAction(
     id: string,
-    payload?: Record<string, any>
+    payload?: {
+      name?: string;
+      email?: string;
+      phone?: string;
+      consent?: boolean;
+      termsAccepted?: boolean;
+      userProvinceCode?: string | null;
+      userCity?: string | null;
+      [key: string]: any;
+    }
   ): Promise<{ ok: true; lead_id: string; message: string }> {
     return this.request(`/offers/${encodeURIComponent(id)}/apply`, {
       method: 'POST',

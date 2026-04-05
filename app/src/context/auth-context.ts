@@ -10,6 +10,8 @@ export interface User {
   name: string | null;
   role: AppRole;
   employmentVerifiedAt?: string | null;
+  provinceCode?: string | null;
+  cityName?: string | null;
   activeCompany?: CompanySummary | null;
   employeeCompany?: CompanySummary | null;
   vendor?: {

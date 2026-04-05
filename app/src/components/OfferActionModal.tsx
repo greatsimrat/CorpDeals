@@ -6,6 +6,7 @@ import { useAuth } from '../hooks/useAuth';
 
 interface OfferModalData {
   id: string;
+  slug?: string;
   title: string;
   description?: string | null;
   vendor: {
@@ -36,6 +37,8 @@ export default function OfferActionModal({ open, offer, company, onClose }: Offe
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [cancellationAccepted, setCancellationAccepted] = useState(false);
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -49,12 +52,17 @@ export default function OfferActionModal({ open, offer, company, onClose }: Offe
     setName(user?.name || '');
     setEmail(user?.email || '');
     setPhone('');
+    setTermsAccepted(false);
+    setCancellationAccepted(false);
     setConsent(false);
   }, [open, user?.email, user?.name, offer?.id]);
 
   if (!open || !offer) return null;
 
   const companyIdForGuard = company?.id || '';
+  const offerHref = `/offer/${encodeURIComponent(offer.slug || offer.id)}`;
+  const termsHref = `${offerHref}#terms`;
+  const cancellationHref = `${offerHref}#cancellation-policy`;
 
   const openVerify = (companyId?: string) => {
     const resolvedCompanyId = companyId || companyIdForGuard;
@@ -85,7 +93,10 @@ export default function OfferActionModal({ open, offer, company, onClose }: Offe
         name: name.trim(),
         email: email.trim().toLowerCase(),
         phone: phone.trim(),
+        termsAccepted,
         consent,
+        userProvinceCode: user?.provinceCode || null,
+        userCity: user?.cityName || null,
       });
       goToConfirmation();
     } catch (err: any) {
@@ -153,6 +164,46 @@ export default function OfferActionModal({ open, offer, company, onClose }: Offe
             <label className="flex items-start gap-2 text-sm text-slate-700">
               <input
                 type="checkbox"
+                checked={termsAccepted}
+                onChange={(e) => setTermsAccepted(e.target.checked)}
+                className="mt-1"
+              />
+              <span>
+                I reviewed the{' '}
+                <a
+                  href={termsHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold text-blue-600 hover:underline"
+                >
+                  offer terms
+                </a>
+                .
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={cancellationAccepted}
+                onChange={(e) => setCancellationAccepted(e.target.checked)}
+                className="mt-1"
+              />
+              <span>
+                I reviewed the{' '}
+                <a
+                  href={cancellationHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold text-blue-600 hover:underline"
+                >
+                  cancellation policy
+                </a>
+                .
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
                 checked={consent}
                 onChange={(e) => setConsent(e.target.checked)}
                 className="mt-1"
@@ -188,7 +239,7 @@ export default function OfferActionModal({ open, offer, company, onClose }: Offe
           </button>
           <button
             onClick={handleSubmit}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !termsAccepted || !cancellationAccepted || !consent}
             className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
           >
             {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
