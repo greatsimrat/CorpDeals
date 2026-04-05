@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
   Building2,
-  CalendarRange,
   CheckCircle2,
   ChevronDown,
   Clock,
@@ -27,10 +26,6 @@ interface VendorRequest {
   categoryOther: string | null;
   description: string | null;
   jobTitle: string | null;
-  offerType: string | null;
-  offerTypeOther: string | null;
-  offerValidityStart: string | null;
-  offerValidityEnd: string | null;
   additionalInfo: string | null;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   reviewNotes: string | null;
@@ -60,13 +55,6 @@ const resolveLabel = (primary?: string | null, secondary?: string | null) => {
   return second || '-';
 };
 
-const formatDateRange = (start?: string | null, end?: string | null) => {
-  if (!start && !end) return '-';
-  const formattedStart = start ? new Date(start).toLocaleDateString() : 'Not provided';
-  const formattedEnd = end ? new Date(end).toLocaleDateString() : 'Open-ended';
-  return `${formattedStart} to ${formattedEnd}`;
-};
-
 export default function VendorRequestsPage() {
   const [requests, setRequests] = useState<VendorRequest[]>([]);
   const [filteredRequests, setFilteredRequests] = useState<VendorRequest[]>([]);
@@ -91,8 +79,8 @@ export default function VendorRequestsPage() {
       setIsLoading(true);
       const data = await api.getVendorRequests();
       setRequests(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load requests');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load requests');
     } finally {
       setIsLoading(false);
     }
@@ -130,8 +118,8 @@ export default function VendorRequestsPage() {
       await loadRequests();
       setSelectedRequest(null);
       setReviewNotes('');
-    } catch (err: any) {
-      setError(err.message || 'Failed to process request');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to process request');
     } finally {
       setIsProcessing(false);
     }
@@ -177,7 +165,7 @@ export default function VendorRequestsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Vendor Requests</h1>
-        <p className="mt-1 text-slate-600">Review partner applications, offer details, and campaign readiness.</p>
+        <p className="mt-1 text-slate-600">Review partner applications and company contact details.</p>
       </div>
 
       {error ? (
@@ -395,39 +383,9 @@ export default function VendorRequestsPage() {
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <h3 className="text-sm font-semibold uppercase text-slate-500">Offer Proposal</h3>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div className="flex items-center gap-3">
-                    <FileText className="h-5 w-5 text-slate-400" />
-                    <div>
-                      <p className="text-sm text-slate-500">Type of offer</p>
-                      <p className="font-medium text-slate-900">
-                        {resolveLabel(selectedRequest.offerType, selectedRequest.offerTypeOther)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <CalendarRange className="h-5 w-5 text-slate-400" />
-                    <div>
-                      <p className="text-sm text-slate-500">Validity window</p>
-                      <p className="font-medium text-slate-900">
-                        {formatDateRange(selectedRequest.offerValidityStart, selectedRequest.offerValidityEnd)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                {selectedRequest.description ? (
-                  <div className="rounded-lg bg-slate-50 p-4">
-                    <p className="text-sm text-slate-500">Offer description</p>
-                    <p className="mt-2 text-slate-700">{selectedRequest.description}</p>
-                  </div>
-                ) : null}
-              </div>
-
               {selectedRequest.additionalInfo ? (
                 <div className="space-y-2">
-                  <h3 className="text-sm font-semibold uppercase text-slate-500">Additional Information</h3>
+                  <h3 className="text-sm font-semibold uppercase text-slate-500">Additional Notes</h3>
                   <p className="rounded-lg bg-slate-50 p-4 text-slate-700">{selectedRequest.additionalInfo}</p>
                 </div>
               ) : null}
@@ -455,7 +413,7 @@ export default function VendorRequestsPage() {
                       value={reviewNotes}
                       onChange={(event) => setReviewNotes(event.target.value)}
                       rows={3}
-                      placeholder="Add notes about fit, follow-up, or launch readiness..."
+                      placeholder="Add notes about fit or follow-up..."
                       className="w-full rounded-lg border border-slate-300 px-4 py-3 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
                     />
                   </div>

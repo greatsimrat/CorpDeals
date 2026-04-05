@@ -1,8 +1,25 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X } from 'lucide-react';
+import {
+  Building2,
+  ChevronDown,
+  LogOut,
+  Mail,
+  MapPin,
+  Menu,
+  ShieldCheck,
+  X,
+} from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { getUserDisplayName, getUserInitials } from '../lib/auth';
+import { Avatar, AvatarFallback } from '../components/ui/avatar';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu';
 
 const Navigation = () => {
   const { user, isAuthenticated, logout, role, hasVendorAccess } = useAuth();
@@ -15,6 +32,16 @@ const Navigation = () => {
   const initials = getUserInitials(user);
   const loginEmail = user?.loginEmail || user?.email || '';
   const isInternalPortalRole = role === 'ADMIN' || role === 'SALES' || role === 'FINANCE';
+  const profileCompany =
+    user?.activeVerification?.company?.name ||
+    user?.activeCompany?.name ||
+    user?.employeeCompany?.name ||
+    (role === 'VENDOR' ? user?.vendor?.companyName : null) ||
+    null;
+  const profileLocation =
+    user?.cityName && user?.provinceCode
+      ? `${user.cityName}, ${user.provinceCode}`
+      : user?.provinceCode || 'Location not set';
 
   const verificationLabel = user?.activeVerification
     ? `Verified: ${user.activeVerification.company.name} (valid until ${new Date(
@@ -81,32 +108,27 @@ const Navigation = () => {
       ? { to: '/my-applications', label: 'My Applications' }
       : null;
 
-  const internalPortalCtaLabel =
-    role === 'ADMIN'
-      ? 'Open Admin Portal'
-      : role === 'SALES'
-      ? 'Open Sales Portal'
-      : role === 'FINANCE'
-      ? 'Open Finance Portal'
-      : accountLink?.label || 'Open Portal';
+  const authLandingPath =
+    user?.activeVerification?.company?.slug ||
+    user?.activeCompany?.slug ||
+    user?.employeeCompany?.slug
+      ? `/c/${
+          user?.activeVerification?.company?.slug ||
+          user?.activeCompany?.slug ||
+          user?.employeeCompany?.slug
+        }`
+      : '/';
 
-  const accountSummary = isAuthenticated ? (
-    <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">
-        {initials}
-      </div>
-      <div className="min-w-0">
-        <p className="truncate text-sm font-semibold text-slate-900">{displayName}</p>
-        <p className="truncate text-xs text-slate-500">
-          {isInternalPortalRole
-            ? `${accountLink?.label || 'Portal'} account`
-            : role === 'USER'
-            ? 'Logged in'
-            : accountLink?.label || 'Logged in'}
-        </p>
-      </div>
-    </div>
-  ) : null;
+  const loggedInLinks = [
+    { label: 'Find Perks', to: authLandingPath },
+    ...(accountLink ? [{ label: accountLink.label, to: accountLink.to }] : []),
+  ];
+
+  const verificationStatusText = user?.activeVerification
+    ? `Verified until ${new Date(user.activeVerification.expiresAt).toLocaleDateString()}`
+    : user?.latestVerification?.status === 'expired'
+    ? 'Verification expired'
+    : 'Verification pending';
 
   const scrollToSection = (href: string) => {
     if (pathname !== '/') {
@@ -150,49 +172,49 @@ const Navigation = () => {
 
           {/* Desktop Navigation */}
           <div className="hidden lg:flex items-center gap-1">
-            {navLinks.map((link) => (
-              <button
-                key={link.label}
-                onClick={() => scrollToSection(link.href)}
+            {isAuthenticated
+              ? loggedInLinks.map((link) => (
+                  <Link
+                    key={link.label}
+                    to={link.to}
+                    className={`px-4 py-2 rounded-lg font-inter text-sm transition-all duration-300 ${
+                      pathname === link.to
+                        ? 'text-corp-blue bg-corp-highlight'
+                        : 'text-corp-dark hover:text-corp-blue hover:bg-gray-50'
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                ))
+              : navLinks.map((link) => (
+                  <button
+                    key={link.label}
+                    onClick={() => scrollToSection(link.href)}
+                    className={`px-4 py-2 rounded-lg font-inter text-sm transition-all duration-300 ${
+                      activeSection === link.id
+                        ? 'text-corp-blue bg-corp-highlight'
+                        : 'text-corp-dark hover:text-corp-blue hover:bg-gray-50'
+                    }`}
+                  >
+                    {link.label}
+                  </button>
+                ))}
+            {!isAuthenticated && (
+              <Link
+                to="/pricing"
                 className={`px-4 py-2 rounded-lg font-inter text-sm transition-all duration-300 ${
-                  activeSection === link.id
+                  pathname === '/pricing'
                     ? 'text-corp-blue bg-corp-highlight'
                     : 'text-corp-dark hover:text-corp-blue hover:bg-gray-50'
                 }`}
               >
-                {link.label}
-              </button>
-            ))}
-            <Link
-              to="/pricing"
-              className={`px-4 py-2 rounded-lg font-inter text-sm transition-all duration-300 ${
-                pathname === '/pricing'
-                  ? 'text-corp-blue bg-corp-highlight'
-                  : 'text-corp-dark hover:text-corp-blue hover:bg-gray-50'
-              }`}
-            >
-              Pricing
-            </Link>
+                Pricing
+              </Link>
+            )}
           </div>
 
           {/* CTA Buttons */}
           <div className="hidden lg:flex items-center gap-3">
-            {verificationLabel && !isInternalPortalRole && (
-              <Link
-                to={
-                  user?.latestVerification?.company?.slug
-                    ? `/verify?company=${encodeURIComponent(user.latestVerification.company.slug)}`
-                    : '/verify'
-                }
-                className={`px-3 py-1.5 rounded-full text-xs font-medium ${
-                  user?.activeVerification
-                    ? 'bg-green-50 text-green-700 border border-green-200'
-                    : 'bg-amber-50 text-amber-700 border border-amber-200'
-                }`}
-              >
-                {verificationLabel}
-              </Link>
-            )}
             {!isAuthenticated ? (
               <>
                 <Link
@@ -206,79 +228,166 @@ const Navigation = () => {
                 </Link>
               </>
             ) : (
-              <>
-                {accountLink ? (
-                  <Link to={accountLink.to} className="transition-transform hover:-translate-y-0.5">
-                    {accountSummary}
-                  </Link>
-                ) : (
-                  accountSummary
-                )}
-                {isInternalPortalRole ? (
-                  <div className="hidden xl:block text-right">
-                    <p className="text-sm font-medium text-slate-900">{loginEmail}</p>
-                    <p className="text-xs text-slate-500">
-                      Internal portal account viewing the public site
-                    </p>
-                  </div>
-                ) : (
-                  <div className="hidden xl:block text-right">
-                    <p className="max-w-[220px] truncate text-sm font-medium text-slate-900">
-                      {loginEmail}
-                    </p>
-                    {user?.workEmail && user?.activeVerification?.company ? (
-                      <p className="max-w-[220px] truncate text-xs text-slate-500">
-                        {user.workEmail} for {user.activeVerification.company.name}
-                      </p>
-                    ) : (
-                      <p className="text-xs text-slate-500">
-                        Verify work email to unlock company deals
-                      </p>
-                    )}
-                  </div>
-                )}
-                {accountLink ? (
-                  <Link
-                    to={accountLink.to}
-                    className={`font-inter text-sm transition-colors px-4 py-2 ${
-                      isInternalPortalRole
-                        ? 'rounded-xl bg-slate-900 text-white hover:bg-slate-800'
-                        : 'text-corp-dark hover:text-corp-blue'
-                    }`}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-2 py-1.5 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+                    aria-label="Open profile menu"
                   >
-                    {isInternalPortalRole ? internalPortalCtaLabel : accountLink.label}
-                  </Link>
-                ) : null}
-                <button
-                  onClick={() => {
-                    logout();
-                    navigate('/');
-                  }}
-                  className={
-                    isInternalPortalRole
-                      ? 'rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50'
-                      : 'btn-primary text-sm'
-                  }
-                >
-                  Logout
-                </button>
-              </>
+                    <Avatar className="h-9 w-9 border border-slate-200">
+                      <AvatarFallback className="bg-blue-100 text-sm font-bold text-blue-700">
+                        {initials}
+                      </AvatarFallback>
+                    </Avatar>
+                    <ChevronDown className="h-4 w-4 text-slate-500" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-80 rounded-2xl border-slate-200 p-0">
+                  <div className="border-b border-slate-100 px-4 py-4">
+                    <p className="text-base font-semibold text-slate-900">{displayName}</p>
+                    <p className="mt-1 text-sm text-slate-500">{loginEmail}</p>
+                  </div>
+                  <div className="space-y-3 px-4 py-4 text-sm text-slate-600">
+                    <div className="flex items-start gap-3">
+                      <Building2 className="mt-0.5 h-4 w-4 text-slate-400" />
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Company</p>
+                        <p className="mt-1 text-sm font-medium text-slate-900">
+                          {profileCompany || 'No company linked'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <MapPin className="mt-0.5 h-4 w-4 text-slate-400" />
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Location</p>
+                        <p className="mt-1 text-sm font-medium text-slate-900">{profileLocation}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <ShieldCheck className="mt-0.5 h-4 w-4 text-slate-400" />
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Verification</p>
+                        <p className="mt-1 text-sm font-medium text-slate-900">
+                          {verificationStatusText}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <Mail className="mt-0.5 h-4 w-4 text-slate-400" />
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Email</p>
+                        <p className="mt-1 text-sm font-medium text-slate-900">{loginEmail}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <DropdownMenuSeparator />
+                  <div className="p-2">
+                    {isInternalPortalRole && accountLink ? (
+                      <DropdownMenuItem asChild>
+                        <Link to={accountLink.to}>{accountLink.label}</Link>
+                      </DropdownMenuItem>
+                    ) : null}
+                    {verificationLabel && !isInternalPortalRole ? (
+                      <DropdownMenuItem asChild>
+                        <Link
+                          to={
+                            user?.latestVerification?.company?.slug
+                              ? `/verify?company=${encodeURIComponent(user.latestVerification.company.slug)}`
+                              : '/verify'
+                          }
+                        >
+                          Verification details
+                        </Link>
+                      </DropdownMenuItem>
+                    ) : null}
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        logout();
+                        navigate('/');
+                      }}
+                      className="text-red-600 focus:text-red-600"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Logout
+                    </DropdownMenuItem>
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
           </div>
 
-          {/* Mobile Menu Button */}
-          <button
-            className="lg:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
-            aria-expanded={isMobileMenuOpen}
-          >
-            {isMobileMenuOpen ? (
-              <X className="w-6 h-6 text-corp-dark" />
-            ) : (
-              <Menu className="w-6 h-6 text-corp-dark" />
-            )}
-          </button>
+          <div className="flex items-center gap-2 lg:hidden">
+            {isAuthenticated ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex items-center rounded-full border border-slate-200 bg-white p-1 shadow-sm"
+                    aria-label="Open profile menu"
+                  >
+                    <Avatar className="h-9 w-9 border border-slate-200">
+                      <AvatarFallback className="bg-blue-100 text-sm font-bold text-blue-700">
+                        {initials}
+                      </AvatarFallback>
+                    </Avatar>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-72 rounded-2xl border-slate-200 p-0">
+                  <div className="border-b border-slate-100 px-4 py-4">
+                    <p className="text-base font-semibold text-slate-900">{displayName}</p>
+                    <p className="mt-1 text-sm text-slate-500">{loginEmail}</p>
+                  </div>
+                  <div className="space-y-3 px-4 py-4 text-sm text-slate-600">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Company</p>
+                      <p className="mt-1 font-medium text-slate-900">
+                        {profileCompany || 'No company linked'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Location</p>
+                      <p className="mt-1 font-medium text-slate-900">{profileLocation}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Verification</p>
+                      <p className="mt-1 font-medium text-slate-900">{verificationStatusText}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Email</p>
+                      <p className="mt-1 font-medium text-slate-900">{loginEmail}</p>
+                    </div>
+                  </div>
+                  <DropdownMenuSeparator />
+                  <div className="p-2">
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        logout();
+                        navigate('/');
+                      }}
+                      className="text-red-600 focus:text-red-600"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Logout
+                    </DropdownMenuItem>
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+            <button
+              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={isMobileMenuOpen}
+            >
+              {isMobileMenuOpen ? (
+                <X className="w-6 h-6 text-corp-dark" />
+              ) : (
+                <Menu className="w-6 h-6 text-corp-dark" />
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -289,47 +398,48 @@ const Navigation = () => {
         }`}
       >
         <div className="px-6 py-4 space-y-2">
-          {navLinks.map((link) => (
-            <button
-              key={link.label}
-              onClick={() => scrollToSection(link.href)}
+          {isAuthenticated
+            ? loggedInLinks.map((link) => (
+                <Link
+                  key={link.label}
+                  to={link.to}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className={`block w-full text-left px-4 py-3 rounded-lg font-inter text-sm transition-colors ${
+                    pathname === link.to
+                      ? 'text-corp-blue bg-corp-highlight'
+                      : 'text-corp-dark hover:bg-gray-50'
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              ))
+            : navLinks.map((link) => (
+                <button
+                  key={link.label}
+                  onClick={() => scrollToSection(link.href)}
+                  className={`block w-full text-left px-4 py-3 rounded-lg font-inter text-sm transition-colors ${
+                    activeSection === link.id
+                      ? 'text-corp-blue bg-corp-highlight'
+                      : 'text-corp-dark hover:bg-gray-50'
+                  }`}
+                >
+                  {link.label}
+                </button>
+              ))}
+          {!isAuthenticated && (
+            <Link
+              to="/pricing"
+              onClick={() => setIsMobileMenuOpen(false)}
               className={`block w-full text-left px-4 py-3 rounded-lg font-inter text-sm transition-colors ${
-                activeSection === link.id
+                pathname === '/pricing'
                   ? 'text-corp-blue bg-corp-highlight'
                   : 'text-corp-dark hover:bg-gray-50'
               }`}
             >
-              {link.label}
-            </button>
-          ))}
-          <Link
-            to="/pricing"
-            onClick={() => setIsMobileMenuOpen(false)}
-            className={`block w-full text-left px-4 py-3 rounded-lg font-inter text-sm transition-colors ${
-              pathname === '/pricing'
-                ? 'text-corp-blue bg-corp-highlight'
-                : 'text-corp-dark hover:bg-gray-50'
-            }`}
-          >
-            Pricing
-          </Link>
+              Pricing
+            </Link>
+          )}
           <div className="pt-4 border-t border-gray-100 space-y-2">
-            {verificationLabel && !isInternalPortalRole && (
-              <Link
-                to={
-                  user?.latestVerification?.company?.slug
-                    ? `/verify?company=${encodeURIComponent(user.latestVerification.company.slug)}`
-                    : '/verify'
-                }
-                className={`block w-full text-left px-4 py-3 rounded-lg text-xs font-medium ${
-                  user?.activeVerification
-                    ? 'bg-green-50 text-green-700'
-                    : 'bg-amber-50 text-amber-700'
-                }`}
-              >
-                {verificationLabel}
-              </Link>
-            )}
             {!isAuthenticated ? (
               <>
                 <Link
@@ -347,45 +457,8 @@ const Navigation = () => {
                   Be Our Partner
                 </Link>
               </>
-            ) : (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">
-                    {initials}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-slate-900">{displayName}</p>
-                    <p className="truncate text-xs text-slate-500">{loginEmail}</p>
-                  </div>
-                </div>
-                {isInternalPortalRole ? (
-                  <p className="mt-3 text-xs text-slate-500">
-                    Internal portal account viewing the public site.
-                  </p>
-                ) : user?.workEmail && user?.activeVerification?.company ? (
-                  <p className="mt-3 text-xs text-slate-500">
-                    Work email verified: {user.workEmail} for {user.activeVerification.company.name}
-                  </p>
-                ) : (
-                  <p className="mt-3 text-xs text-slate-500">
-                    Verify your work email to unlock company deals.
-                  </p>
-                )}
-              </div>
-            )}
-            {isAuthenticated && accountLink ? (
-              <Link
-                to={accountLink.to}
-                onClick={() => setIsMobileMenuOpen(false)}
-                className={`block w-full px-4 py-3 font-inter text-sm ${
-                  isInternalPortalRole
-                    ? 'rounded-lg bg-slate-900 text-center text-white'
-                    : 'text-left text-corp-dark'
-                }`}
-              >
-                {isInternalPortalRole ? internalPortalCtaLabel : accountLink.label}
-              </Link>
-            ) : isAuthenticated ? (
+            ) : null}
+            {isAuthenticated && !accountLink ? (
               <Link
                 to="/vendor/apply"
                 onClick={() => setIsMobileMenuOpen(false)}
@@ -394,22 +467,6 @@ const Navigation = () => {
                 Be Our Partner
               </Link>
             ) : null}
-            {isAuthenticated && (
-              <button
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  logout();
-                  navigate('/');
-                }}
-                className={
-                  isInternalPortalRole
-                    ? 'w-full rounded-lg border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700'
-                    : 'btn-primary text-sm w-full'
-                }
-              >
-                Logout
-              </button>
-            )}
           </div>
         </div>
       </div>

@@ -20,6 +20,9 @@ type VendorOffer = {
   restrictionsText?: string | null;
   usePlatformDefaultTerms?: boolean;
   usePlatformDefaultCancellationPolicy?: boolean;
+  coverageType?: 'COMPANY_WIDE' | 'PROVINCE_SPECIFIC' | 'CITY_SPECIFIC';
+  provinceCode?: string | null;
+  cityName?: string | null;
   complianceStatus?: 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
   complianceNotes?: string | null;
 };
@@ -37,6 +40,9 @@ type FormState = {
   productModel: string;
   productUrl: string;
   expiryDate: string;
+  coverageType: 'COMPANY_WIDE' | 'PROVINCE_SPECIFIC' | 'CITY_SPECIFIC';
+  provinceCode: string;
+  cityName: string;
   usePlatformDefaultTerms: boolean;
   usePlatformDefaultCancellationPolicy: boolean;
   termsText: string;
@@ -67,6 +73,8 @@ Questions should be directed to the vendor first; CorpDeals does not process ref
   },
 };
 
+const provinceOptions = ['AB', 'BC', 'MB', 'NB', 'NL', 'NS', 'NT', 'NU', 'ON', 'PE', 'QC', 'SK', 'YT'];
+
 const emptyForm: FormState = {
   companyId: '',
   title: '',
@@ -75,6 +83,9 @@ const emptyForm: FormState = {
   productModel: '',
   productUrl: '',
   expiryDate: '',
+  coverageType: 'COMPANY_WIDE',
+  provinceCode: '',
+  cityName: '',
   usePlatformDefaultTerms: true,
   usePlatformDefaultCancellationPolicy: true,
   termsText: '',
@@ -143,6 +154,9 @@ export default function VendorOfferFormPage() {
             expiryDate: selected.expiryDate
               ? new Date(selected.expiryDate).toISOString().slice(0, 10)
               : '',
+            coverageType: selected.coverageType || 'COMPANY_WIDE',
+            provinceCode: selected.provinceCode || '',
+            cityName: selected.cityName || '',
             usePlatformDefaultTerms: selected.usePlatformDefaultTerms ?? true,
             usePlatformDefaultCancellationPolicy:
               selected.usePlatformDefaultCancellationPolicy ?? true,
@@ -178,6 +192,12 @@ export default function VendorOfferFormPage() {
     if (form.expiryDate && form.expiryDate < minExpiryDate) {
       return 'Offer end date must be in the future';
     }
+    if (form.coverageType !== 'COMPANY_WIDE' && !form.provinceCode) {
+      return 'Province code is required for location-specific offers';
+    }
+    if (form.coverageType === 'CITY_SPECIFIC' && !form.cityName.trim()) {
+      return 'City name is required for city-specific offers';
+    }
     return '';
   };
 
@@ -190,6 +210,9 @@ export default function VendorOfferFormPage() {
       productModel: form.productModel || null,
       productUrl: form.productUrl || null,
       expiryDate: form.expiryDate || null,
+      coverageType: form.coverageType,
+      provinceCode: form.coverageType === 'COMPANY_WIDE' ? null : form.provinceCode || null,
+      cityName: form.coverageType === 'CITY_SPECIFIC' ? form.cityName.trim() || null : null,
       usePlatformDefaultTerms: form.usePlatformDefaultTerms,
       usePlatformDefaultCancellationPolicy: form.usePlatformDefaultCancellationPolicy,
       termsText: form.termsText,
@@ -370,6 +393,56 @@ export default function VendorOfferFormPage() {
               className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
             />
           </label>
+
+          <label className="text-sm font-medium text-slate-700">
+            Offer visibility
+            <select
+              value={form.coverageType}
+              onChange={(e) =>
+                update({
+                  coverageType: e.target.value as FormState['coverageType'],
+                  provinceCode:
+                    e.target.value === 'COMPANY_WIDE' ? '' : form.provinceCode,
+                  cityName: e.target.value === 'CITY_SPECIFIC' ? form.cityName : '',
+                })
+              }
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
+            >
+              <option value="COMPANY_WIDE">Company-wide</option>
+              <option value="PROVINCE_SPECIFIC">Province-specific</option>
+              <option value="CITY_SPECIFIC">City-specific</option>
+            </select>
+          </label>
+
+          {form.coverageType !== 'COMPANY_WIDE' ? (
+            <label className="text-sm font-medium text-slate-700">
+              Province code
+              <select
+                value={form.provinceCode}
+                onChange={(e) => update({ provinceCode: e.target.value })}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
+              >
+                <option value="">Select province</option>
+                {provinceOptions.map((provinceCode) => (
+                  <option key={provinceCode} value={provinceCode}>
+                    {provinceCode}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
+          {form.coverageType === 'CITY_SPECIFIC' ? (
+            <label className="text-sm font-medium text-slate-700 md:col-span-2">
+              City name
+              <input
+                value={form.cityName}
+                onChange={(e) => update({ cityName: e.target.value })}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
+                placeholder="Vancouver"
+              />
+            </label>
+          ) : null}
         </div>
 
         <div className="mt-8 space-y-6 rounded-xl border border-slate-200 bg-slate-50 p-4">

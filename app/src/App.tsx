@@ -92,9 +92,9 @@ function App() {
                   }
                 />
                 <Route path="/company/:companyId/category/:categoryId" element={<CategoryPage />} />
-                <Route path="/offer/:offerId" element={<OfferPage />} />
-                <Route path="/offers/:offerId" element={<OfferPage />} />
-                <Route path="/offers/:offerId/claim" element={<OfferClaimPage />} />
+                <Route path="/offer/:offerSlug" element={<OfferPage />} />
+                <Route path="/offers/:offerSlug" element={<OfferPage />} />
+                <Route path="/offers/:offerSlug/claim" element={<OfferClaimPage />} />
                 <Route
                   path="/confirmation"
                   element={
