@@ -4,6 +4,20 @@ import { authenticateToken, requireUser, requireVendor } from '../middleware/aut
 import { getUserVerification, isUserVerifiedForCompany, VERIFIED_STATUS } from '../lib/verifications';
 import { sendLeadSubmissionConfirmationEmail, sendVendorLeadNotificationEmail } from '../lib/mailer';
 import { recordLeadDeliveryBillingEvent } from '../lib/lead-billing';
+import {
+  buildEligibilityMessage,
+  coverageTypeToLocationApplicability,
+  getCoverageBadgeLabel,
+  getNormalizedUserLocation,
+  isOfferEligibleForLocation,
+  resolveCoverageInput,
+} from '../lib/offer-coverage';
+import {
+  getUniqueOfferSlug,
+  normalizeJsonField,
+  normalizeOfferDetailTemplateType,
+  normalizeOptionalUrl,
+} from '../lib/offer-details';
 
 const router = Router();
 type JsonObject = Record<string, any>;
@@ -52,28 +66,79 @@ const isFutureDate = (date: Date) => {
   return date.getTime() > today.getTime();
 };
 
-const getOfferForUserAccess = async (offerId: string, userId: string) => {
-  const offer = await prisma.offer.findUnique({
-    where: { id: offerId },
-    include: {
-      vendor: {
-        select: { id: true, companyName: true, logo: true, website: true },
-      },
-      company: {
-        select: {
-          id: true,
-          slug: true,
-          name: true,
-          domain: true,
-          allowedDomains: true,
-          logo: true,
-        },
-      },
-      category: {
+const offerDetailInclude = {
+  vendor: {
+    select: { id: true, companyName: true, logo: true, website: true },
+  },
+  company: {
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      domain: true,
+      allowedDomains: true,
+      logo: true,
+    },
+  },
+  category: {
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      icon: true,
+      parent: {
         select: { id: true, name: true, slug: true, icon: true },
       },
     },
+  },
+} as const;
+
+const serializeOfferForClient = (
+  offer: any,
+  input?: {
+    isEligible?: boolean;
+    eligibilityMessage?: string;
+  }
+) => {
+  const primaryCategory = offer.category?.parent || offer.category || null;
+  const subcategory = offer.category?.parent ? offer.category : null;
+
+  return {
+    ...offer,
+    slug: offer.slug || offer.id,
+    imageUrl: offer.image || null,
+    category: offer.category,
+    subcategory,
+    primaryCategory,
+    coverageBadge: getCoverageBadgeLabel(offer),
+    locationApplicability: coverageTypeToLocationApplicability(offer.coverageType),
+    detailTemplateType: normalizeOfferDetailTemplateType(offer.detailTemplateType),
+    highlightsJson: normalizeJsonField(offer.highlightsJson),
+    detailSectionsJson: normalizeJsonField(offer.detailSectionsJson),
+    termsUrl: normalizeOptionalUrl(offer.termsUrl),
+    cancellationPolicyUrl: normalizeOptionalUrl(offer.cancellationPolicyUrl),
+    isEligible: input?.isEligible,
+    eligibilityMessage: input?.eligibilityMessage,
+  };
+};
+
+const getOfferByIdOrSlug = async (offerRef: string) =>
+  prisma.offer.findFirst({
+    where: {
+      OR: [{ id: offerRef }, { slug: offerRef }],
+    },
+    include: offerDetailInclude,
   });
+
+const getOfferForUserAccess = async (
+  offerRef: string,
+  requestUser: {
+    id: string;
+    provinceCode?: string | null;
+    cityName?: string | null;
+  }
+) => {
+  const offer = await getOfferByIdOrSlug(offerRef);
 
   if (!offer) {
     return { offer: null, verification: null, canAccess: false };
@@ -83,30 +148,52 @@ const getOfferForUserAccess = async (offerId: string, userId: string) => {
     return { offer: null, verification: null, canAccess: false };
   }
 
-  const verification = await getUserVerification(userId, offer.companyId);
+  const verification = await getUserVerification(requestUser.id, offer.companyId);
   const canAccess =
     !!verification &&
     verification.status === VERIFIED_STATUS &&
     verification.expiresAt > new Date();
 
-  return { offer, verification, canAccess };
+  const location = getNormalizedUserLocation(requestUser);
+  const isEligible = isOfferEligibleForLocation(offer, location);
+  const eligibilityMessage = buildEligibilityMessage(offer, offer.company.name, isEligible);
+
+  return {
+    offer: offer ? serializeOfferForClient(offer, { isEligible, eligibilityMessage }) : null,
+    verification,
+    canAccess,
+    isEligible,
+    eligibilityMessage,
+    location,
+  };
 };
 
 const createLeadFromOfferApply = async (req: Request, res: Response): Promise<void> => {
-  const offerId = String(req.params.id);
-  const offer: any = await prisma.offer.findUnique({
-    where: { id: offerId },
+  const offerRef = String(req.params.id);
+  const offer: any = await prisma.offer.findFirst({
+    where: {
+      OR: [{ id: offerRef }, { slug: offerRef }],
+    },
     select: {
       id: true,
+      slug: true,
       title: true,
       configJson: true,
       active: true,
       complianceStatus: true,
       companyId: true,
       vendorId: true,
+      coverageType: true,
+      provinceCode: true,
+      cityName: true,
       productName: true,
       productModel: true,
       productUrl: true,
+      detailTemplateType: true,
+      highlightsJson: true,
+      detailSectionsJson: true,
+      termsUrl: true,
+      cancellationPolicyUrl: true,
       company: { select: { id: true, slug: true, name: true } },
       vendor: { select: { id: true, companyName: true, email: true } },
     } as any,
@@ -119,7 +206,13 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
 
   const user = await prisma.user.findUnique({
     where: { id: req.user!.id },
-    select: { id: true, email: true, employeeCompanyId: true },
+    select: {
+      id: true,
+      email: true,
+      employeeCompanyId: true,
+      provinceCode: true,
+      cityName: true,
+    },
   });
 
   if (!user) {
@@ -149,15 +242,27 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
     return;
   }
 
+  const location = getNormalizedUserLocation(user);
+  const isEligible = isOfferEligibleForLocation(offer, location);
+  if (!isEligible) {
+    res.status(403).json({
+      error: 'LOCATION_NOT_ELIGIBLE',
+      detail: buildEligibilityMessage(offer, offer.company.name, false),
+    });
+    return;
+  }
+
   const name = String(req.body?.name || '').trim();
   const email = String(req.body?.email || '').trim().toLowerCase();
   const phone = String(req.body?.phone || '').trim();
   const consent = req.body?.consent === true || req.body?.consent === 'true';
+  const termsAccepted =
+    req.body?.termsAccepted === true || req.body?.termsAccepted === 'true';
 
-  if (!name || !email || !phone || !consent) {
+  if (!name || !email || !phone || !consent || !termsAccepted) {
     res.status(400).json({
       error: 'INVALID_LEAD_PAYLOAD',
-      detail: 'Required fields: name, email, phone, consent=true',
+      detail: 'Required fields: name, email, phone, consent=true, termsAccepted=true',
     });
     return;
   }
@@ -171,7 +276,15 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
   }
 
   const { firstName, lastName } = splitName(name);
-  const payloadJson = { name, email, phone };
+  const payloadJson = {
+    name,
+    email,
+    phone,
+    consent,
+    termsAccepted,
+    userProvinceCode: location.provinceCode,
+    userCity: location.cityName,
+  };
 
   const duplicateLead = await prisma.lead.findFirst({
     where: {
@@ -199,6 +312,10 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
       consent,
       consentAt: new Date(),
       consentIp: req.ip || null,
+      termsAccepted,
+      termsAcceptedAt: new Date(),
+      userProvinceCodeAtSubmission: location.provinceCode,
+      userCityAtSubmission: location.cityName,
       firstName,
       lastName,
       email,
@@ -295,6 +412,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       where.OR = [
         { title: { contains: search as string, mode: 'insensitive' } },
         { description: { contains: search as string, mode: 'insensitive' } },
+        { vendor: { companyName: { contains: search as string, mode: 'insensitive' } } },
+        { category: { name: { contains: search as string, mode: 'insensitive' } } },
+        { category: { slug: { contains: search as string, mode: 'insensitive' } } },
+        { category: { parent: { is: { name: { contains: search as string, mode: 'insensitive' } } } } },
       ];
     }
 
@@ -308,7 +429,15 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
           select: { id: true, name: true, slug: true, logo: true },
         },
         category: {
-          select: { id: true, name: true, slug: true, icon: true },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            icon: true,
+            parent: {
+              select: { id: true, name: true, slug: true, icon: true },
+            },
+          },
         },
       },
       orderBy: [
@@ -327,8 +456,9 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 // Check whether the current user can access an offer
 router.get('/:id/access', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
-    const offerId = String(req.params.id);
-    const { offer, verification, canAccess } = await getOfferForUserAccess(offerId, req.user!.id);
+    const offerRef = String(req.params.id);
+    const { offer, verification, canAccess, isEligible, eligibilityMessage } =
+      await getOfferForUserAccess(offerRef, req.user!);
 
     if (!offer) {
       res.status(404).json({ error: 'Offer not found' });
@@ -337,6 +467,8 @@ router.get('/:id/access', authenticateToken, async (req: Request, res: Response)
 
     res.json({
       canAccess,
+      isEligible,
+      eligibilityMessage,
       offer,
       company: offer.company,
       verification: verification
@@ -357,8 +489,9 @@ router.get('/:id/access', authenticateToken, async (req: Request, res: Response)
 
 router.get('/:id/claim-status', authenticateToken, requireUser, async (req: Request, res: Response): Promise<void> => {
   try {
-    const offerId = String(req.params.id);
-    const { offer, verification, canAccess } = await getOfferForUserAccess(offerId, req.user!.id);
+    const offerRef = String(req.params.id);
+    const { offer, verification, canAccess, isEligible, eligibilityMessage } =
+      await getOfferForUserAccess(offerRef, req.user!);
 
     if (!offer) {
       res.status(404).json({ error: 'Offer not found' });
@@ -387,23 +520,42 @@ router.get('/:id/claim-status', authenticateToken, requireUser, async (req: Requ
       return;
     }
 
-    const claim = await prisma.offerClaim.findFirst({
-      where: {
-        userId: req.user!.id,
-        offerId: offer.id,
-      },
-      select: {
-        id: true,
-        claimedAt: true,
-      },
-    });
+    const [claim, lead] = await Promise.all([
+      prisma.offerClaim.findFirst({
+        where: {
+          userId: req.user!.id,
+          offerId: offer.id,
+        },
+        select: {
+          id: true,
+          claimedAt: true,
+        },
+      }),
+      prisma.lead.findFirst({
+        where: {
+          userId: req.user!.id,
+          offerId: offer.id,
+        },
+        select: {
+          id: true,
+          createdAt: true,
+        },
+      }),
+    ]);
 
     res.json({
-      hasClaimed: !!claim,
+      hasClaimed: !!claim || !!lead,
+      isEligible,
+      eligibilityMessage,
       claim: claim
         ? {
             id: claim.id,
             claimedAt: claim.claimedAt,
+          }
+        : lead
+        ? {
+            id: lead.id,
+            claimedAt: lead.createdAt,
           }
         : null,
     });
@@ -414,84 +566,10 @@ router.get('/:id/claim-status', authenticateToken, requireUser, async (req: Requ
 });
 
 router.post('/:id/claim', authenticateToken, requireUser, async (req: Request, res: Response): Promise<void> => {
-  try {
-    const offerId = String(req.params.id);
-    const { offer, verification, canAccess } = await getOfferForUserAccess(offerId, req.user!.id);
-
-    if (!offer) {
-      res.status(404).json({ error: 'Offer not found' });
-      return;
-    }
-
-    if (!canAccess) {
-      res.status(403).json({
-        error: 'Employment verification required',
-        code: 'NOT_VERIFIED',
-        company: {
-          id: offer.company.id,
-          slug: offer.company.slug,
-          name: offer.company.name,
-        },
-        verification: verification
-          ? {
-              id: verification.id,
-              status: verification.status,
-              verifiedAt: verification.verifiedAt,
-              expiresAt: verification.expiresAt,
-              verificationMethod: verification.verificationMethod,
-            }
-          : null,
-      });
-      return;
-    }
-
-    const existingClaim = await prisma.offerClaim.findFirst({
-      where: {
-        userId: req.user!.id,
-        offerId: offer.id,
-      },
-      select: {
-        id: true,
-        claimedAt: true,
-      },
-    });
-
-    if (existingClaim) {
-      res.status(409).json({
-        error: 'ALREADY_CLAIMED',
-        message: 'You have already claimed this offer.',
-        claim: existingClaim,
-      });
-      return;
-    }
-
-    const claim = await prisma.offerClaim.create({
-      data: {
-        userId: req.user!.id,
-        offerId: offer.id,
-      },
-      select: {
-        id: true,
-        claimedAt: true,
-      },
-    });
-
-    res.json({
-      ok: true,
-      claim,
-      message: 'Offer claimed successfully.',
-    });
-  } catch (error: any) {
-    if (error?.code === 'P2002') {
-      res.status(409).json({
-        error: 'ALREADY_CLAIMED',
-        message: 'You have already claimed this offer.',
-      });
-      return;
-    }
-    console.error('Offer claim error:', error);
-    res.status(500).json({ error: 'Failed to claim offer' });
-  }
+  res.status(410).json({
+    error: 'DIRECT_CLAIM_RETIRED',
+    message: 'Direct claim is no longer supported. Review the offer and submit the application form.',
+  });
 });
 
 router.post('/:id/apply', authenticateToken, requireUser, async (req: Request, res: Response): Promise<void> => {
@@ -546,17 +624,8 @@ router.post('/:id/action', authenticateToken, requireUser, async (req: Request, 
 // Get offer by ID (authenticated, and employee users must be verified)
 router.get('/:id', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
-    const offerId = String(req.params.id);
-    const offer = await prisma.offer.findUnique({
-      where: { id: offerId },
-      include: {
-        vendor: {
-          select: { id: true, companyName: true, logo: true, website: true },
-        },
-        company: true,
-        category: true,
-      },
-    });
+    const offerRef = String(req.params.id);
+    const offer = await getOfferByIdOrSlug(offerRef);
 
     if (!offer) {
       res.status(404).json({ error: 'Offer not found' });
@@ -585,8 +654,12 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response): Promi
       }
     }
 
+    const location = getNormalizedUserLocation(req.user);
+    const isEligible = isOfferEligibleForLocation(offer, location);
+    const eligibilityMessage = buildEligibilityMessage(offer, offer.company.name, isEligible);
+
     res.json({
-      ...offer,
+      ...serializeOfferForClient(offer, { isEligible, eligibilityMessage }),
       offer_type: 'lead',
       config: pickMinimalOfferConfig(offer.configJson),
     });
@@ -616,8 +689,22 @@ router.post('/', authenticateToken, requireVendor, async (req: Request, res: Res
       expiryDate,
       featured,
       location,
+      slug: rawSlug,
+      coverageType: rawCoverageType,
+      provinceCode: rawProvinceCode,
+      cityName: rawCityName,
+      detailTemplateType: rawDetailTemplateType,
+      highlightsJson: rawHighlightsJson,
+      detailSectionsJson: rawDetailSectionsJson,
+      termsUrl: rawTermsUrl,
+      cancellationPolicyUrl: rawCancellationPolicyUrl,
       image,
       } = req.body;
+    const coverage = resolveCoverageInput({
+      coverageType: rawCoverageType,
+      provinceCode: rawProvinceCode,
+      cityName: rawCityName,
+    });
 
     const parsedExpiryDate = expiryDate ? parseDateInput(String(expiryDate)) : null;
     if (expiryDate && !parsedExpiryDate) {
@@ -628,6 +715,14 @@ router.post('/', authenticateToken, requireVendor, async (req: Request, res: Res
       res.status(400).json({ error: 'Offer end date must be in the future' });
       return;
     }
+    if (coverage.error) {
+      res.status(400).json({ error: coverage.error });
+      return;
+    }
+    const slug =
+      typeof rawSlug === 'string' && rawSlug.trim()
+        ? await getUniqueOfferSlug(rawSlug.trim())
+        : await getUniqueOfferSlug(String(title || 'offer'));
 
     // Get vendor ID for the current user
     let vendorId: string;
@@ -680,6 +775,15 @@ router.post('/', authenticateToken, requireVendor, async (req: Request, res: Res
         active: false,
         complianceStatus: 'DRAFT',
         location,
+        slug,
+        coverageType: coverage.coverageType,
+        provinceCode: coverage.provinceCode,
+        cityName: coverage.cityName,
+        detailTemplateType: normalizeOfferDetailTemplateType(rawDetailTemplateType),
+        highlightsJson: normalizeJsonField(rawHighlightsJson),
+        detailSectionsJson: normalizeJsonField(rawDetailSectionsJson),
+        termsUrl: normalizeOptionalUrl(rawTermsUrl),
+        cancellationPolicyUrl: normalizeOptionalUrl(rawCancellationPolicyUrl),
         image,
         offerType: 'lead',
         configJson: req.body?.configJson || req.body?.config_json || {
@@ -691,12 +795,22 @@ router.post('/', authenticateToken, requireVendor, async (req: Request, res: Res
         vendor: {
           select: { id: true, companyName: true, logo: true },
         },
-        company: true,
-        category: true,
+        company: {
+          select: { id: true, slug: true, name: true, domain: true, logo: true },
+        },
+        category: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            icon: true,
+            parent: { select: { id: true, name: true, slug: true, icon: true } },
+          },
+        },
       },
     });
 
-    res.status(201).json(offer);
+    res.status(201).json(serializeOfferForClient(offer));
   } catch (error) {
     console.error('Create offer error:', error);
     res.status(500).json({ error: 'Failed to create offer' });
@@ -742,13 +856,35 @@ router.patch('/:id', authenticateToken, requireVendor, async (req: Request, res:
       verified,
       active,
       location,
+      slug: rawSlug,
+      coverageType: rawCoverageType,
+      provinceCode: rawProvinceCode,
+      cityName: rawCityName,
+      detailTemplateType: rawDetailTemplateType,
+      highlightsJson: rawHighlightsJson,
+      detailSectionsJson: rawDetailSectionsJson,
+      termsUrl: rawTermsUrl,
+      cancellationPolicyUrl: rawCancellationPolicyUrl,
       image,
     } = req.body;
+    const coverage = resolveCoverageInput({
+      coverageType: rawCoverageType === undefined ? existingOffer.coverageType : rawCoverageType,
+      provinceCode: rawProvinceCode === undefined ? existingOffer.provinceCode : rawProvinceCode,
+      cityName: rawCityName === undefined ? existingOffer.cityName : rawCityName,
+    });
 
     if (active === true && String((existingOffer as any).complianceStatus || '') !== 'APPROVED') {
       res.status(400).json({ error: 'Offer must be compliance-approved before activation' });
       return;
     }
+    if (coverage.error) {
+      res.status(400).json({ error: coverage.error });
+      return;
+    }
+    const nextSlug =
+      rawSlug === undefined
+        ? existingOffer.slug
+        : await getUniqueOfferSlug(String(rawSlug || title || existingOffer.title), existingOffer.id);
 
     let parsedExpiryDate: Date | null | undefined = undefined;
     if (expiryDate !== undefined) {
@@ -790,6 +926,25 @@ router.patch('/:id', authenticateToken, requireVendor, async (req: Request, res:
         verified: req.user?.role === 'ADMIN' ? verified : undefined,
         active,
         location,
+        slug: nextSlug,
+        coverageType: coverage.coverageType,
+        provinceCode: coverage.provinceCode,
+        cityName: coverage.cityName,
+        detailTemplateType:
+          rawDetailTemplateType === undefined
+            ? undefined
+            : normalizeOfferDetailTemplateType(rawDetailTemplateType),
+        highlightsJson:
+          rawHighlightsJson === undefined ? undefined : normalizeJsonField(rawHighlightsJson),
+        detailSectionsJson:
+          rawDetailSectionsJson === undefined
+            ? undefined
+            : normalizeJsonField(rawDetailSectionsJson),
+        termsUrl: rawTermsUrl === undefined ? undefined : normalizeOptionalUrl(rawTermsUrl),
+        cancellationPolicyUrl:
+          rawCancellationPolicyUrl === undefined
+            ? undefined
+            : normalizeOptionalUrl(rawCancellationPolicyUrl),
         image,
         offerType: 'lead',
         configJson:
@@ -803,12 +958,22 @@ router.patch('/:id', authenticateToken, requireVendor, async (req: Request, res:
         vendor: {
           select: { id: true, companyName: true, logo: true },
         },
-        company: true,
-        category: true,
+        company: {
+          select: { id: true, slug: true, name: true, domain: true, logo: true },
+        },
+        category: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            icon: true,
+            parent: { select: { id: true, name: true, slug: true, icon: true } },
+          },
+        },
       },
     });
 
-    res.json(offer);
+    res.json(serializeOfferForClient(offer));
   } catch (error) {
     console.error('Update offer error:', error);
     res.status(500).json({ error: 'Failed to update offer' });

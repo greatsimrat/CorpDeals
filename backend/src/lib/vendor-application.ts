@@ -14,6 +14,19 @@ const PERSONAL_EMAIL_DOMAINS = new Set([
   'gmx.com',
 ]);
 
+export const VENDOR_CATEGORIES = [
+  'Telecom',
+  'Fitness & Wellness',
+  'Education & Tutoring',
+  'Travel',
+  'Finance & Insurance',
+  'Automotive',
+  'Food & Beverage',
+  'Family & Kids',
+  'Local Services',
+  'Other',
+] as const;
+
 export const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
 export const normalizePhone = (value: string) => {
@@ -29,14 +42,12 @@ const isBusinessEmail = (value: string) => {
   return !!domain && !PERSONAL_EMAIL_DOMAINS.has(domain);
 };
 
-const optionalUrlSchema = z
+const requiredUrlSchema = z
   .string()
   .trim()
+  .min(1, 'Website is required')
   .max(200, 'Website must be 200 characters or less')
-  .optional()
-  .transform((value) => value || '')
   .refine((value) => {
-    if (!value) return true;
     try {
       const parsed = new URL(value);
       return parsed.protocol === 'http:' || parsed.protocol === 'https:';
@@ -45,44 +56,60 @@ const optionalUrlSchema = z
     }
   }, 'Enter a valid website URL');
 
-const optionalPhoneSchema = z
+const requiredPhoneSchema = z
   .string()
   .trim()
+  .min(1, 'Phone is required')
   .max(30, 'Phone number must be 30 characters or less')
-  .optional()
-  .transform((value) => normalizePhone(value || ''))
-  .refine((value) => !value || /^\+?\d{10,15}$/.test(value), 'Enter a valid phone number');
+  .transform((value) => normalizePhone(value))
+  .refine((value) => /^\+?\d{10,15}$/.test(value), 'Enter a valid phone number');
 
-export const vendorApplicationSchema = z.object({
-  businessName: z.string().trim().min(2, 'Business name is required').max(100, 'Business name is too long'),
-  contactName: z.string().trim().min(2, 'Contact name is required').max(80, 'Contact name is too long'),
-  contactEmail: z
-    .string()
-    .trim()
-    .email('Enter a valid account email')
-    .max(120, 'Account email is too long')
-    .transform(normalizeEmail),
-  businessEmail: z
-    .string()
-    .trim()
-    .email('Enter a valid work email')
-    .max(120, 'Work email is too long')
-    .transform(normalizeEmail)
-    .refine(isBusinessEmail, 'Use your business email address'),
-  phone: optionalPhoneSchema,
-  website: optionalUrlSchema,
-  category: z.string().trim().max(80, 'Category is too long').optional().transform((value) => value || ''),
-  city: z.string().trim().max(100, 'City is too long').optional().transform((value) => value || ''),
-  notes: z.string().trim().max(1000, 'Notes must be 1000 characters or less').optional().transform((value) => value || ''),
-  jobTitle: z.string().trim().max(80, 'Job title is too long').optional().transform((value) => value || ''),
-  offerSummary: z.string().trim().max(500, 'Offer summary is too long').optional().transform((value) => value || ''),
-  targetCompanies: z
-    .string()
-    .trim()
-    .max(200, 'Target companies must be 200 characters or less')
-    .optional()
-    .transform((value) => value || ''),
-  captchaToken: z.string().trim().optional().transform((value) => value || ''),
-});
+export const vendorApplicationSchema = z
+  .object({
+    businessName: z.string().trim().min(2, 'Business name is required').max(100, 'Business name is too long'),
+    contactName: z.string().trim().min(2, 'Contact name is required').max(80, 'Contact name is too long'),
+    contactEmail: z
+      .string()
+      .trim()
+      .email('Enter a valid account email')
+      .max(120, 'Account email is too long')
+      .transform(normalizeEmail),
+    businessEmail: z
+      .string()
+      .trim()
+      .email('Enter a valid work email')
+      .max(120, 'Work email is too long')
+      .transform(normalizeEmail)
+      .refine(isBusinessEmail, 'Use your business email address'),
+    phone: requiredPhoneSchema,
+    website: requiredUrlSchema,
+    category: z.enum(VENDOR_CATEGORIES, {
+      errorMap: () => ({ message: 'Select a category' }),
+    }),
+    categoryOther: z
+      .string()
+      .trim()
+      .max(80, 'Category detail must be 80 characters or less')
+      .optional()
+      .transform((value) => value || ''),
+    city: z.string().trim().min(2, 'City or region is required').max(100, 'City is too long'),
+    notes: z.string().trim().max(1000, 'Notes must be 1000 characters or less').optional().transform((value) => value || ''),
+    jobTitle: z.string().trim().min(2, 'Job title is required').max(80, 'Job title is too long'),
+    targetCompanies: z
+      .string()
+      .trim()
+      .max(200, 'Target companies must be 200 characters or less')
+      .optional()
+      .transform((value) => value || ''),
+  })
+  .superRefine((data, ctx) => {
+    if (data.category === 'Other' && !data.categoryOther.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['categoryOther'],
+        message: 'Please specify your category',
+      });
+    }
+  });
 
 export type VendorApplicationInput = z.infer<typeof vendorApplicationSchema>;

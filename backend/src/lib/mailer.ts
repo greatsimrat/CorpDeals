@@ -25,9 +25,10 @@ const vendorOverrideEnabledRaw = (process.env.VENDOR_EMAIL_OVERRIDE_ENABLED || '
 const vendorOverrideEnabled = vendorOverrideEnabledRaw
   ? ['1', 'true', 'yes'].includes(vendorOverrideEnabledRaw)
   : true;
+const hasSmtpAuth = Boolean(mailUsername && mailPassword);
 
 const isConfigured = Boolean(
-  mailHost && mailPort && mailUsername && mailPassword && fromEmail
+  mailHost && mailPort && fromEmail
 );
 
 const useSecureTransport =
@@ -38,10 +39,14 @@ const transporter = isConfigured
       host: mailHost,
       port: mailPort,
       secure: useSecureTransport,
-      auth: {
-        user: mailUsername,
-        pass: mailPassword,
-      },
+      ...(hasSmtpAuth
+        ? {
+            auth: {
+              user: mailUsername,
+              pass: mailPassword,
+            },
+          }
+        : {}),
     })
   : null;
 
@@ -53,6 +58,7 @@ export const getEmailConfig = () => ({
   host: mailHost,
   port: mailPort,
   encryption: mailEncryption || (useSecureTransport ? 'ssl' : 'none'),
+  authConfigured: hasSmtpAuth,
   fromAddress: fromEmail,
   fromName,
 });
@@ -476,10 +482,12 @@ interface VendorApplicationInternalEmailInput {
   businessName: string;
   contactName: string;
   contactEmail: string;
+  businessEmail?: string | null;
   phone?: string | null;
   website?: string | null;
   category?: string | null;
   city?: string | null;
+  jobTitle?: string | null;
   notes?: string | null;
 }
 
@@ -487,10 +495,12 @@ export const sendVendorApplicationInternalEmail = async ({
   businessName,
   contactName,
   contactEmail,
+  businessEmail,
   phone,
   website,
   category,
   city,
+  jobTitle,
   notes,
 }: VendorApplicationInternalEmailInput): Promise<SendEmailResult> => {
   const supportEmail = process.env.VENDOR_SUPPORT_EMAIL || process.env.SUPPORT_EMAIL || fromEmail || 'support@corpdeals.ca';
@@ -499,6 +509,8 @@ export const sendVendorApplicationInternalEmail = async ({
     `Business name: ${businessName}`,
     `Contact name: ${contactName}`,
     `Contact email: ${contactEmail}`,
+    `Work email: ${businessEmail || 'N/A'}`,
+    `Job title: ${jobTitle || 'N/A'}`,
     `Phone: ${phone || 'N/A'}`,
     `Website: ${website || 'N/A'}`,
     `Category: ${category || 'N/A'}`,
@@ -511,6 +523,8 @@ export const sendVendorApplicationInternalEmail = async ({
       <p><strong>Business name:</strong> ${businessName}</p>
       <p><strong>Contact name:</strong> ${contactName}</p>
       <p><strong>Contact email:</strong> ${contactEmail}</p>
+      <p><strong>Work email:</strong> ${businessEmail || 'N/A'}</p>
+      <p><strong>Job title:</strong> ${jobTitle || 'N/A'}</p>
       <p><strong>Phone:</strong> ${phone || 'N/A'}</p>
       <p><strong>Website:</strong> ${website || 'N/A'}</p>
       <p><strong>Category:</strong> ${category || 'N/A'}</p>

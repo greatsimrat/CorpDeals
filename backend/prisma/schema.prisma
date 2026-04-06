@@ -34,6 +34,21 @@ enum DiscountType {
   SPECIAL
 }
 
+enum CoverageType {
+  COMPANY_WIDE
+  PROVINCE_SPECIFIC
+  CITY_SPECIFIC
+}
+
+enum OfferDetailTemplateType {
+  GENERIC
+  TELECOM
+  RESTAURANT
+  FUN_PARK
+  TRAVEL
+  BANKING
+}
+
 enum LeadStatus {
   NEW
   SENT
@@ -132,6 +147,8 @@ model User {
   vendorId      String?   @map("vendor_id")
   activeCompanyId String? @map("active_company_id")
   employeeCompanyId    String?   @map("employee_company_id")
+  provinceCode  String?   @map("province_code")
+  cityName      String?   @map("city_name")
   employmentVerifiedAt DateTime? @map("employment_verified_at")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
@@ -186,7 +203,9 @@ model VendorRequest {
   id              String        @id @default(uuid())
   vendorId        String        @map("vendor_id")
   businessType    String?       @map("business_type")
+  categoryOther   String?       @map("category_other")
   description     String?
+  jobTitle        String?       @map("job_title")
   additionalInfo  String?       @map("additional_info")
   status          RequestStatus @default(PENDING)
   reviewedById    String?       @map("reviewed_by_id")
@@ -309,20 +328,31 @@ model Category {
   color       String?
   bgColor     String?   @map("bg_color")
   image       String?
+  parentId    String?   @map("parent_id")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
+  parent      Category? @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[] @relation("CategoryHierarchy")
   offers      Offer[]
 
+  @@index([parentId])
   @@map("categories")
 }
 
 model Offer {
   id              String       @id @default(uuid())
+  slug            String       @unique
   vendorId        String       @map("vendor_id")
   companyId       String       @map("company_id")
   categoryId      String       @map("category_id")
   offerType       String       @default("lead") @map("offer_type")
+  coverageType    CoverageType @default(COMPANY_WIDE) @map("coverage_type")
+  provinceCode    String?      @map("province_code")
+  cityName        String?      @map("city_name")
+  detailTemplateType OfferDetailTemplateType @default(GENERIC) @map("detail_template_type")
+  highlightsJson  Json?        @map("highlights_json")
+  detailSectionsJson Json?     @map("detail_sections_json")
   configJson      Json?        @map("config_json")
   productName     String?      @map("product_name")
   productModel    String?      @map("product_model")
@@ -345,7 +375,9 @@ model Offer {
   reviewCount     Int          @default(0) @map("review_count")
   leadCount       Int          @default(0) @map("lead_count")
   termsText       String       @default("") @map("terms_text")
+  termsUrl        String?      @map("terms_url")
   cancellationPolicyText String @default("") @map("cancellation_policy_text")
+  cancellationPolicyUrl String? @map("cancellation_policy_url")
   redemptionInstructionsText String? @map("redemption_instructions_text")
   restrictionsText String?     @map("restrictions_text")
   usePlatformDefaultTerms Boolean @default(true) @map("use_platform_default_terms")
@@ -391,6 +423,10 @@ model Lead {
   consent     Boolean    @default(false)
   consentAt   DateTime?  @map("consent_at")
   consentIp   String?    @map("consent_ip")
+  termsAccepted Boolean  @default(false) @map("terms_accepted")
+  termsAcceptedAt DateTime? @map("terms_accepted_at")
+  userProvinceCodeAtSubmission String? @map("user_province_code_at_submission")
+  userCityAtSubmission String? @map("user_city_at_submission")
   firstName   String     @map("first_name")
   lastName    String     @map("last_name")
   email       String

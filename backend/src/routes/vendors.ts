@@ -25,10 +25,31 @@ router.post('/apply', async (req: Request, res: Response): Promise<void> => {
       additionalInfo,
       password,
     } = req.body;
+    const normalizedCompanyName = String(companyName || '').trim();
+    const normalizedContactName = String(contactName || '').trim();
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const normalizedPassword = String(password || '');
+
+    if (!normalizedCompanyName || !normalizedContactName || !normalizedEmail || !normalizedPassword) {
+      res.status(400).json({
+        error: 'companyName, contactName, email, and password are required',
+      });
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      res.status(400).json({ error: 'A valid email is required' });
+      return;
+    }
+
+    if (normalizedPassword.length < 6) {
+      res.status(400).json({ error: 'Password must be at least 6 characters' });
+      return;
+    }
 
     // Check if email already exists
     const existingUser = await prisma.user.findUnique({
-      where: { email },
+      where: { email: normalizedEmail },
     });
 
     if (existingUser) {
@@ -39,12 +60,12 @@ router.post('/apply', async (req: Request, res: Response): Promise<void> => {
     // Create user and vendor in a transaction
     const result = await prisma.$transaction(async (tx) => {
       // Create user with VENDOR role (pending approval)
-      const passwordHash = await bcrypt.hash(password, 10);
+      const passwordHash = await bcrypt.hash(normalizedPassword, 10);
       const user = await tx.user.create({
         data: {
-          email,
+          email: normalizedEmail,
           passwordHash,
-          name: contactName,
+          name: normalizedContactName,
           role: 'VENDOR',
         },
       });
@@ -53,9 +74,9 @@ router.post('/apply', async (req: Request, res: Response): Promise<void> => {
       const vendor = await tx.vendor.create({
         data: {
           userId: user.id,
-          companyName,
-          contactName,
-          email,
+          companyName: normalizedCompanyName,
+          contactName: normalizedContactName,
+          email: normalizedEmail,
           phone,
           website,
           businessType,

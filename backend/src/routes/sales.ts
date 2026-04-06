@@ -1,6 +1,13 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { authenticateToken, requireAdminOrSales } from '../middleware/auth';
+import { resolveCoverageInput } from '../lib/offer-coverage';
+import {
+  getUniqueOfferSlug,
+  normalizeJsonField,
+  normalizeOfferDetailTemplateType,
+  normalizeOptionalUrl,
+} from '../lib/offer-details';
 
 const router = Router();
 
@@ -187,6 +194,11 @@ router.post('/offers', async (req: Request, res: Response): Promise<void> => {
     const productModel = String(req.body?.productModel || '').trim();
     const productUrl = String(req.body?.productUrl || '').trim();
     const expiryDateRaw = String(req.body?.expiryDate || '').trim();
+    const coverage = resolveCoverageInput({
+      coverageType: req.body?.coverageType ?? req.body?.coverage_type,
+      provinceCode: req.body?.provinceCode ?? req.body?.province_code,
+      cityName: req.body?.cityName ?? req.body?.city_name,
+    });
 
     if (!vendorId || !companyId || !title || !description) {
       res.status(400).json({
@@ -202,6 +214,10 @@ router.post('/offers', async (req: Request, res: Response): Promise<void> => {
     }
     if (expiryDate && !isFutureDate(expiryDate)) {
       res.status(400).json({ error: 'Offer end date must be in the future' });
+      return;
+    }
+    if (coverage.error) {
+      res.status(400).json({ error: coverage.error });
       return;
     }
 
@@ -254,6 +270,7 @@ router.post('/offers', async (req: Request, res: Response): Promise<void> => {
 
     const created = await prisma.offer.create({
       data: {
+        slug: await getUniqueOfferSlug(title),
         vendorId: vendor.id,
         companyId: company.id,
         categoryId: fallbackCategory.id,
@@ -271,6 +288,14 @@ router.post('/offers', async (req: Request, res: Response): Promise<void> => {
         verified: false,
         active: false,
         offerType: 'lead',
+        coverageType: coverage.coverageType,
+        provinceCode: coverage.provinceCode,
+        cityName: coverage.cityName,
+        detailTemplateType: normalizeOfferDetailTemplateType(req.body?.detailTemplateType),
+        highlightsJson: normalizeJsonField(req.body?.highlightsJson),
+        detailSectionsJson: normalizeJsonField(req.body?.detailSectionsJson),
+        termsUrl: normalizeOptionalUrl(req.body?.termsUrl),
+        cancellationPolicyUrl: normalizeOptionalUrl(req.body?.cancellationPolicyUrl),
         configJson: {
           lead_fields: ['name', 'email', 'phone', 'consent'],
           consent_required: true,

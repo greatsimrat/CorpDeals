@@ -6,6 +6,7 @@ import {
   requireAdmin,
   requireVendorOnly,
 } from '../middleware/auth';
+import { getNormalizedUserLocation } from '../lib/offer-coverage';
 import { isUserVerifiedForCompany } from '../lib/verifications';
 import { sendVendorLeadNotificationEmail } from '../lib/mailer';
 import { recordLeadDeliveryBillingEvent } from '../lib/lead-billing';
@@ -140,6 +141,14 @@ router.post('/', authenticateTokenOptional, async (req: Request, res: Response):
     const defaultLeadPriceCents = Number(process.env.DEFAULT_LEAD_PRICE_CENTS || 0);
     const now = new Date();
     const consentGiven = Boolean(req.body?.consent);
+    const termsAccepted = Boolean(req.body?.termsAccepted);
+    if (!consentGiven || !termsAccepted) {
+      res.status(400).json({
+        error: 'Both terms acceptance and consent are required',
+      });
+      return;
+    }
+    const userLocation = getNormalizedUserLocation(req.user);
     const payloadJson = {
       firstName,
       lastName,
@@ -149,6 +158,9 @@ router.post('/', authenticateTokenOptional, async (req: Request, res: Response):
       message: message || null,
       verificationId: verificationId || null,
       consent: consentGiven,
+      termsAccepted,
+      userProvinceCode: userLocation.provinceCode,
+      userCity: userLocation.cityName,
     };
 
     const lead = await prisma.$transaction(async (tx) => {
@@ -162,6 +174,10 @@ router.post('/', authenticateTokenOptional, async (req: Request, res: Response):
           consent: consentGiven,
           consentAt: consentGiven ? new Date() : null,
           consentIp: req.ip || null,
+          termsAccepted,
+          termsAcceptedAt: new Date(),
+          userProvinceCodeAtSubmission: userLocation.provinceCode,
+          userCityAtSubmission: userLocation.cityName,
           firstName,
           lastName,
           email: normalizedEmail,
