@@ -15,6 +15,7 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:uat": "tsx prisma/seed-uat.ts",
+    "db:prepare:uat": "bash scripts/prepare-uat-demo.sh",
     "db:studio": "prisma studio"
   },
   "dependencies": {
