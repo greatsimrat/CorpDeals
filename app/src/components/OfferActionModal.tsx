@@ -208,8 +208,25 @@ export default function OfferActionModal({ open, offer, company, onClose }: Offe
                 onChange={(e) => setConsent(e.target.checked)}
                 className="mt-1"
               />
-              <span>I consent to share my details with this vendor for follow-up.</span>
+              <span>
+                I consent to share my details with this vendor for this application and follow-up.
+              </span>
             </label>
+          </div>
+
+          <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs leading-5 text-slate-700">
+            CorpDeals uses your submission only to verify eligibility, route your request to the
+            selected vendor, maintain consent and audit records, and comply with legal obligations.
+            We do not sell your data or use this application for unrelated marketing. Read our{' '}
+            <a
+              href="/privacy-policy"
+              target="_blank"
+              rel="noreferrer"
+              className="font-semibold text-blue-700 hover:underline"
+            >
+              privacy policy
+            </a>
+            .
           </div>
 
           {error && (

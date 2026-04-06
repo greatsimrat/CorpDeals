@@ -6,16 +6,61 @@ const prisma = new PrismaClient();
 const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
 const seedConfirmed = (process.env.CONFIRM_UAT_SEED || '').toLowerCase() === 'yes';
 
+const APPLICATION_PRIVACY_NOTICE = `CorpDeals uses application details only to verify eligibility, route your request to the selected vendor, maintain consent and audit records, and comply with legal obligations.
+We do not sell your data or use your application details for unrelated marketing.`;
+
 const DEFAULT_OFFER_TERMS_TEMPLATE = `This offer is available to verified employees only.
 Offer details, pricing, and availability may change without notice.
 Proof of employment and identity may be required at redemption.
 The offer may not be combined with other promotions unless stated otherwise.
-Additional vendor-specific conditions may apply.`;
+Additional vendor-specific conditions may apply.
+${APPLICATION_PRIVACY_NOTICE}`;
 
 const DEFAULT_CANCELLATION_TEMPLATE = `Cancellation and refund eligibility is determined by the vendor.
 Requests must be submitted through the vendor's published support channels.
 Processing timelines may vary by payment method and product category.
 Non-refundable fees or partially used services may be excluded where legally permitted.`;
+
+type OfferHighlight = { label: string; value: string };
+type OfferDetailItem = { label?: string; value: string };
+type OfferDetailSectionSeed = {
+  type: string;
+  title: string;
+  items: OfferDetailItem[];
+};
+
+type UatOfferSeed = {
+  id: string;
+  slug: string;
+  vendorKey: string;
+  companySlug: string;
+  categorySlug: string;
+  title: string;
+  description: string;
+  discountValue: string;
+  discountType: 'FIXED' | 'PERCENTAGE' | 'SPECIAL';
+  featured: boolean;
+  location: string;
+  coverageType: 'COMPANY_WIDE' | 'PROVINCE_SPECIFIC' | 'CITY_SPECIFIC';
+  provinceCode: string | null;
+  cityName: string | null;
+  productName: string;
+  productModel: string;
+  originalPrice?: string | null;
+  discountedPrice?: string | null;
+  image?: string | null;
+  termsUrl?: string | null;
+  cancellationPolicyUrl?: string | null;
+  termsText: string;
+  cancellationPolicyText: string;
+  restrictionsText?: string | null;
+  redemptionInstructionsText?: string | null;
+  howToClaim?: string[];
+  highlights?: OfferHighlight[];
+  detailSections?: OfferDetailSectionSeed[];
+  rating?: number;
+  reviewCount?: number;
+};
 
 const roleUsers = [
   { email: 'admin@corpdeals.io', name: 'Admin User', role: 'ADMIN', password: 'admin123' },
@@ -188,7 +233,7 @@ const employeeUsers = [
   { email: 'qa.lululemon.employee@lululemon.com', name: 'Lululemon Vancouver Employee', companySlug: 'lululemon', provinceCode: 'BC', cityName: 'Vancouver' },
 ];
 
-const offers = [
+const offers: UatOfferSeed[] = [
   {
     id: 'uat-amazon-rbc-banking-company-wide',
     slug: 'uat-amazon-rbc-banking-company-wide',
@@ -206,6 +251,56 @@ const offers = [
     cityName: null,
     productName: 'Preferred Banking Bundle',
     productModel: 'Everyday Banking',
+    originalPrice: '$29.95/mo',
+    discountedPrice: '$0 for 12 months',
+    termsUrl: 'https://www.rbcroyalbank.com/accounts/index.html',
+    cancellationPolicyUrl: 'https://www.rbcroyalbank.com/customer-service/',
+    termsText: `Available to verified Amazon employees in good standing.
+Offer includes one eligible RBC chequing package opened through the employee program.
+Payroll deposit and two qualifying bill payments must be completed within 90 days to receive the welcome bonus.
+Standard account fees apply after the promotional waiver period unless minimum balance requirements are met.
+${APPLICATION_PRIVACY_NOTICE}`,
+    cancellationPolicyText: `Applications may be withdrawn any time before account opening.
+If the account is opened, normal RBC account closure rules and any product-specific fee disclosures apply.
+Welcome bonuses may be reversed if the account is closed or becomes ineligible during the promotional review window.
+Questions about account closure, fee reversals, or bonus eligibility must be handled through RBC support channels.`,
+    restrictionsText:
+      'Not available to existing RBC primary chequing clients opened within the vendor-defined lookback period. Limited to one employee package per verified user.',
+    redemptionInstructionsText:
+      'Submit your request through CorpDeals, complete the vendor callback, and finalize onboarding using the employee program instructions provided by RBC.',
+    howToClaim: [
+      'Confirm your Amazon employee status inside CorpDeals.',
+      'Submit the application form and wait for an RBC advisor to contact you.',
+      'Complete account opening and payroll setup using the employee offer instructions.',
+    ],
+    highlights: [
+      { label: 'Bonus', value: '$300 after qualifying activity' },
+      { label: 'Advisor', value: 'Dedicated employee banking support' },
+      { label: 'Fee waiver', value: 'Monthly fee waived for the first year' },
+      { label: 'Data use', value: 'Shared only for vendor follow-up and compliance' },
+    ],
+    detailSections: [
+      {
+        type: 'pricing',
+        title: 'Pricing overview',
+        items: [
+          { label: 'Regular price', value: '$29.95/mo' },
+          { label: 'Employee price', value: '$0 for 12 months' },
+          { label: 'Welcome bonus', value: '$300 after payroll and qualifying bill payments' },
+        ],
+      },
+      {
+        type: 'included_items',
+        title: 'What is included',
+        items: [
+          { value: 'Unlimited everyday transactions on the eligible bundle' },
+          { value: 'Employee onboarding support from an RBC advisor' },
+          { value: 'Access to add-on savings and credit review options' },
+        ],
+      },
+    ],
+    rating: 4.8,
+    reviewCount: 146,
   },
   {
     id: 'uat-amazon-telus-mobile-bc',
@@ -224,6 +319,35 @@ const offers = [
     cityName: null,
     productName: 'Employee Mobility Plan',
     productModel: '5G Premium',
+    originalPrice: '$85/mo',
+    discountedPrice: '$63.75/mo',
+    termsUrl: 'https://www.telus.com/en/about/terms-and-conditions',
+    cancellationPolicyUrl: 'https://www.telus.com/en/support/article/returns-and-exchanges-policy',
+    termsText: `Available to verified Amazon employees whose active profile location is British Columbia.
+Discount applies to select premium mobility plans and cannot be combined with consumer flash-sale pricing.
+Device financing, taxes, roaming, and add-on services are billed separately.
+Proof of ongoing employment may be requested when activating or renewing the plan.
+${APPLICATION_PRIVACY_NOTICE}`,
+    cancellationPolicyText: `Plan cancellations are handled by TELUS under the applicable wireless service agreement.
+Device financing balances, early cancellation charges, and non-refundable setup fees may still apply.
+Any approved device return must follow the TELUS return window and product condition requirements.`,
+    restrictionsText:
+      'Coverage is limited to BC-based employee profiles in CorpDeals. Family line eligibility and device inventory vary by account type and service location.',
+    redemptionInstructionsText:
+      'After submission, a TELUS specialist will confirm your BC eligibility and present the qualifying mobility plan options.',
+    howToClaim: [
+      'Verify that your CorpDeals profile location is set to BC.',
+      'Submit your contact details through the deal page.',
+      'Complete plan selection with the TELUS employee mobility team.',
+    ],
+    highlights: [
+      { label: 'Savings', value: '25% off select premium plans' },
+      { label: 'Region', value: 'British Columbia employee profiles only' },
+      { label: 'Bundle options', value: 'Mobile plus device financing available' },
+      { label: 'Privacy', value: 'No unrelated marketing use by CorpDeals' },
+    ],
+    rating: 4.6,
+    reviewCount: 89,
   },
   {
     id: 'uat-microsoft-marriott-toronto',
@@ -242,6 +366,54 @@ const offers = [
     cityName: 'Toronto',
     productName: 'Corporate Travel Rate',
     productModel: 'Toronto Stays',
+    originalPrice: '$329/night',
+    discountedPrice: 'From $263/night',
+    termsUrl: 'https://www.marriott.com/about/terms-of-use.mi',
+    cancellationPolicyUrl: 'https://www.marriott.com/help/cancellation.mi',
+    termsText: `Available to verified Microsoft employees whose active CorpDeals profile location is Toronto, Ontario.
+Rates are subject to hotel inventory, blackout dates, and participating property rules.
+Employee identification may be requested at check-in and the booking must remain in the verified employee's name.
+Incidental charges, parking, taxes, and destination fees are excluded unless stated otherwise.
+${APPLICATION_PRIVACY_NOTICE}`,
+    cancellationPolicyText: `Most rates can be cancelled up to 48 hours before check-in, but individual properties may enforce stricter deadlines.
+Advance purchase, event, or negotiated inventory may be non-refundable once booked.
+Refund timing is controlled by Marriott and the original payment provider.`,
+    restrictionsText:
+      'Valid only for eligible Toronto-area stays booked through the corporate travel path shared after vendor follow-up. Not for group blocks or third-party travel agents.',
+    redemptionInstructionsText:
+      'Use the Marriott link or code provided after vendor confirmation to complete the final reservation in your own name.',
+    howToClaim: [
+      'Submit the request through CorpDeals using your verified Microsoft account.',
+      'Wait for the Marriott team to send the approved booking path.',
+      'Complete the reservation and bring company ID if requested at check-in.',
+    ],
+    highlights: [
+      { label: 'Rate', value: 'From $263/night in Toronto' },
+      { label: 'Best for', value: 'Business travel and short stays' },
+      { label: 'Area', value: 'Toronto employee profiles only' },
+      { label: 'Policy', value: 'Separate cancellation terms shown on-page' },
+    ],
+    detailSections: [
+      {
+        type: 'pricing',
+        title: 'Typical rate structure',
+        items: [
+          { label: 'Public rate', value: 'Approx. $329/night' },
+          { label: 'Employee rate', value: 'From $263/night before taxes' },
+        ],
+      },
+      {
+        type: 'booking_rules',
+        title: 'Booking rules',
+        items: [
+          { value: 'Rates vary by property, dates, and inventory.' },
+          { value: 'Employee name must match the reservation and any check-in verification.' },
+          { value: 'Blackout dates and convention periods may be excluded.' },
+        ],
+      },
+    ],
+    rating: 4.7,
+    reviewCount: 63,
   },
   {
     id: 'uat-microsoft-adobe-company-wide',
@@ -260,6 +432,34 @@ const offers = [
     cityName: null,
     productName: 'Creative Cloud',
     productModel: 'All Apps',
+    originalPrice: '$89.99/mo',
+    discountedPrice: '$58.49/mo',
+    termsUrl: 'https://www.adobe.com/legal/terms.html',
+    cancellationPolicyUrl: 'https://helpx.adobe.com/manage-account/using/cancel-subscription.html',
+    termsText: `Available to verified Microsoft employees across eligible geographies supported by the vendor program.
+Discount applies to the qualifying Creative Cloud All Apps plan and is subject to Adobe account eligibility.
+Feature availability, AI credits, and cloud storage entitlements may change under Adobe service terms.
+${APPLICATION_PRIVACY_NOTICE}`,
+    cancellationPolicyText: `Subscription cancellations follow the Adobe subscription agreement in effect at the time of purchase.
+Monthly plans typically remain active through the current billing period, while annual commitments may include an early termination fee.
+Refunds, if available, are processed by Adobe according to the original payment method.`,
+    restrictionsText:
+      'Not stackable with education, enterprise site license, or reseller-exclusive pricing. Offer availability may vary by country billing profile.',
+    redemptionInstructionsText:
+      'Complete the employee verification form, then activate the qualifying plan using the Adobe link provided by the partner team.',
+    howToClaim: [
+      'Verify eligibility through CorpDeals.',
+      'Receive the Adobe employee enrollment link.',
+      'Sign in or create your Adobe account and activate the discounted subscription.',
+    ],
+    highlights: [
+      { label: 'Savings', value: '35% off Creative Cloud All Apps' },
+      { label: 'Plan', value: 'Individual employee subscription' },
+      { label: 'Access', value: 'Available across qualifying Microsoft locations' },
+      { label: 'Privacy', value: 'Used only for application routing and legal compliance' },
+    ],
+    rating: 4.7,
+    reviewCount: 118,
   },
   {
     id: 'uat-google-ford-ontario',
@@ -278,6 +478,28 @@ const offers = [
     cityName: null,
     productName: 'Employee Pricing',
     productModel: 'Purchase and Lease',
+    originalPrice: 'MSRP pricing',
+    discountedPrice: 'Up to $1,500 off',
+    termsUrl: 'https://www.ford.ca/help/terms/',
+    cancellationPolicyUrl: 'https://www.ford.ca/help/',
+    termsText: `Available to verified Google employees whose active profile location is Ontario.
+Employee pricing applies to participating Ford vehicles and may vary by model year, trim, dealer inventory, and financing approval.
+Trade-in values, registration, freight, taxes, and dealer-installed options are excluded from the stated savings.
+${APPLICATION_PRIVACY_NOTICE}`,
+    cancellationPolicyText: `Vehicle orders or dealer holds may require a refundable or partially refundable deposit depending on the dealership.
+Once a final purchase or lease contract is executed, cancellation rights are determined by the dealer agreement and applicable law.
+Any refund timelines are handled by the dealer or financing provider.`,
+    restrictionsText:
+      'Ontario employee profiles only. Commercial fleet sales, auction inventory, and certain limited-production vehicles are excluded.',
+    redemptionInstructionsText:
+      'After submitting the application, a Ford partner representative will connect you with a participating Ontario dealer and pricing certificate.',
+    howToClaim: [
+      'Submit the CorpDeals application with your verified Google profile.',
+      'Review eligible inventory and pricing with the Ford partner desk.',
+      'Complete the purchase or lease through a participating Ontario dealer.',
+    ],
+    rating: 4.5,
+    reviewCount: 54,
   },
   {
     id: 'uat-apple-telus-broadband',
@@ -296,6 +518,23 @@ const offers = [
     cityName: null,
     productName: 'Fibre Internet',
     productModel: 'Gigabit Plan',
+    originalPrice: '$110/mo',
+    discountedPrice: '$85/mo',
+    termsUrl: 'https://www.telus.com/en/about/terms-and-conditions',
+    cancellationPolicyUrl: 'https://www.telus.com/en/support/article/returns-and-exchanges-policy',
+    termsText: `Available to verified Apple employees where qualifying TELUS home internet service is available.
+Installation dates, modem inventory, and service speed depend on the service address.
+The advertised rate excludes taxes, equipment damage charges, and optional add-ons not included in the employee plan.
+${APPLICATION_PRIVACY_NOTICE}`,
+    cancellationPolicyText: `Order changes or cancellations before installation are generally handled without penalty.
+If service is activated, cancellation rights, return windows for supplied hardware, and any fixed-term charges follow TELUS residential service terms.
+Refunds for prepaid charges, where available, are processed by TELUS.`,
+    restrictionsText:
+      'Offer depends on address eligibility and participating plan availability. Some rural or third-party network locations may not qualify.',
+    redemptionInstructionsText:
+      'After you apply, TELUS will confirm serviceability for your address and complete plan setup directly.',
+    rating: 4.4,
+    reviewCount: 72,
   },
   {
     id: 'uat-lululemon-equinox-vancouver',
@@ -314,6 +553,23 @@ const offers = [
     cityName: 'Vancouver',
     productName: 'Fitness Membership',
     productModel: 'All Access',
+    originalPrice: '$285/mo',
+    discountedPrice: '$233.70/mo',
+    termsUrl: 'https://www.equinox.com/legal/terms',
+    cancellationPolicyUrl: 'https://www.equinox.com/terms',
+    termsText: `Available to verified Lululemon employees whose active CorpDeals profile location is Vancouver, BC.
+The discounted membership is valid for participating clubs and eligible membership tiers defined by the vendor program.
+Guest privileges, premium classes, spa services, retail, and taxes may be billed separately.
+${APPLICATION_PRIVACY_NOTICE}`,
+    cancellationPolicyText: `Membership cancellation rules are governed by the membership agreement presented during final enrollment.
+Any notice periods, joining fees, or minimum commitment terms apply according to the club contract and local law.
+Refunds for prepaid services are handled by Equinox under the signed agreement.`,
+    restrictionsText:
+      'City-specific coverage applies. Membership availability may be capped by club capacity and certain premium club access tiers may be excluded.',
+    redemptionInstructionsText:
+      'Complete the CorpDeals application, confirm eligibility with the Equinox team, and finalize membership at the participating Vancouver club.',
+    rating: 4.8,
+    reviewCount: 37,
   },
   {
     id: 'uat-amazon-rbc-credit-card',
@@ -332,6 +588,23 @@ const offers = [
     cityName: null,
     productName: 'Cashback Credit Card',
     productModel: 'Employee Rewards',
+    originalPrice: '$120 annual fee',
+    discountedPrice: '$0 annual fee in year one',
+    termsUrl: 'https://www.rbcroyalbank.com/credit-cards/index.html',
+    cancellationPolicyUrl: 'https://www.rbcroyalbank.com/customer-service/',
+    termsText: `Available to verified Amazon employees who meet the issuer's credit and identity requirements.
+The welcome bonus and fee waiver apply only to the qualifying employee card offer and are subject to minimum spend criteria.
+Cashback rates, APR, and insurance benefits are governed by the final cardholder agreement.
+${APPLICATION_PRIVACY_NOTICE}`,
+    cancellationPolicyText: `Card applications may be withdrawn before approval.
+If the card is issued, closure, annual fee reversals, disputed charges, and refund handling are governed by the RBC cardholder agreement and card network rules.
+Any rewards reversals follow issuer policy.`,
+    restrictionsText:
+      'Subject to credit approval. Existing cardholders or recent prior cardholders may not qualify for the welcome bonus.',
+    redemptionInstructionsText:
+      'Submit your request, wait for the RBC card team to contact you, and complete the final credit application directly with the issuer.',
+    rating: 4.6,
+    reviewCount: 101,
   },
 ];
 
@@ -620,16 +893,22 @@ async function upsertVerifiedEmployeeUser(input: (typeof employeeUsers)[number],
   return user;
 }
 
-function buildOfferHighlights(offer: (typeof offers)[number], vendorName: string) {
-  return [
-    { label: 'Offer', value: offer.discountValue },
-    { label: 'Company', value: offer.companySlug },
-    { label: 'Vendor', value: vendorName },
-    { label: 'Coverage', value: offer.coverageType },
-  ];
+function buildOfferHighlights(offer: UatOfferSeed, vendorName: string) {
+  return (
+    offer.highlights || [
+      { label: 'Offer', value: offer.discountValue },
+      { label: 'Company', value: offer.companySlug },
+      { label: 'Vendor', value: vendorName },
+      { label: 'Coverage', value: offer.coverageType },
+    ]
+  );
 }
 
-function buildOfferSections(offer: (typeof offers)[number]) {
+function buildOfferSections(offer: UatOfferSeed) {
+  if (offer.detailSections?.length) {
+    return offer.detailSections;
+  }
+
   const coverageLabel =
     offer.coverageType === 'CITY_SPECIFIC'
       ? `${offer.cityName}, ${offer.provinceCode} only`
@@ -661,13 +940,14 @@ function buildOfferSections(offer: (typeof offers)[number]) {
       items: [
         { value: 'Employee verification is required before submission.' },
         { value: 'Availability and pricing may vary by vendor inventory and timing.' },
+        { value: APPLICATION_PRIVACY_NOTICE },
       ],
     },
   ];
 }
 
 async function upsertOffer(
-  offer: (typeof offers)[number],
+  offer: UatOfferSeed,
   vendorId: string,
   vendorWebsite: string,
   vendorCompanyName: string,
@@ -700,14 +980,15 @@ async function upsertOffer(
       description: offer.description,
       discountValue: offer.discountValue,
       discountType: offer.discountType as any,
-      originalPrice: null,
-      discountedPrice: null,
+      originalPrice: offer.originalPrice || null,
+      discountedPrice: offer.discountedPrice || null,
       terms: [
         `Valid for verified ${offer.companySlug} employees.`,
         `Location applicability: ${offer.location}.`,
         'Subject to vendor availability.',
+        'Application data is used only for verification, vendor routing, consent records, and legal compliance.',
       ],
-      howToClaim: [
+      howToClaim: offer.howToClaim || [
         'Open the offer detail page in CorpDeals.',
         'Review the details and policy links.',
         'Submit the application form to send your lead to the vendor.',
@@ -717,15 +998,17 @@ async function upsertOffer(
       verified: true,
       active: true,
       location: offer.location,
-      image: '/default-offer-card.png',
-      rating: 4.7,
-      reviewCount: 42,
-      termsText: DEFAULT_OFFER_TERMS_TEMPLATE,
-      termsUrl: vendorWebsite,
-      cancellationPolicyText: DEFAULT_CANCELLATION_TEMPLATE,
-      cancellationPolicyUrl: vendorWebsite,
-      usePlatformDefaultTerms: true,
-      usePlatformDefaultCancellationPolicy: true,
+      image: offer.image || '/default-offer-card.png',
+      rating: offer.rating ?? 4.7,
+      reviewCount: offer.reviewCount ?? 42,
+      termsText: offer.termsText || DEFAULT_OFFER_TERMS_TEMPLATE,
+      termsUrl: offer.termsUrl || vendorWebsite,
+      cancellationPolicyText: offer.cancellationPolicyText || DEFAULT_CANCELLATION_TEMPLATE,
+      cancellationPolicyUrl: offer.cancellationPolicyUrl || vendorWebsite,
+      redemptionInstructionsText: offer.redemptionInstructionsText || null,
+      restrictionsText: offer.restrictionsText || null,
+      usePlatformDefaultTerms: false,
+      usePlatformDefaultCancellationPolicy: false,
       vendorAttestationAcceptedAt: new Date(),
       vendorAttestationAcceptedIp: 'uat-seed-script',
       complianceStatus: 'APPROVED',
@@ -756,12 +1039,15 @@ async function upsertOffer(
       description: offer.description,
       discountValue: offer.discountValue,
       discountType: offer.discountType as any,
+      originalPrice: offer.originalPrice || null,
+      discountedPrice: offer.discountedPrice || null,
       terms: [
         `Valid for verified ${offer.companySlug} employees.`,
         `Location applicability: ${offer.location}.`,
         'Subject to vendor availability.',
+        'Application data is used only for verification, vendor routing, consent records, and legal compliance.',
       ],
-      howToClaim: [
+      howToClaim: offer.howToClaim || [
         'Open the offer detail page in CorpDeals.',
         'Review the details and policy links.',
         'Submit the application form to send your lead to the vendor.',
@@ -771,15 +1057,17 @@ async function upsertOffer(
       verified: true,
       active: true,
       location: offer.location,
-      image: '/default-offer-card.png',
-      rating: 4.7,
-      reviewCount: 42,
-      termsText: DEFAULT_OFFER_TERMS_TEMPLATE,
-      termsUrl: vendorWebsite,
-      cancellationPolicyText: DEFAULT_CANCELLATION_TEMPLATE,
-      cancellationPolicyUrl: vendorWebsite,
-      usePlatformDefaultTerms: true,
-      usePlatformDefaultCancellationPolicy: true,
+      image: offer.image || '/default-offer-card.png',
+      rating: offer.rating ?? 4.7,
+      reviewCount: offer.reviewCount ?? 42,
+      termsText: offer.termsText || DEFAULT_OFFER_TERMS_TEMPLATE,
+      termsUrl: offer.termsUrl || vendorWebsite,
+      cancellationPolicyText: offer.cancellationPolicyText || DEFAULT_CANCELLATION_TEMPLATE,
+      cancellationPolicyUrl: offer.cancellationPolicyUrl || vendorWebsite,
+      redemptionInstructionsText: offer.redemptionInstructionsText || null,
+      restrictionsText: offer.restrictionsText || null,
+      usePlatformDefaultTerms: false,
+      usePlatformDefaultCancellationPolicy: false,
       vendorAttestationAcceptedAt: new Date(),
       vendorAttestationAcceptedIp: 'uat-seed-script',
       complianceStatus: 'APPROVED',

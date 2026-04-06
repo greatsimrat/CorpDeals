@@ -46,6 +46,7 @@ const LEGAL_PAGES: Record<LegalPageKey, LegalPageConfig> = {
         paragraphs: [
           'We use your information to authenticate your account, verify eligibility for company-specific offers, operate vendor lead workflows, respond to support requests, and improve platform reliability.',
           'We do not use your work email as your default marketing inbox. Work email is primarily used to verify eligibility. Contact and product follow-up may be sent to the account email associated with your CorpDeals profile.',
+          'We do not sell application data and we do not use application submissions for unrelated marketing. Application details are used only for the specific offer request, consent records, platform operations, and legal or compliance obligations.',
         ],
       },
       {
