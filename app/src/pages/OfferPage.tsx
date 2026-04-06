@@ -336,6 +336,12 @@ export default function OfferPage() {
               </a>
             </div>
 
+            <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-xs leading-5 text-slate-700">
+              CorpDeals uses application details only to verify eligibility, route your request to
+              the selected vendor, maintain consent records, and comply with legal obligations. We
+              do not sell your application data or use it for unrelated marketing.
+            </div>
+
             <div className="mt-6">
               {hasClaimed ? (
                 <div className="flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
@@ -405,6 +411,25 @@ export default function OfferPage() {
                   </pre>
                 </details>
               ) : null}
+
+              <details className="rounded-lg border border-slate-200 bg-slate-50 p-3" open>
+                <summary className="cursor-pointer text-sm font-semibold text-slate-900">
+                  Privacy notice for applications
+                </summary>
+                <p className="mt-2 text-sm leading-6 text-slate-700">
+                  CorpDeals uses application details only to verify eligibility, route your request
+                  to the selected vendor, maintain consent and audit records, and comply with legal
+                  obligations. We do not sell your application data or use it for unrelated
+                  marketing.
+                </p>
+                <p className="mt-2 text-sm leading-6 text-slate-700">
+                  See the full policy at{' '}
+                  <Link to="/privacy-policy" className="font-semibold text-blue-600 hover:underline">
+                    Privacy Policy
+                  </Link>
+                  .
+                </p>
+              </details>
             </div>
           </section>
         </div>
