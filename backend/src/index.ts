@@ -193,9 +193,12 @@ if (isDevelopment) {
       });
 
       if (!result.sent) {
-        console.error('GET /test-email send error:', result.error);
-        res.status(500).json({
-          status: 'Email failed',
+        const isNotConfigured = (result.error || '').includes('not configured');
+        if (!isNotConfigured) {
+          console.error('GET /test-email send error:', result.error);
+        }
+        res.status(isNotConfigured ? 503 : 500).json({
+          status: isNotConfigured ? 'Email not configured' : 'Email failed',
           error: result.error || 'Unknown mailer error',
         });
         return;

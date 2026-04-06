@@ -10,11 +10,17 @@ import {
 } from '../lib/mailer';
 import { verifyVendorSetPasswordToken } from '../lib/vendor-password';
 import { DEFAULT_USER_ROLE } from '../lib/roles';
-import { verifyTurnstileToken } from '../lib/turnstile';
 import {
   normalizePhone,
   vendorApplicationSchema,
 } from '../lib/vendor-application';
+import { resolveCoverageInput } from '../lib/offer-coverage';
+import {
+  getUniqueOfferSlug,
+  normalizeJsonField,
+  normalizeOfferDetailTemplateType,
+  normalizeOptionalUrl,
+} from '../lib/offer-details';
 
 const router = Router();
 
@@ -231,12 +237,11 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
       phone: req.body?.phone,
       website: req.body?.website,
       category: req.body?.category,
+      categoryOther: req.body?.categoryOther || req.body?.category_other,
       city: req.body?.city,
-      notes: req.body?.notes,
+      notes: req.body?.notes || req.body?.description || req.body?.additionalInfo,
       jobTitle: req.body?.jobTitle || req.body?.job_title,
-      offerSummary: req.body?.offerSummary || req.body?.offer_summary,
       targetCompanies: req.body?.targetCompanies || req.body?.target_companies,
-      captchaToken: req.body?.captchaToken || req.body?.captcha_token,
     });
 
     if (!parsed.success) {
@@ -260,22 +265,14 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
       phone,
       website,
       category,
+      categoryOther,
       city,
       notes,
       jobTitle,
-      offerSummary,
       targetCompanies,
-      captchaToken,
     } = parsed.data;
 
-    const turnstileResult = await verifyTurnstileToken(captchaToken, req.ip || null);
-    if (!turnstileResult.success) {
-      res.status(400).json({
-        error: 'Captcha verification failed. Please try again.',
-        code: 'CAPTCHA_FAILED',
-      });
-      return;
-    }
+    const resolvedCategory = category === 'Other' ? categoryOther.trim() : category;
 
     if (req.user && !['USER', 'VENDOR'].includes(req.user.role)) {
       res.status(403).json({ error: 'This account cannot be used for vendor applications' });
@@ -391,10 +388,8 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
     }
 
     const additionalInfo = [
-      jobTitle ? `Job title: ${jobTitle}` : null,
-      businessEmail ? `Business email: ${businessEmail}` : null,
       targetCompanies ? `Target companies: ${targetCompanies}` : null,
-      notes ? `Notes: ${notes}` : null,
+      notes ? `Additional notes: ${notes}` : null,
     ]
       .filter(Boolean)
       .join('\n');
@@ -420,10 +415,10 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
           businessEmail,
           phone: phone || null,
           website: website || null,
-          businessType: category || null,
+          businessType: resolvedCategory || null,
           city: city || null,
           notes: notes || null,
-          description: offerSummary || notes || null,
+          description: null,
           status: 'PENDING',
         } as any,
       });
@@ -438,8 +433,10 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
       const request = await tx.vendorRequest.create({
         data: {
           vendorId: vendor.id,
-          businessType: category || null,
-          description: offerSummary || notes || null,
+          businessType: resolvedCategory || null,
+          categoryOther: category === 'Other' ? categoryOther || null : null,
+          description: null,
+          jobTitle: jobTitle || null,
           additionalInfo: additionalInfo || null,
           status: 'PENDING',
         } as any,
@@ -452,16 +449,15 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
       businessName,
       contactName,
       contactEmail,
+      businessEmail,
       phone: phone || null,
       website: website || null,
-      category: category || null,
+      category: resolvedCategory || null,
       city: city || null,
+      jobTitle: jobTitle || null,
       notes:
         [
-          businessEmail ? `Business email: ${businessEmail}` : null,
-          jobTitle ? `Job title: ${jobTitle}` : null,
           targetCompanies ? `Target companies: ${targetCompanies}` : null,
-          offerSummary ? `Offer summary: ${offerSummary}` : null,
           notes ? `Notes: ${notes}` : null,
         ]
           .filter(Boolean)
@@ -479,7 +475,7 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
       ok: true,
       vendorId: created.vendor.id,
       requestId: created.request.id,
-      message: "We’ll review and contact you within 1–2 business days.",
+      message: 'Thanks. We have your company details and will follow up if there is a fit.',
     });
   } catch (error) {
     console.error('POST /api/vendor/apply error:', error);
@@ -979,6 +975,11 @@ router.post('/offers', authenticateToken, requireVendorOnly, async (req: Request
             req.body?.usePlatformDefaultCancellationPolicy ??
               req.body?.use_platform_default_cancellation_policy
           );
+    const coverage = resolveCoverageInput({
+      coverageType: req.body?.coverageType ?? req.body?.coverage_type,
+      provinceCode: req.body?.provinceCode ?? req.body?.province_code,
+      cityName: req.body?.cityName ?? req.body?.city_name,
+    });
     const expiryDate = expiryDateRaw ? parseDateInput(expiryDateRaw) : null;
 
     if (!companyId || !title || !description) {
@@ -994,6 +995,10 @@ router.post('/offers', authenticateToken, requireVendorOnly, async (req: Request
     }
     if (expiryDate && !isFutureDate(expiryDate)) {
       res.status(400).json({ error: 'Offer end date must be in the future' });
+      return;
+    }
+    if (coverage.error) {
+      res.status(400).json({ error: coverage.error });
       return;
     }
 
@@ -1014,6 +1019,7 @@ router.post('/offers', authenticateToken, requireVendorOnly, async (req: Request
 
     const created = await prisma.offer.create({
       data: {
+        slug: await getUniqueOfferSlug(title),
         vendorId: vendor.id,
         companyId,
         categoryId: category.id,
@@ -1039,6 +1045,14 @@ router.post('/offers', authenticateToken, requireVendorOnly, async (req: Request
         restrictionsText: restrictionsText || null,
         usePlatformDefaultTerms,
         usePlatformDefaultCancellationPolicy,
+        coverageType: coverage.coverageType,
+        provinceCode: coverage.provinceCode,
+        cityName: coverage.cityName,
+        detailTemplateType: normalizeOfferDetailTemplateType(req.body?.detailTemplateType),
+        highlightsJson: normalizeJsonField(req.body?.highlightsJson),
+        detailSectionsJson: normalizeJsonField(req.body?.detailSectionsJson),
+        termsUrl: normalizeOptionalUrl(req.body?.termsUrl),
+        cancellationPolicyUrl: normalizeOptionalUrl(req.body?.cancellationPolicyUrl),
         complianceStatus: 'DRAFT',
         complianceNotes: null,
         vendorAttestationAcceptedAt: null,
@@ -1064,7 +1078,15 @@ const updateDraftOffer = async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
     const existing = await prisma.offer.findUnique({
       where: { id },
-      select: { id: true, vendorId: true },
+      select: {
+        id: true,
+        vendorId: true,
+        slug: true,
+        title: true,
+        coverageType: true,
+        provinceCode: true,
+        cityName: true,
+      },
     });
 
     if (!existing) {
@@ -1088,6 +1110,12 @@ const updateDraftOffer = async (req: Request, res: Response): Promise<void> => {
     }
     if (req.body?.description !== undefined) {
       data.description = String(req.body.description || '').trim() || null;
+    }
+    if (req.body?.slug !== undefined) {
+      data.slug = await getUniqueOfferSlug(
+        String(req.body.slug || req.body.title || offerRecord.title || 'offer'),
+        offerRecord.id
+      );
     }
     if (req.body?.companyId || req.body?.company_id) {
       data.companyId = String(req.body.companyId || req.body.company_id).trim();
@@ -1144,6 +1172,21 @@ const updateDraftOffer = async (req: Request, res: Response): Promise<void> => {
       const restrictionsText = normalizeText(req.body?.restrictionsText ?? req.body?.restrictions_text);
       data.restrictionsText = restrictionsText || null;
     }
+    if (req.body?.detailTemplateType !== undefined) {
+      data.detailTemplateType = normalizeOfferDetailTemplateType(req.body.detailTemplateType);
+    }
+    if (req.body?.highlightsJson !== undefined) {
+      data.highlightsJson = normalizeJsonField(req.body.highlightsJson);
+    }
+    if (req.body?.detailSectionsJson !== undefined) {
+      data.detailSectionsJson = normalizeJsonField(req.body.detailSectionsJson);
+    }
+    if (req.body?.termsUrl !== undefined) {
+      data.termsUrl = normalizeOptionalUrl(req.body.termsUrl);
+    }
+    if (req.body?.cancellationPolicyUrl !== undefined) {
+      data.cancellationPolicyUrl = normalizeOptionalUrl(req.body.cancellationPolicyUrl);
+    }
     if (
       req.body?.usePlatformDefaultTerms !== undefined ||
       req.body?.use_platform_default_terms !== undefined
@@ -1157,9 +1200,27 @@ const updateDraftOffer = async (req: Request, res: Response): Promise<void> => {
       req.body?.use_platform_default_cancellation_policy !== undefined
     ) {
       data.usePlatformDefaultCancellationPolicy = isTruthy(
-        req.body?.usePlatformDefaultCancellationPolicy ??
+          req.body?.usePlatformDefaultCancellationPolicy ??
           req.body?.use_platform_default_cancellation_policy
       );
+    }
+    const coverage = resolveCoverageInput({
+      coverageType:
+        req.body?.coverageType !== undefined || req.body?.coverage_type !== undefined
+          ? req.body?.coverageType ?? req.body?.coverage_type
+          : offerRecord.coverageType,
+      provinceCode:
+        req.body?.provinceCode !== undefined || req.body?.province_code !== undefined
+          ? req.body?.provinceCode ?? req.body?.province_code
+          : offerRecord.provinceCode,
+      cityName:
+        req.body?.cityName !== undefined || req.body?.city_name !== undefined
+          ? req.body?.cityName ?? req.body?.city_name
+          : offerRecord.cityName,
+    });
+    if (coverage.error) {
+      res.status(400).json({ error: coverage.error });
+      return;
     }
 
     if (typeof data.companyId === 'string' && data.companyId) {
@@ -1179,6 +1240,9 @@ const updateDraftOffer = async (req: Request, res: Response): Promise<void> => {
     data.vendorAttestationAcceptedAt = null;
     data.vendorAttestationAcceptedIp = null;
     data.offerType = 'lead';
+    data.coverageType = coverage.coverageType;
+    data.provinceCode = coverage.provinceCode;
+    data.cityName = coverage.cityName;
 
     const updated = await prisma.offer.update({
       where: { id },
@@ -1527,3 +1591,4 @@ router.patch('/leads/:id', authenticateToken, requireVendorOnly, async (req: Req
 });
 
 export default router;
+

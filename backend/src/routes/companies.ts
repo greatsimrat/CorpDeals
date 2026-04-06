@@ -3,6 +3,12 @@ import prisma from '../lib/prisma';
 import { authenticateToken, requireAdmin, requireAdminOrSales } from '../middleware/auth';
 import { sendCompanyRequestInternalEmail } from '../lib/mailer';
 import {
+  buildEligibilityMessage,
+  getNormalizedUserLocation,
+  isOfferEligibleForLocation,
+} from '../lib/offer-coverage';
+import { parseDealSearchIntent, scoreOfferForDealSearch } from '../lib/deal-search';
+import {
   getUserVerification,
   isUserVerifiedForCompany,
   VERIFIED_STATUS,
@@ -199,11 +205,13 @@ const findPotentialDuplicateCompany = async (
     companyName: string;
     domain?: string | null;
     excludeCompanyId?: string;
+    matchOnDomainOnly?: boolean;
   }
 ) => {
   const normalizedName = normalizeCompanyIdentity(input.companyName);
   const normalizedSlug = normalizeCompanyIdentity(buildCompanySlug(input.companyName));
   const normalizedDomain = input.domain ? input.domain.trim().toLowerCase() : '';
+  const matchOnDomainOnly = input.matchOnDomainOnly ?? true;
 
   const candidates = await db.company.findMany({
     where: input.excludeCompanyId
@@ -229,11 +237,14 @@ const findPotentialDuplicateCompany = async (
         .map((value) => String(value || '').trim().toLowerCase())
         .filter(Boolean)
     );
+    const nameMatches =
+      (!!normalizedName && (candidateName === normalizedName || candidateSlug === normalizedName)) ||
+      (!!normalizedSlug && (candidateName === normalizedSlug || candidateSlug === normalizedSlug));
+    const domainMatches = !!normalizedDomain && candidateDomains.has(normalizedDomain);
 
     return (
-      (!!normalizedName && (candidateName === normalizedName || candidateSlug === normalizedName)) ||
-      (!!normalizedSlug && (candidateName === normalizedSlug || candidateSlug === normalizedSlug)) ||
-      (!!normalizedDomain && candidateDomains.has(normalizedDomain))
+      nameMatches ||
+      (matchOnDomainOnly && domainMatches)
     );
   });
 
@@ -368,6 +379,7 @@ router.post('/requests', async (req: Request, res: Response): Promise<void> => {
     const existingCompany = await findPotentialDuplicateCompany(prisma, {
       companyName,
       domain: extractEmailDomain(workEmail),
+      matchOnDomainOnly: false,
     });
 
     if (existingCompany) {
@@ -565,26 +577,156 @@ router.patch('/requests/:id', authenticateToken, requireAdminOrSales, async (req
   }
 });
 
+const getCompanyByIdOrSlug = async (idOrSlug: string) =>
+  prisma.company.findFirst({
+    where: {
+      OR: [{ id: idOrSlug }, { slug: idOrSlug }],
+    },
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      domain: true,
+      allowedDomains: true,
+      logo: true,
+      headquarters: true,
+      description: true,
+    },
+  });
+
+const serializeVerification = (verification: Awaited<ReturnType<typeof getUserVerification>> | null) =>
+  verification
+    ? {
+        id: verification.id,
+        status: verification.status,
+        verifiedAt: verification.verifiedAt,
+        expiresAt: verification.expiresAt,
+        verified:
+          verification.status === VERIFIED_STATUS && verification.expiresAt > new Date(),
+      }
+    : null;
+
+// Search company deals (requires login + active verification for this company)
+router.get('/:idOrSlug/deals/search', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const idOrSlug = String(req.params.idOrSlug);
+    const query = normalizeSearchQuery(req.query);
+    if (!query) {
+      res.json({
+        company: null,
+        query: '',
+        results: [],
+        viewerLocation: getNormalizedUserLocation(req.user),
+        nearbyExplanation: null,
+      });
+      return;
+    }
+
+    const company = await getCompanyByIdOrSlug(idOrSlug);
+    if (!company) {
+      res.status(404).json({ error: 'Company not found' });
+      return;
+    }
+
+    const verified = await isUserVerifiedForCompany(req.user!.id, company.id);
+    const verification = await getUserVerification(req.user!.id, company.id);
+    if (!verified) {
+      res.status(403).json({
+        error: 'Employment verification required',
+        code: 'NOT_VERIFIED',
+        company,
+        verification: verification
+          ? {
+              id: verification.id,
+              status: verification.status,
+              verifiedAt: verification.verifiedAt,
+              expiresAt: verification.expiresAt,
+              verificationMethod: verification.verificationMethod,
+            }
+          : null,
+      });
+      return;
+    }
+
+    const viewerLocation = getNormalizedUserLocation(req.user);
+    const searchIntent = parseDealSearchIntent(query);
+    const offers = await prisma.offer.findMany({
+      where: {
+        companyId: company.id,
+        active: true,
+        complianceStatus: 'APPROVED',
+      } as any,
+      include: {
+        vendor: { select: { id: true, companyName: true, logo: true } },
+        category: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            icon: true,
+            parent: {
+              select: { id: true, name: true, slug: true, icon: true },
+            },
+          },
+        },
+      },
+      orderBy: [{ featured: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    const results = offers
+      .map((offer) => {
+        const searchMatch = scoreOfferForDealSearch(offer, searchIntent);
+        if (!searchMatch.matched) return null;
+
+        const isEligible = isOfferEligibleForLocation(offer, viewerLocation);
+        return {
+          ...offer,
+          isEligible,
+          eligibilityMessage: buildEligibilityMessage(offer, company.name, isEligible),
+          searchMatch,
+        };
+      })
+      .filter((offer): offer is NonNullable<typeof offer> => Boolean(offer))
+      .sort((left, right) => {
+        if (right.searchMatch.score !== left.searchMatch.score) {
+          return right.searchMatch.score - left.searchMatch.score;
+        }
+        if (Number(right.isEligible) !== Number(left.isEligible)) {
+          return Number(right.isEligible) - Number(left.isEligible);
+        }
+        if (Number(Boolean(right.featured)) !== Number(Boolean(left.featured))) {
+          return Number(Boolean(right.featured)) - Number(Boolean(left.featured));
+        }
+        return left.title.localeCompare(right.title);
+      });
+
+    const nearbyExplanation =
+      searchIntent.requestedCityName &&
+      searchIntent.requestedProvinceCode &&
+      results.some((offer) => offer.searchMatch.locationMatch === 'query-nearby-city')
+        ? `Showing nearby ${searchIntent.requestedProvinceCode} city matches for ${searchIntent.requestedCityName}`
+        : null;
+
+    res.json({
+      company,
+      query,
+      results,
+      viewerLocation,
+      nearbyExplanation,
+      verification: serializeVerification(verification),
+    });
+  } catch (error) {
+    console.error('Search company deals error:', error);
+    res.status(500).json({ error: 'Failed to search company deals' });
+  }
+});
+
 // Get company deals (requires login + active verification for this company)
 router.get('/:idOrSlug/deals', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
     const idOrSlug = String(req.params.idOrSlug);
 
-    const company = await prisma.company.findFirst({
-      where: {
-        OR: [{ id: idOrSlug }, { slug: idOrSlug }],
-      },
-      select: {
-        id: true,
-        slug: true,
-        name: true,
-        domain: true,
-        allowedDomains: true,
-        logo: true,
-        headquarters: true,
-        description: true,
-      },
-    });
+    const company = await getCompanyByIdOrSlug(idOrSlug);
 
     if (!company) {
       res.status(404).json({ error: 'Company not found' });
@@ -612,15 +754,47 @@ router.get('/:idOrSlug/deals', authenticateToken, async (req: Request, res: Resp
       return;
     }
 
+    const userLocation = getNormalizedUserLocation(req.user);
+    const offerVisibility: Record<string, unknown>[] = [
+      { coverageType: 'COMPANY_WIDE' },
+    ];
+    if (userLocation.provinceCode) {
+      offerVisibility.push({
+        coverageType: 'PROVINCE_SPECIFIC',
+        provinceCode: userLocation.provinceCode,
+      });
+    }
+    if (userLocation.provinceCode && userLocation.cityName) {
+      offerVisibility.push({
+        coverageType: 'CITY_SPECIFIC',
+        provinceCode: userLocation.provinceCode,
+        cityName: {
+          equals: userLocation.cityName,
+          mode: 'insensitive',
+        },
+      });
+    }
+
     const offers = await prisma.offer.findMany({
       where: {
         companyId: company.id,
         active: true,
         complianceStatus: 'APPROVED',
+        OR: offerVisibility as any,
       } as any,
       include: {
         vendor: { select: { id: true, companyName: true, logo: true } },
-        category: { select: { id: true, name: true, slug: true, icon: true } },
+        category: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            icon: true,
+            parent: {
+              select: { id: true, name: true, slug: true, icon: true },
+            },
+          },
+        },
       },
       orderBy: [{ featured: 'desc' }, { createdAt: 'desc' }],
     });
@@ -628,15 +802,11 @@ router.get('/:idOrSlug/deals', authenticateToken, async (req: Request, res: Resp
     res.json({
       company,
       offers,
-      verification: verification
-        ? {
-            id: verification.id,
-            status: verification.status,
-            verifiedAt: verification.verifiedAt,
-            expiresAt: verification.expiresAt,
-            verified: verification.status === VERIFIED_STATUS && verification.expiresAt > new Date(),
-          }
-        : null,
+      viewerLocation: {
+        provinceCode: userLocation.provinceCode,
+        cityName: userLocation.cityName,
+      },
+      verification: serializeVerification(verification),
     });
   } catch (error) {
     console.error('Get company deals error:', error);

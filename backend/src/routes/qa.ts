@@ -10,13 +10,13 @@ import {
 
 const router = Router();
 
-const isDevelopment =
+const isDevelopment = () =>
   (process.env.APP_ENV || '').toLowerCase() === 'local' ||
   (process.env.NODE_ENV || '').toLowerCase() === 'development';
 
 router.get('/test-email', async (_req: Request, res: Response): Promise<void> => {
   try {
-    if (!isDevelopment) {
+    if (!isDevelopment()) {
       res.status(404).json({ error: 'Not found' });
       return;
     }
@@ -63,7 +63,7 @@ router.get(
   authenticateTokenOptional,
   async (req: Request, res: Response): Promise<void> => {
     try {
-      if (!isDevelopment) {
+      if (!isDevelopment()) {
         res.status(404).json({ error: 'Not found' });
         return;
       }

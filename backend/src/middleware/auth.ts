@@ -17,6 +17,8 @@ export interface AuthenticatedRequestUser {
   vendorId: string | null;
   activeCompanyId: string | null;
   employeeCompanyId: string | null;
+  provinceCode: string | null;
+  cityName: string | null;
 }
 
 declare global {
@@ -52,6 +54,8 @@ const hydrateRequestUser = async (userId: string) => {
       vendorId: true,
       activeCompanyId: true,
       employeeCompanyId: true,
+      provinceCode: true,
+      cityName: true,
     },
   });
 
@@ -64,6 +68,8 @@ const hydrateRequestUser = async (userId: string) => {
     vendorId: user.vendorId,
     activeCompanyId: user.activeCompanyId,
     employeeCompanyId: user.employeeCompanyId,
+    provinceCode: user.provinceCode,
+    cityName: user.cityName,
   };
 };
 

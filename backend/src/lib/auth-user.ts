@@ -62,6 +62,8 @@ export const buildAuthUserPayload = async (userId: string) => {
     loginEmail: user.email,
     name: user.name,
     role: normalizeRole(user.role),
+    provinceCode: user.provinceCode,
+    cityName: user.cityName,
     vendor: user.vendor,
     employmentVerifiedAt: user.employmentVerifiedAt,
     workEmail: latestVerifiedWorkEmail?.email || null,

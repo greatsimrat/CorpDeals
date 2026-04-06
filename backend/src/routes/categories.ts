@@ -15,6 +15,19 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const categories = await prisma.category.findMany({
       include: {
+        parent: {
+          select: { id: true, name: true, slug: true, icon: true },
+        },
+        children: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            icon: true,
+            _count: { select: { offers: true } },
+          },
+          orderBy: { name: 'asc' },
+        },
         _count: { select: { offers: true } },
       },
       orderBy: { name: 'asc' },
@@ -44,6 +57,31 @@ router.get('/:idOrSlug', async (req: Request, res: Response): Promise<void> => {
         ],
       },
       include: {
+        parent: {
+          select: { id: true, name: true, slug: true, icon: true },
+        },
+        children: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            icon: true,
+            offers: {
+              where: {
+                active: true,
+                complianceStatus: 'APPROVED',
+              } as any,
+              include: {
+                vendor: {
+                  select: { companyName: true, logo: true },
+                },
+                company: true,
+              },
+            },
+            _count: { select: { offers: true } },
+          },
+          orderBy: { name: 'asc' },
+        },
         offers: {
           where: {
             active: true,
@@ -75,7 +113,7 @@ router.get('/:idOrSlug', async (req: Request, res: Response): Promise<void> => {
 // Create category (admin only)
 router.post('/', authenticateToken, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, slug, icon, description, color, bgColor, image } = req.body;
+    const { name, slug, icon, description, color, bgColor, image, parentId } = req.body;
 
     const finalSlug = slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
@@ -88,6 +126,7 @@ router.post('/', authenticateToken, requireAdmin, async (req: Request, res: Resp
         color,
         bgColor,
         image,
+        parentId: parentId || null,
       },
     });
 
@@ -111,11 +150,20 @@ router.patch('/:id', authenticateToken, requireAdmin, async (req: Request, res: 
       return;
     }
 
-    const { name, slug, icon, description, color, bgColor, image } = req.body;
+    const { name, slug, icon, description, color, bgColor, image, parentId } = req.body;
 
     const category = await prisma.category.update({
       where: { id },
-      data: { name, slug, icon, description, color, bgColor, image },
+      data: {
+        name,
+        slug,
+        icon,
+        description,
+        color,
+        bgColor,
+        image,
+        parentId: parentId === undefined ? undefined : parentId || null,
+      },
     });
 
     res.json(category);

@@ -234,6 +234,7 @@ router.get('/seed', async (_req: Request, res: Response): Promise<void> => {
       },
       create: {
         id: 'dev-amazon-lead-offer',
+        slug: 'dev-amazon-lead-offer',
         vendorId: bmoVendor.id,
         companyId: amazon.id,
         categoryId: banking.id,
@@ -271,6 +272,7 @@ router.get('/seed', async (_req: Request, res: Response): Promise<void> => {
       },
       create: {
         id: 'dev-amazon-kia-lead-offer',
+        slug: 'dev-amazon-kia-lead-offer',
         vendorId: kiaVendor.id,
         companyId: amazon.id,
         categoryId: automotive.id,
@@ -308,6 +310,7 @@ router.get('/seed', async (_req: Request, res: Response): Promise<void> => {
       },
       create: {
         id: 'dev-amazon-expedia-lead-offer',
+        slug: 'dev-amazon-expedia-lead-offer',
         vendorId: expediaVendor.id,
         companyId: amazon.id,
         categoryId: travel.id,
