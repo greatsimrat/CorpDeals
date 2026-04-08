@@ -23,7 +23,7 @@ import { DEFAULT_USER_ROLE } from '../lib/roles';
 
 const router = Router();
 
-const CODE_TTL_MINUTES = Number(process.env.VERIFICATION_CODE_TTL_MINUTES || '15');
+const CODE_TTL_MINUTES = Number(process.env.VERIFICATION_CODE_TTL_MINUTES || '10');
 const MAX_ATTEMPTS = Number(process.env.VERIFICATION_CODE_MAX_ATTEMPTS || '5');
 const jwtExpiresIn = (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'];
 
@@ -46,11 +46,134 @@ const ALLOW_PERSONAL_EMAILS =
   process.env.NODE_ENV !== 'production';
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
+const normalizeCompanyName = (value: string) => value.trim().replace(/\s+/g, ' ');
 
 const extractDomain = (email: string) => {
   const at = email.lastIndexOf('@');
   if (at === -1) return '';
   return email.slice(at + 1).toLowerCase();
+};
+
+const buildCompanySlug = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'company';
+
+const getUniqueCompanySlug = async (companyName: string) => {
+  const baseSlug = buildCompanySlug(companyName);
+  let candidate = baseSlug;
+  let suffix = 2;
+
+  while (await prisma.company.findUnique({ where: { slug: candidate }, select: { id: true } })) {
+    candidate = `${baseSlug}-${suffix}`;
+    suffix += 1;
+  }
+
+  return candidate;
+};
+
+const getVerificationCompany = async (
+  companyIdOrSlug: string,
+  companyName: string,
+  workDomain: string
+) => {
+  const select = {
+    id: true,
+    name: true,
+    slug: true,
+    domain: true,
+    allowedDomains: true,
+    logo: true,
+  } as const;
+
+  if (companyIdOrSlug) {
+    const existingCompany = await prisma.company.findFirst({
+      where: {
+        OR: [{ id: companyIdOrSlug }, { slug: companyIdOrSlug }],
+      },
+      select,
+    });
+
+    if (existingCompany) {
+      return existingCompany;
+    }
+  }
+
+  if (!companyName || !workDomain) {
+    return null;
+  }
+
+  const matchedByDomain = await resolveCompanyByDomain(workDomain);
+  if (matchedByDomain) {
+    return matchedByDomain;
+  }
+
+  const normalizedCompanyName = normalizeCompanyName(companyName);
+  if (!normalizedCompanyName) {
+    return null;
+  }
+
+  const matchedByName = await prisma.company.findFirst({
+    where: {
+      OR: [
+        { name: { equals: normalizedCompanyName, mode: 'insensitive' } },
+        { slug: buildCompanySlug(normalizedCompanyName) },
+      ],
+    },
+    select,
+  });
+
+  if (matchedByName) {
+    return matchedByName;
+  }
+
+  const slug = await getUniqueCompanySlug(normalizedCompanyName);
+  return prisma.company.create({
+    data: {
+      name: normalizedCompanyName,
+      slug,
+      domain: workDomain,
+      allowedDomains: [workDomain],
+      verified: false,
+    },
+    select,
+  });
+};
+
+const attachCompanyDomainIfMissing = async (
+  company: {
+    id: string;
+    name: string;
+    slug: string;
+    domain: string | null;
+    allowedDomains: string[];
+    logo?: string | null;
+  },
+  workDomain: string
+) => {
+  const normalizedDomain = extractDomain(`employee@${workDomain}`);
+  const existingAllowedDomains = getCompanyAllowedDomains(company);
+  if (existingAllowedDomains.length > 0 || !normalizedDomain) {
+    return company;
+  }
+
+  return prisma.company.update({
+    where: { id: company.id },
+    data: {
+      domain: normalizedDomain,
+      allowedDomains: [normalizedDomain],
+    },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      domain: true,
+      allowedDomains: true,
+      logo: true,
+    },
+  });
 };
 
 const generateCode = () => Math.floor(100000 + Math.random() * 900000).toString();
@@ -112,9 +235,10 @@ router.post('/start', authenticateTokenOptional, async (req: Request, res: Respo
     const companyIdOrSlug = String(
       req.body?.companyIdOrSlug || req.body?.companyId || req.body?.company || ''
     ).trim();
+    const companyName = normalizeCompanyName(String(req.body?.companyName || ''));
     const email = String(req.body?.email || req.body?.workEmail || '').trim();
 
-    if (!companyIdOrSlug || !email) {
+    if ((!companyIdOrSlug && !companyName) || !email) {
       res.status(400).json({ error: 'Company and email are required' });
       return;
     }
@@ -132,17 +256,14 @@ router.post('/start', authenticateTokenOptional, async (req: Request, res: Respo
       return;
     }
 
-    const company = await prisma.company.findFirst({
-      where: {
-        OR: [{ id: companyIdOrSlug }, { slug: companyIdOrSlug }],
-      },
-      select: { id: true, name: true, slug: true, domain: true, allowedDomains: true, logo: true },
-    });
+    let company = await getVerificationCompany(companyIdOrSlug, companyName, domain);
 
     if (!company) {
       res.status(404).json({ error: 'Company not found' });
       return;
     }
+
+    company = await attachCompanyDomainIfMissing(company, domain);
 
     const allowedDomains = getCompanyAllowedDomains(company);
     if (!ALLOW_PERSONAL_EMAILS && !companyMatchesDomain(company, domain)) {

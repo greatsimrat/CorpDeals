@@ -1,7 +1,13 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { WARM_COMPANY_CATALOG } from './company-warm-catalog';
 
 const prisma = new PrismaClient();
+
+const mergeUniqueCompanies = <T extends { slug: string }>(preferred: T[], additions: T[]) => {
+  const seen = new Set(preferred.map((company) => company.slug));
+  return preferred.concat(additions.filter((company) => !seen.has(company.slug)));
+};
 
 const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
 const seedConfirmed = (process.env.CONFIRM_UAT_SEED || '').toLowerCase() === 'yes';
@@ -89,7 +95,7 @@ const subcategories = [
   { name: 'Restaurants', slug: 'restaurants', parentSlug: 'dining', icon: 'UtensilsCrossed', color: 'text-orange-600', bgColor: 'bg-orange-50' },
 ];
 
-const companies = [
+const companies = mergeUniqueCompanies([
   {
     slug: 'amazon',
     name: 'Amazon',
@@ -145,7 +151,7 @@ const companies = [
     brandColor: '#D31334',
     description: 'Retail and wellness employer used for Vancouver location-specific demos.',
   },
-];
+], WARM_COMPANY_CATALOG);
 
 const vendors = [
   {
@@ -728,24 +734,26 @@ async function upsertCompanies() {
       create: company,
     });
 
-    await prisma.hRContact.upsert({
-      where: { id: `uat-hr-${company.slug}` },
-      update: {
-        companyId: savedCompany.id,
-        name: `${company.name} HR Benefits`,
-        email: `hr@${company.domain}`,
-        title: 'HR Benefits Manager',
-        isPrimary: true,
-      },
-      create: {
-        id: `uat-hr-${company.slug}`,
-        companyId: savedCompany.id,
-        name: `${company.name} HR Benefits`,
-        email: `hr@${company.domain}`,
-        title: 'HR Benefits Manager',
-        isPrimary: true,
-      },
-    });
+    if (company.domain) {
+      await prisma.hRContact.upsert({
+        where: { id: `uat-hr-${company.slug}` },
+        update: {
+          companyId: savedCompany.id,
+          name: `${company.name} HR Benefits`,
+          email: `hr@${company.domain}`,
+          title: 'HR Benefits Manager',
+          isPrimary: true,
+        },
+        create: {
+          id: `uat-hr-${company.slug}`,
+          companyId: savedCompany.id,
+          name: `${company.name} HR Benefits`,
+          email: `hr@${company.domain}`,
+          title: 'HR Benefits Manager',
+          isPrimary: true,
+        },
+      });
+    }
   }
 }
 

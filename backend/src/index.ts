@@ -30,28 +30,29 @@ if (shouldUseProductionEnv) {
   loadEnvFile('.env.local', true);
 }
 
-// Import routes
-import authRoutes from './routes/auth';
-import vendorRoutes from './routes/vendors';
-import vendorJourneyRoutes from './routes/vendor';
-import companyRoutes from './routes/companies';
-import contactRoutes from './routes/contact';
-import categoryRoutes from './routes/categories';
-import offerRoutes from './routes/offers';
-import hrContactRoutes from './routes/hr-contacts';
-import adminRoutes from './routes/admin';
-import leadRoutes from './routes/leads';
-import employeeVerificationRoutes from './routes/employee-verifications';
-import financeRoutes from './routes/finance';
-import salesRoutes from './routes/sales';
-import { sendTestEmail } from './lib/mailer';
-import devRoutes from './routes/dev';
-import myApplicationsRoutes from './routes/my-applications';
-import qaRoutes from './routes/qa';
-import { authenticateTokenOptional } from './middleware/auth';
-import { buildAuthUserPayload } from './lib/auth-user';
-import { listUserVerifications, VERIFIED_STATUS } from './lib/verifications';
-import { mountRouter, printRoutesTable } from './lib/route-inspector';
+// In CommonJS builds, `import` declarations are evaluated before dotenv setup.
+// Load env files first, then require modules that read process.env at import time.
+const authRoutes = require('./routes/auth').default;
+const vendorRoutes = require('./routes/vendors').default;
+const vendorJourneyRoutes = require('./routes/vendor').default;
+const companyRoutes = require('./routes/companies').default;
+const contactRoutes = require('./routes/contact').default;
+const categoryRoutes = require('./routes/categories').default;
+const offerRoutes = require('./routes/offers').default;
+const hrContactRoutes = require('./routes/hr-contacts').default;
+const adminRoutes = require('./routes/admin').default;
+const leadRoutes = require('./routes/leads').default;
+const employeeVerificationRoutes = require('./routes/employee-verifications').default;
+const financeRoutes = require('./routes/finance').default;
+const salesRoutes = require('./routes/sales').default;
+const { sendTestEmail } = require('./lib/mailer');
+const devRoutes = require('./routes/dev').default;
+const myApplicationsRoutes = require('./routes/my-applications').default;
+const qaRoutes = require('./routes/qa').default;
+const { authenticateTokenOptional } = require('./middleware/auth');
+const { buildAuthUserPayload } = require('./lib/auth-user');
+const { listUserVerifications, VERIFIED_STATUS } = require('./lib/verifications');
+const { mountRouter, printRoutesTable } = require('./lib/route-inspector');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -148,8 +149,8 @@ app.get('/api/me', authenticateTokenOptional, async (req, res) => {
 
     const now = new Date();
     const verifiedCompanies = records
-      .filter((record) => record.status === VERIFIED_STATUS && record.expiresAt > now)
-      .map((record) => ({
+      .filter((record: any) => record.status === VERIFIED_STATUS && record.expiresAt > now)
+      .map((record: any) => ({
         id: record.company.id,
         slug: record.company.slug,
         name: record.company.name,

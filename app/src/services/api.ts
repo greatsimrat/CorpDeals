@@ -141,13 +141,13 @@ class ApiService {
   }
 
   // Employee Verification
-  async startVerification(data: { companyId: string; workEmail: string }) {
+  async startVerification(data: { companyId?: string; companyName?: string; workEmail: string }) {
     return this.request<{
       verificationId: string;
       expiresAt: string;
       devCode?: string;
       delivery: string;
-      company: { id: string; slug: string; name: string; domain?: string | null };
+      company: { id: string; slug: string; name: string; domain?: string | null; logo?: string | null };
     }>('/verify/start', {
       method: 'POST',
       body: data,

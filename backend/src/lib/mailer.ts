@@ -270,18 +270,39 @@ export const sendVerificationCodeEmail = async ({
   companyName,
   expiresAt,
 }: VerificationEmailInput): Promise<{ sent: boolean; error?: string }> => {
-  const subject = `Your ${companyName} verification code`;
+  const subject = `You're almost in - your CorpDeals verification code`;
   const expiresText = expiresAt.toISOString().replace('T', ' ').replace('Z', ' UTC');
+  const expiresInMinutes = Math.max(
+    1,
+    Math.round((expiresAt.getTime() - Date.now()) / (60 * 1000))
+  );
   const text = [
-    `Your CorpDeals verification code is: ${code}`,
-    `This code expires at ${expiresText}.`,
+    `You're almost in.`,
+    `Here is your one-time verification code to unlock your official employee access for ${companyName} on CorpDeals: ${code}`,
+    `This code is valid for ${expiresInMinutes} minutes and expires at ${expiresText}.`,
+    'If you did not request this code, you can safely ignore this email.',
   ].join('\n');
   const html = `
-    <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-      <h2 style="margin: 0 0 12px;">Verify your employment</h2>
-      <p>Your CorpDeals verification code is:</p>
-      <p style="font-size: 24px; font-weight: bold; letter-spacing: 2px;">${code}</p>
-      <p>This code expires at ${expiresText}.</p>
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
+      <p style="margin: 0 0 10px; font-size: 12px; letter-spacing: 0.18em; font-weight: 700; text-transform: uppercase; color: #2563eb;">
+        CorpDeals Verification
+      </p>
+      <h2 style="margin: 0 0 12px; font-size: 28px; line-height: 1.2;">You're almost in</h2>
+      <p style="margin: 0 0 14px;">
+        Here is your one-time verification code to unlock your official employee access for
+        <strong>${companyName}</strong> on CorpDeals.
+      </p>
+      <div style="display: inline-block; margin: 8px 0 16px; padding: 16px 22px; border-radius: 18px; background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border: 1px solid #bfdbfe;">
+        <div style="font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #1d4ed8;">
+          ${code}
+        </div>
+      </div>
+      <p style="margin: 0 0 10px;">
+        This code is valid for <strong>${expiresInMinutes} minutes</strong> and expires at ${expiresText}.
+      </p>
+      <p style="margin: 0; color: #475569;">
+        If you did not request this code, you can safely ignore this email.
+      </p>
     </div>
   `;
 

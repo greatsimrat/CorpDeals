@@ -1,4 +1,4 @@
-import { useRef, useLayoutEffect, useState, useEffect } from 'react';
+import { useRef, useLayoutEffect, useState, useEffect, useMemo } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { gsap } from 'gsap';
@@ -228,6 +228,17 @@ const SearchSection = () => {
         company.domains.some((domain: string) => domain.toLowerCase().includes(query)))
     );
   });
+
+  const popularCompanies = useMemo(() => {
+    return companies
+      .filter((company) => (company._count?.offers ?? 0) > 0)
+      .sort((a, b) => {
+        const offerDelta = (b._count?.offers ?? 0) - (a._count?.offers ?? 0);
+        if (offerDelta !== 0) return offerDelta;
+        return String(a.name || '').localeCompare(String(b.name || ''));
+      })
+      .slice(0, 6);
+  }, [companies]);
 
   return (
     <section
@@ -552,22 +563,28 @@ const SearchSection = () => {
               <p className="font-inter text-sm text-corp-gray mb-4">
                 Popular company programs:
               </p>
-              <div className="flex flex-wrap gap-3">
-                {companies.slice(0, 6).map((company: any) => (
-                  <button
-                    key={company.id}
-                    onClick={() => goToCompanyDeals(company)}
-                    className="company-item flex items-center gap-2 px-4 py-2.5 bg-gray-50 rounded-xl hover:bg-corp-highlight hover:text-corp-blue transition-all group"
-                  >
-                    <span className="font-inter text-sm text-corp-dark group-hover:text-corp-blue">
-                      {company.name}
-                    </span>
-                    <span className="text-xs text-corp-gray bg-white px-2 py-0.5 rounded-full">
-                      {company._count?.offers ?? 0}
-                    </span>
-                  </button>
-                ))}
-              </div>
+              {popularCompanies.length > 0 ? (
+                <div className="flex flex-wrap gap-3">
+                  {popularCompanies.map((company: any) => (
+                    <button
+                      key={company.id}
+                      onClick={() => goToCompanyDeals(company)}
+                      className="company-item flex items-center gap-2 px-4 py-2.5 bg-gray-50 rounded-xl hover:bg-corp-highlight hover:text-corp-blue transition-all group"
+                    >
+                      <span className="font-inter text-sm text-corp-dark group-hover:text-corp-blue">
+                        {company.name}
+                      </span>
+                      <span className="text-xs text-corp-gray bg-white px-2 py-0.5 rounded-full">
+                        {company._count?.offers ?? 0}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-corp-gray">
+                  Company programs will appear here once approved offers are live.
+                </p>
+              )}
             </div>
           </div>
         </div>

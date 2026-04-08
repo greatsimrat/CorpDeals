@@ -1,11 +1,17 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
+import { WARM_COMPANY_CATALOG } from './company-warm-catalog';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 const prisma = new PrismaClient();
+
+const mergeUniqueCompanies = <T extends { slug: string }>(preferred: T[], additions: T[]) => {
+  const seen = new Set(preferred.map((company) => company.slug));
+  return preferred.concat(additions.filter((company) => !seen.has(company.slug)));
+};
 
 const DEFAULT_OFFER_TERMS_TEMPLATE = `This offer is provided by the participating vendor for verified employees only.
 Offer details, pricing, and availability are subject to change without notice.
@@ -1658,10 +1664,10 @@ async function main() {
   console.log('Seeded default platform policy templates');
 
   // Create companies
-  const companies = [
+  const companies = mergeUniqueCompanies([
     ...QA_COMPANY_PROFILES.map(({ defaultProvinceCode, defaultCityName, defaultLocationLabel, qaEmail, qaUserName, ...company }) => company),
     { name: 'Netflix', slug: 'netflix', domain: 'netflix.com', allowedDomains: ['netflix.com'], employeeCount: '12K+', headquarters: 'Los Gatos, CA', brandColor: '#E50914', verified: true },
-  ];
+  ], WARM_COMPANY_CATALOG);
 
   for (const company of companies) {
     const created = await prisma.company.upsert({
@@ -1671,20 +1677,22 @@ async function main() {
     });
 
     // Add HR contact for each company
-    await prisma.hRContact.upsert({
-      where: {
-        id: `hr-${company.slug}`,
-      },
-      update: {},
-      create: {
-        id: `hr-${company.slug}`,
-        companyId: created.id,
-        name: `HR Manager - ${company.name}`,
-        email: `hr@${company.domain}`,
-        title: 'HR Benefits Manager',
-        isPrimary: true,
-      },
-    });
+    if (company.domain) {
+      await prisma.hRContact.upsert({
+        where: {
+          id: `hr-${company.slug}`,
+        },
+        update: {},
+        create: {
+          id: `hr-${company.slug}`,
+          companyId: created.id,
+          name: `HR Manager - ${company.name}`,
+          email: `hr@${company.domain}`,
+          title: 'HR Benefits Manager',
+          isPrimary: true,
+        },
+      });
+    }
   }
   console.log('Created companies and HR contacts');
 
