@@ -60,7 +60,7 @@ export default function MyApplicationsPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto max-w-5xl px-6 py-4">
+        <div className="mx-auto max-w-5xl px-4 py-4 sm:px-6">
           <Link to="/" className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
             <ArrowLeft className="w-4 h-4" />
             Back to home
@@ -68,7 +68,7 @@ export default function MyApplicationsPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-6 py-8">
+      <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-slate-900">My Applications</h1>
           <p className="mt-1 text-sm text-slate-600">Recent lead submissions from your account.</p>

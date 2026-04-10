@@ -59,7 +59,7 @@ export default function AdminLayout() {
 
       {/* Sidebar */}
       <aside
-        className={`fixed top-0 left-0 z-50 h-full w-64 bg-slate-900 transform transition-transform duration-200 lg:translate-x-0 ${
+        className={`fixed top-0 left-0 z-50 flex h-full w-64 flex-col bg-slate-900 transform transition-transform duration-200 lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -80,7 +80,7 @@ export default function AdminLayout() {
         </div>
 
         {/* Navigation */}
-        <nav className="p-4 space-y-1">
+        <nav className="flex-1 overflow-y-auto p-4 space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.path, item.exact);
@@ -103,7 +103,7 @@ export default function AdminLayout() {
         </nav>
 
         {/* User Section */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-slate-800">
+        <div className="p-4 border-t border-slate-800">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 bg-slate-700 rounded-full flex items-center justify-center">
               <span className="text-white font-medium">

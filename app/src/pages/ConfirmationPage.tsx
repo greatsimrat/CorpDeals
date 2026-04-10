@@ -67,7 +67,7 @@ export default function ConfirmationPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto max-w-4xl px-6 py-4">
+        <div className="mx-auto max-w-4xl px-4 py-4 sm:px-6">
           <Link to={backDealsPath} className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
             <ArrowLeft className="w-4 h-4" />
             Back to deals
@@ -75,7 +75,7 @@ export default function ConfirmationPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-4xl px-6 py-10">
+      <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
         <div className="rounded-2xl border border-slate-200 bg-white p-8">
           <div className="flex items-center gap-3 text-green-700">
             <CheckCircle2 className="w-6 h-6" />

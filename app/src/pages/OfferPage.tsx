@@ -232,7 +232,7 @@ export default function OfferPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <div className="flex items-center gap-3">
             <Link to={`/c/${offer.company.slug}`} className="text-slate-600 hover:text-slate-900">
               <ArrowLeft className="w-5 h-5" />
@@ -251,7 +251,7 @@ export default function OfferPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-6 py-8">
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
         <section className="grid gap-6 lg:grid-cols-[1.7fr_0.9fr]">
           <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white">
             <img src={offerImage} alt={offer.title} className="h-72 w-full object-cover lg:h-96" />

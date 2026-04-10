@@ -332,7 +332,19 @@ class ApiService {
   async getVendorBilling() {
     return this.request<{
       vendor: { id: string; companyName: string; email: string };
+      billingProfile?: any;
       activePlan: any | null;
+      latestPlan?: any | null;
+      planStatus?: 'ACTIVE' | 'EXPIRED' | 'SCHEDULED' | 'INACTIVE' | 'NONE';
+      planDisplayName?: string;
+      offerLimit?: number | null;
+      managedOfferCount?: number;
+      liveOfferCount?: number;
+      remainingOfferSlots?: number | null;
+      canCreateOffer?: boolean;
+      canPublishOffer?: boolean;
+      createOfferMessage?: string;
+      publishOfferMessage?: string;
       invoices: any[];
     }>('/vendor/billing');
   }
@@ -373,6 +385,41 @@ class ApiService {
     return this.request<any>(`/vendor/offers/${encodeURIComponent(id)}`, {
       method: 'PUT',
       body: data,
+    });
+  }
+
+  async replicateVendorOffer(id: string, data: { targetCompanyId: string }) {
+    return this.request<{ message: string; offer: any }>(
+      `/vendor/offers/${encodeURIComponent(id)}/replicate`,
+      {
+        method: 'POST',
+        body: data,
+      }
+    );
+  }
+
+  async pauseVendorOffer(id: string) {
+    return this.request<any>(`/vendor/offers/${encodeURIComponent(id)}/pause`, {
+      method: 'POST',
+    });
+  }
+
+  async resumeVendorOffer(id: string) {
+    return this.request<any>(`/vendor/offers/${encodeURIComponent(id)}/resume`, {
+      method: 'POST',
+    });
+  }
+
+  async cancelVendorOffer(id: string, data?: { cancelReason?: string }) {
+    return this.request<any>(`/vendor/offers/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST',
+      body: data,
+    });
+  }
+
+  async deleteVendorOffer(id: string) {
+    return this.request<{ ok: boolean }>(`/vendor/offers/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
     });
   }
 

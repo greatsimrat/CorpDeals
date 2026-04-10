@@ -438,7 +438,7 @@ export default function CompanyDealsPage() {
   if (error) {
     return (
       <div className="min-h-screen bg-slate-50">
-        <div className="mx-auto max-w-5xl px-6 py-12">
+        <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-12">
           <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
             {error}
           </div>
@@ -450,7 +450,7 @@ export default function CompanyDealsPage() {
   if (!company) {
     return (
       <div className="min-h-screen bg-slate-50">
-        <div className="mx-auto max-w-5xl px-6 py-12">
+        <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-12">
           <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
             <h1 className="text-xl font-semibold text-slate-900">Company not found</h1>
             <Link to="/" className="mt-4 inline-block text-blue-600 hover:text-blue-700">
@@ -465,7 +465,7 @@ export default function CompanyDealsPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between gap-4">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <div className="flex items-center gap-3">
             <Link to="/" className="text-slate-600 hover:text-slate-900">
               <ArrowLeft className="w-5 h-5" />
@@ -480,9 +480,9 @@ export default function CompanyDealsPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-6 py-8">
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
         <section className="mb-8 overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-950 text-white">
-          <div className="px-6 py-8 lg:px-8 lg:py-10">
+          <div className="px-4 py-8 sm:px-6 lg:px-8 lg:py-10">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-300">
               Welcome {welcomeName}
             </p>

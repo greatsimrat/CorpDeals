@@ -79,7 +79,22 @@ type VendorProfile = {
 };
 
 type BillingSnapshot = {
+  billingProfile?: {
+    billingMode?: string;
+    postTrialMode?: string | null;
+    trialEndsAt?: string | null;
+  } | null;
   activePlan: any | null;
+  latestPlan?: any | null;
+  planStatus?: 'ACTIVE' | 'EXPIRED' | 'SCHEDULED' | 'INACTIVE' | 'NONE';
+  planDisplayName?: string;
+  canCreateOffer?: boolean;
+  canPublishOffer?: boolean;
+  createOfferMessage?: string;
+  publishOfferMessage?: string;
+  offerLimit?: number | null;
+  managedOfferCount?: number;
+  remainingOfferSlots?: number | null;
   invoices: any[];
 };
 
@@ -311,7 +326,7 @@ export default function VendorDashboardPage() {
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs uppercase tracking-wide text-slate-500">Current plan</p>
               <p className="mt-2 text-sm font-semibold text-slate-900">
-                {billing?.activePlan ? String(billing.activePlan.planType).replace('_', ' ') : 'Not configured'}
+                {billing?.planDisplayName || 'Not configured'}
               </p>
             </div>
           </div>
@@ -411,16 +426,26 @@ export default function VendorDashboardPage() {
             </div>
             <p className="mt-3 text-sm text-slate-600">
               {billing?.activePlan
-                ? `Current plan: ${String(billing.activePlan.planType).replace('_', ' ')}`
-                : 'No billing plan is configured yet.'}
+                ? `Current plan: ${billing.planDisplayName || 'Paid'}`
+                : billing?.publishOfferMessage || 'No billing plan is configured yet.'}
             </p>
             {billing?.activePlan ? (
-              <p className="mt-2 text-sm text-slate-700">
-                Monthly fee:{' '}
-                <span className="font-semibold text-slate-900">
-                  {formatCurrency(asNumber(billing.activePlan.monthlyFee), planCurrency)}
-                </span>
-              </p>
+              <div className="mt-2 space-y-1 text-sm text-slate-700">
+                <p>
+                  Monthly fee:{' '}
+                  <span className="font-semibold text-slate-900">
+                    {formatCurrency(asNumber(billing.activePlan.monthlyFee), planCurrency)}
+                  </span>
+                </p>
+                <p>
+                  Offer capacity:{' '}
+                  <span className="font-semibold text-slate-900">
+                    {billing.offerLimit == null
+                      ? `${billing.managedOfferCount || 0} offers`
+                      : `${billing.managedOfferCount || 0}/${billing.offerLimit}`}
+                  </span>
+                </p>
+              </div>
             ) : null}
             <Link to="/vendor/billing" className="mt-4 inline-flex text-sm font-semibold text-blue-700 hover:text-blue-900">
               Review billing
@@ -514,12 +539,21 @@ export default function VendorDashboardPage() {
       <div className="rounded-xl border border-slate-200 bg-white p-6">
         <h3 className="mb-4 text-lg font-semibold text-slate-900">Quick Actions</h3>
         <div className="flex flex-wrap gap-3">
-          <Link
-            to="/vendor/offers/new"
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            Create New Offer
-          </Link>
+          {billing?.canCreateOffer ? (
+            <Link
+              to="/vendor/offers/new"
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Create New Offer
+            </Link>
+          ) : (
+            <Link
+              to="/vendor/billing"
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Review Billing Plan
+            </Link>
+          )}
           <Link
             to="/vendor/offers"
             className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"

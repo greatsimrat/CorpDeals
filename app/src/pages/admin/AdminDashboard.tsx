@@ -449,14 +449,14 @@ export default function AdminDashboard() {
           <div className="divide-y divide-slate-200">
             {pendingRequests.map((request) => (
               <div key={request.id} className="p-4 hover:bg-slate-50">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 items-center gap-3">
                     <div className="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center">
                       <span className="text-slate-600 font-medium">
                         {request.vendor?.companyName?.charAt(0) || 'V'}
                       </span>
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <p className="font-medium text-slate-900">
                         {request.vendor?.companyName || 'Unknown'}
                       </p>
@@ -502,12 +502,12 @@ export default function AdminDashboard() {
           <div className="divide-y divide-slate-200">
             {invoiceData.invoices.slice(0, 5).map((invoice: any) => (
               <div key={invoice.invoiceId} className="p-4 hover:bg-slate-50">
-                <div className="flex items-center justify-between">
-                  <div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
                     <p className="font-medium text-slate-900">{invoice.companyName}</p>
                     <p className="text-sm text-slate-500">{invoice.invoiceId}</p>
                   </div>
-                  <div className="text-right">
+                  <div className="text-left sm:text-right">
                     <p className="font-semibold text-slate-900">
                       {formatCurrency(invoice.totalCents, invoice.currency)}
                     </p>

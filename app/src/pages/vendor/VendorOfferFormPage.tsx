@@ -111,6 +111,7 @@ export default function VendorOfferFormPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [policyDefaults, setPolicyDefaults] = useState<PolicyDefaults>(defaultPolicyTemplates);
   const [existingOffer, setExistingOffer] = useState<VendorOffer | null>(null);
+  const [billing, setBilling] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [submitMode, setSubmitMode] = useState<'draft' | 'review' | null>(null);
   const [error, setError] = useState('');
@@ -127,14 +128,16 @@ export default function VendorOfferFormPage() {
       try {
         setIsLoading(true);
         setError('');
-        const [companyData, defaults, offers] = await Promise.all([
+        const [companyData, defaults, offers, billingData] = await Promise.all([
           api.getCompanies(),
           api.getVendorPolicyDefaults().catch(() => defaultPolicyTemplates),
           isEdit ? api.getVendorOffers() : Promise.resolve([]),
+          api.getVendorBilling().catch(() => null),
         ]);
 
         setCompanies(companyData as Company[]);
         setPolicyDefaults(defaults as PolicyDefaults);
+        setBilling(billingData);
 
         if (isEdit) {
           const selected = (offers as VendorOffer[]).find((item) => item.id === offerId);
@@ -231,6 +234,10 @@ export default function VendorOfferFormPage() {
 
   const onSaveDraft = async () => {
     setError('');
+    if (!isEdit && billing && !billing.canCreateOffer) {
+      setError(billing.createOfferMessage || 'An active billing plan is required before you can create an offer');
+      return;
+    }
     const validationError = validateCommonFields();
     if (validationError) {
       setError(validationError);
@@ -250,6 +257,16 @@ export default function VendorOfferFormPage() {
 
   const onSubmitForReview = async () => {
     setError('');
+    if (!isEdit && billing && !billing.canCreateOffer) {
+      setError(billing.createOfferMessage || 'An active billing plan is required before you can create an offer');
+      return;
+    }
+    if (billing && !billing.canPublishOffer) {
+      setError(
+        billing.publishOfferMessage || 'An active billing plan is required before offers can be submitted'
+      );
+      return;
+    }
     const validationError = validateCommonFields();
     if (validationError) {
       setError(validationError);
@@ -313,6 +330,14 @@ export default function VendorOfferFormPage() {
         {error ? (
           <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
             {error}
+          </div>
+        ) : null}
+        {!isEdit && billing && !billing.canCreateOffer ? (
+          <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            {billing.createOfferMessage || 'An active billing plan is required before you can create an offer.'}{' '}
+            <Link to="/vendor/billing" className="font-semibold underline">
+              Review billing
+            </Link>
           </div>
         ) : null}
 
@@ -556,7 +581,7 @@ export default function VendorOfferFormPage() {
           <button
             type="button"
             onClick={onSaveDraft}
-            disabled={submitMode !== null}
+            disabled={submitMode !== null || (!isEdit && billing && !billing.canCreateOffer)}
             className="rounded-md border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
             {submitMode === 'draft' ? 'Saving draft...' : 'Save Draft'}
@@ -564,7 +589,12 @@ export default function VendorOfferFormPage() {
           <button
             type="button"
             onClick={onSubmitForReview}
-            disabled={submitMode !== null || !form.vendorAttestationAccepted}
+            disabled={
+              submitMode !== null ||
+              !form.vendorAttestationAccepted ||
+              (!isEdit && billing && !billing.canCreateOffer) ||
+              (billing && !billing.canPublishOffer)
+            }
             className="rounded-md bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {submitMode === 'review' ? 'Submitting...' : 'Submit for Review'}
