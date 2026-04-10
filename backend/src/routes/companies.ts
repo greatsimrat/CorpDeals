@@ -13,6 +13,7 @@ import {
   isUserVerifiedForCompany,
   VERIFIED_STATUS,
 } from '../lib/verifications';
+import { getActiveVendorBillingRelationFilter, syncExpiredVendorPlans } from '../lib/vendor-billing';
 
 const router = Router();
 
@@ -609,6 +610,8 @@ const serializeVerification = (verification: Awaited<ReturnType<typeof getUserVe
 // Search company deals (requires login + active verification for this company)
 router.get('/:idOrSlug/deals/search', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
+    await syncExpiredVendorPlans();
+
     const idOrSlug = String(req.params.idOrSlug);
     const query = normalizeSearchQuery(req.query);
     if (!query) {
@@ -655,6 +658,7 @@ router.get('/:idOrSlug/deals/search', authenticateToken, async (req: Request, re
         companyId: company.id,
         active: true,
         complianceStatus: 'APPROVED',
+        vendor: getActiveVendorBillingRelationFilter() as any,
       } as any,
       include: {
         vendor: { select: { id: true, companyName: true, logo: true } },
@@ -724,6 +728,8 @@ router.get('/:idOrSlug/deals/search', authenticateToken, async (req: Request, re
 // Get company deals (requires login + active verification for this company)
 router.get('/:idOrSlug/deals', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
+    await syncExpiredVendorPlans();
+
     const idOrSlug = String(req.params.idOrSlug);
 
     const company = await getCompanyByIdOrSlug(idOrSlug);
@@ -780,6 +786,7 @@ router.get('/:idOrSlug/deals', authenticateToken, async (req: Request, res: Resp
         companyId: company.id,
         active: true,
         complianceStatus: 'APPROVED',
+        vendor: getActiveVendorBillingRelationFilter() as any,
         OR: offerVisibility as any,
       } as any,
       include: {
@@ -817,6 +824,8 @@ router.get('/:idOrSlug/deals', authenticateToken, async (req: Request, res: Resp
 // Get company by ID or slug (public)
 router.get('/:idOrSlug', async (req: Request, res: Response): Promise<void> => {
   try {
+    await syncExpiredVendorPlans();
+
     const idOrSlug = String(req.params.idOrSlug);
 
     const company = await prisma.company.findFirst({
@@ -831,6 +840,7 @@ router.get('/:idOrSlug', async (req: Request, res: Response): Promise<void> => {
           where: {
             active: true,
             complianceStatus: 'APPROVED',
+            vendor: getActiveVendorBillingRelationFilter() as any,
           } as any,
           include: {
             vendor: {

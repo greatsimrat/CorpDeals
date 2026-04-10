@@ -120,7 +120,11 @@ router.get('/vendors/summary', async (req: Request, res: Response): Promise<void
         include: {
           billing: true,
           billingPlans: {
-            where: { isActive: true },
+            where: {
+              isActive: true,
+              startsAt: { lte: now },
+              OR: [{ endsAt: null }, { endsAt: { gte: now } }],
+            },
             orderBy: { updatedAt: 'desc' },
             take: 1,
           },

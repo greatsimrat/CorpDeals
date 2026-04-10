@@ -4,7 +4,7 @@
   "description": "CorpDeals Backend API",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "prisma generate && tsx watch src/index.ts",
     "build": "tsc",
     "routes:audit": "tsx src/scripts/route-audit.ts",
     "routes:test": "powershell -ExecutionPolicy Bypass -File scripts/test-routes.ps1",

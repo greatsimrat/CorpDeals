@@ -1236,6 +1236,17 @@ async function main() {
   }
   console.log('Upserted demo leads');
 
+  await prisma.$executeRawUnsafe(`
+    UPDATE "offers"
+    SET "offer_status" = CASE
+      WHEN "compliance_status" = 'submitted' THEN 'SUBMITTED'::"OfferStatus"
+      WHEN "compliance_status" = 'rejected' THEN 'REJECTED'::"OfferStatus"
+      WHEN "compliance_status" = 'approved' AND "active" = TRUE THEN 'LIVE'::"OfferStatus"
+      WHEN "compliance_status" = 'approved' AND "active" = FALSE THEN 'APPROVED'::"OfferStatus"
+      ELSE 'DRAFT'::"OfferStatus"
+    END
+  `);
+
   console.log('Seeded UAT demo data successfully.');
   console.log('Role accounts:');
   console.log('  Admin: admin@corpdeals.io / admin123');

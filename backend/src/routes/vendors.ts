@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import prisma from '../lib/prisma';
 import { authenticateToken, requireAdmin, requireVendorOnly } from '../middleware/auth';
+import { getVendorBillingState } from '../lib/vendor-billing';
 
 const router = Router();
 
@@ -241,6 +242,18 @@ router.patch('/:id', authenticateToken, async (req: Request, res: Response): Pro
 // Get current vendor profile
 router.get('/me/profile', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
+    const currentVendor = await prisma.vendor.findUnique({
+      where: { userId: req.user!.id },
+      select: { id: true },
+    });
+
+    if (!currentVendor) {
+      res.status(404).json({ error: 'Vendor profile not found' });
+      return;
+    }
+
+    await getVendorBillingState(currentVendor.id);
+
     const vendor = await prisma.vendor.findUnique({
       where: { userId: req.user!.id },
       include: {

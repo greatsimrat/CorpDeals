@@ -8,6 +8,7 @@ import {
 } from '../lib/mailer';
 import { createVendorSetPasswordToken } from '../lib/vendor-password';
 import { isAppRole, normalizeRole } from '../lib/roles';
+import { getVendorBillingState } from '../lib/vendor-billing';
 
 const router = Router();
 
@@ -53,18 +54,21 @@ const ADMIN_SUBSCRIPTION_PRESETS = {
     includedLeadsPerMonth: 10,
     overagePricePerLead: 5,
     currency: 'USD',
+    offerLimit: 5,
   },
   GROWTH: {
     monthlyFee: 100,
     includedLeadsPerMonth: 50,
     overagePricePerLead: 3,
     currency: 'USD',
+    offerLimit: 25,
   },
   PRO: {
     monthlyFee: 500,
     includedLeadsPerMonth: 300,
     overagePricePerLead: 2,
     currency: 'USD',
+    offerLimit: 100,
   },
 } as const;
 
@@ -382,6 +386,7 @@ router.get('/offers-review', async (req: Request, res: Response): Promise<void> 
     const offers = await prisma.offer.findMany({
       where: {
         complianceStatus: status as any,
+        ...(status === 'SUBMITTED' ? { offerStatus: 'SUBMITTED' } : {}),
       } as any,
       include: {
         vendor: {
@@ -434,17 +439,34 @@ router.post('/offers-review/:id/approve', async (req: Request, res: Response): P
       return;
     }
 
-    if (String((offer as any).complianceStatus) !== 'SUBMITTED') {
+    if (
+      String((offer as any).complianceStatus) !== 'SUBMITTED' ||
+      String((offer as any).offerStatus || '') !== 'SUBMITTED'
+    ) {
       res.status(400).json({ error: 'Only submitted offers can be approved' });
+      return;
+    }
+    const billingState = await getVendorBillingState(offer.vendor.id, {
+      excludeOfferId: String(offer.id),
+    });
+    if (!billingState.canPublishOffer) {
+      res.status(400).json({
+        error:
+          billingState.publishOfferMessage ||
+          'An active billing plan is required before an offer can go live',
+      });
       return;
     }
 
     const updated = await prisma.offer.update({
       where: { id: offer.id },
       data: {
+        offerStatus: 'LIVE',
         complianceStatus: 'APPROVED',
         complianceNotes: null,
         active: true,
+        pausedAt: null,
+        pausedByUserId: null,
       } as any,
       include: {
         vendor: {
@@ -505,7 +527,10 @@ router.post('/offers-review/:id/reject', async (req: Request, res: Response): Pr
       return;
     }
 
-    if (String((offer as any).complianceStatus) !== 'SUBMITTED') {
+    if (
+      String((offer as any).complianceStatus) !== 'SUBMITTED' ||
+      String((offer as any).offerStatus || '') !== 'SUBMITTED'
+    ) {
       res.status(400).json({ error: 'Only submitted offers can be rejected' });
       return;
     }
@@ -513,6 +538,7 @@ router.post('/offers-review/:id/reject', async (req: Request, res: Response): Pr
     const updated = await prisma.offer.update({
       where: { id: offer.id },
       data: {
+        offerStatus: 'REJECTED',
         complianceStatus: 'REJECTED',
         complianceNotes,
         active: false,
@@ -546,6 +572,147 @@ router.post('/offers-review/:id/reject', async (req: Request, res: Response): Pr
   } catch (error) {
     console.error('Reject offer error:', error);
     res.status(500).json({ error: 'Failed to reject offer' });
+  }
+});
+
+router.post('/offers/:id/pause', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = firstString(req.params.id);
+    if (!id) {
+      res.status(400).json({ error: 'Invalid offer id' });
+      return;
+    }
+
+    const offer = await prisma.offer.findUnique({
+      where: { id },
+      select: { id: true, offerStatus: true } as any,
+    });
+
+    if (!offer) {
+      res.status(404).json({ error: 'Offer not found' });
+      return;
+    }
+    if (String((offer as any).offerStatus || '') !== 'LIVE') {
+      res.status(400).json({ error: 'Only live offers can be paused' });
+      return;
+    }
+
+    const updated = await prisma.offer.update({
+      where: { id },
+      data: {
+        active: false,
+        offerStatus: 'PAUSED',
+        pausedAt: new Date(),
+        pausedByUserId: req.user?.id || null,
+      } as any,
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Pause admin offer error:', error);
+    res.status(500).json({ error: 'Failed to pause offer' });
+  }
+});
+
+router.post('/offers/:id/resume', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = firstString(req.params.id);
+    if (!id) {
+      res.status(400).json({ error: 'Invalid offer id' });
+      return;
+    }
+
+    const offer: any = await prisma.offer.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        vendorId: true,
+        offerStatus: true,
+        complianceStatus: true,
+      } as any,
+    });
+
+    if (!offer) {
+      res.status(404).json({ error: 'Offer not found' });
+      return;
+    }
+    if (String((offer as any).offerStatus || '') !== 'PAUSED') {
+      res.status(400).json({ error: 'Only paused offers can be resumed' });
+      return;
+    }
+    if (String((offer as any).complianceStatus || '') !== 'APPROVED') {
+      res.status(400).json({ error: 'Only approved offers can be resumed' });
+      return;
+    }
+    const billingState = await getVendorBillingState(String(offer.vendorId), {
+      excludeOfferId: String(offer.id),
+    });
+    if (!billingState.canPublishOffer) {
+      res.status(400).json({
+        error:
+          billingState.publishOfferMessage ||
+          'An active billing plan is required before an offer can go live',
+      });
+      return;
+    }
+
+    const updated = await prisma.offer.update({
+      where: { id },
+      data: {
+        active: true,
+        offerStatus: 'LIVE',
+        pausedAt: null,
+        pausedByUserId: null,
+      } as any,
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Resume admin offer error:', error);
+    res.status(500).json({ error: 'Failed to resume offer' });
+  }
+});
+
+router.post('/offers/:id/cancel', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = firstString(req.params.id);
+    if (!id) {
+      res.status(400).json({ error: 'Invalid offer id' });
+      return;
+    }
+
+    const offer = await prisma.offer.findUnique({
+      where: { id },
+      select: { id: true, offerStatus: true } as any,
+    });
+
+    if (!offer) {
+      res.status(404).json({ error: 'Offer not found' });
+      return;
+    }
+    if (String((offer as any).offerStatus || '') === 'CANCELLED') {
+      res.status(400).json({ error: 'Offer is already cancelled' });
+      return;
+    }
+
+    const cancelReason = String(req.body?.cancelReason || req.body?.cancel_reason || '').trim() || null;
+    const updated = await prisma.offer.update({
+      where: { id },
+      data: {
+        active: false,
+        offerStatus: 'CANCELLED',
+        cancelledAt: new Date(),
+        cancelledByUserId: req.user?.id || null,
+        cancelReason,
+        pausedAt: null,
+        pausedByUserId: null,
+      } as any,
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Cancel admin offer error:', error);
+    res.status(500).json({ error: 'Failed to cancel offer' });
   }
 });
 
@@ -855,9 +1022,15 @@ router.get('/vendors/:id/billing-plan', async (req: Request, res: Response): Pro
       return;
     }
 
+    const now = new Date();
     const [activePlan, plans] = await Promise.all([
       (prisma as any).vendorBillingPlan.findFirst({
-        where: { vendorId, isActive: true },
+        where: {
+          vendorId,
+          isActive: true,
+          startsAt: { lte: now },
+          OR: [{ endsAt: null }, { endsAt: { gte: now } }],
+        },
         orderBy: { updatedAt: 'desc' },
       }),
       (prisma as any).vendorBillingPlan.findMany({
@@ -904,6 +1077,9 @@ router.put('/vendors/:id/billing-plan', async (req: Request, res: Response): Pro
       req.body?.overagePricePerLead ?? req.body?.overage_price_per_lead;
     const subscriptionTier = req.body?.subscriptionTier ?? req.body?.subscription_tier;
     const billingCycleDayRaw = req.body?.billingCycleDay ?? req.body?.billing_cycle_day;
+    const offerLimitRaw = req.body?.offerLimit ?? req.body?.offer_limit;
+    const startsAtRaw = firstString(req.body?.startsAt ?? req.body?.starts_at);
+    const endsAtRaw = firstString(req.body?.endsAt ?? req.body?.ends_at);
     const requestCurrency = String(req.body?.currency || 'CAD').trim().toUpperCase() || 'CAD';
 
     let normalizedPricePerLead = pricePerLead === undefined || pricePerLead === null ? null : asNumber(pricePerLead);
@@ -917,7 +1093,13 @@ router.put('/vendors/:id/billing-plan', async (req: Request, res: Response): Pro
       overagePricePerLead === undefined || overagePricePerLead === null
         ? null
         : asNumber(overagePricePerLead);
+    let normalizedOfferLimit =
+      offerLimitRaw === undefined || offerLimitRaw === null || offerLimitRaw === ''
+        ? null
+        : Number(offerLimitRaw);
     let normalizedCurrency = requestCurrency;
+    const startsAt = startsAtRaw ? new Date(startsAtRaw) : new Date();
+    const endsAt = endsAtRaw ? new Date(endsAtRaw) : null;
     const billingCycleDay =
       billingCycleDayRaw === undefined || billingCycleDayRaw === null || billingCycleDayRaw === ''
         ? 1
@@ -929,6 +1111,22 @@ router.put('/vendors/:id/billing-plan', async (req: Request, res: Response): Pro
     }
     if (normalizedIncluded !== null && (!Number.isInteger(normalizedIncluded) || normalizedIncluded < 0)) {
       res.status(400).json({ error: 'included_leads_per_month must be a non-negative integer' });
+      return;
+    }
+    if (normalizedOfferLimit !== null && (!Number.isInteger(normalizedOfferLimit) || normalizedOfferLimit < 0)) {
+      res.status(400).json({ error: 'offer_limit must be a non-negative integer' });
+      return;
+    }
+    if (Number.isNaN(startsAt.getTime())) {
+      res.status(400).json({ error: 'starts_at must be a valid date' });
+      return;
+    }
+    if (endsAt && Number.isNaN(endsAt.getTime())) {
+      res.status(400).json({ error: 'ends_at must be a valid date' });
+      return;
+    }
+    if (endsAt && endsAt <= startsAt) {
+      res.status(400).json({ error: 'ends_at must be after starts_at' });
       return;
     }
     if (normalizedPricePerLead !== null && normalizedPricePerLead < 0) {
@@ -957,6 +1155,7 @@ router.put('/vendors/:id/billing-plan', async (req: Request, res: Response): Pro
       normalizedIncluded = preset.includedLeadsPerMonth;
       normalizedOverage = preset.overagePricePerLead;
       normalizedCurrency = preset.currency;
+      normalizedOfferLimit = preset.offerLimit;
     } else {
       if (normalizedMonthlyFee !== null && normalizedMonthlyFee < 0) {
         res.status(400).json({ error: 'monthly_fee must be non-negative' });
@@ -982,8 +1181,11 @@ router.put('/vendors/:id/billing-plan', async (req: Request, res: Response): Pro
           monthlyFee: normalizedMonthlyFee === null ? null : toMoney(normalizedMonthlyFee),
           includedLeadsPerMonth: normalizedIncluded,
           overagePricePerLead: normalizedOverage === null ? null : toMoney(normalizedOverage),
+          offerLimit: normalizedOfferLimit,
           billingCycleDay,
           currency: normalizedCurrency,
+          startsAt,
+          endsAt,
           isActive: true,
         },
       });
@@ -1006,8 +1208,13 @@ router.post('/billing/generate-invoices', async (req: Request, res: Response): P
     }
 
     const { periodStart, periodEnd, nextMonthStart, periodKey } = parsedPeriod;
+    const now = new Date();
     const activePlans = await (prisma as any).vendorBillingPlan.findMany({
-      where: { isActive: true },
+      where: {
+        isActive: true,
+        startsAt: { lte: now },
+        OR: [{ endsAt: null }, { endsAt: { gte: now } }],
+      },
       include: {
         vendor: {
           select: { id: true, companyName: true, email: true },

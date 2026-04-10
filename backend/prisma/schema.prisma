@@ -49,6 +49,16 @@ enum OfferDetailTemplateType {
   BANKING
 }
 
+enum OfferStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  LIVE
+  PAUSED
+  CANCELLED
+  REJECTED
+}
+
 enum LeadStatus {
   NEW
   SENT
@@ -347,6 +357,7 @@ model Offer {
   companyId       String       @map("company_id")
   categoryId      String       @map("category_id")
   offerType       String       @default("lead") @map("offer_type")
+  offerStatus     OfferStatus  @default(DRAFT) @map("offer_status")
   coverageType    CoverageType @default(COMPANY_WIDE) @map("coverage_type")
   provinceCode    String?      @map("province_code")
   cityName        String?      @map("city_name")
@@ -386,6 +397,11 @@ model Offer {
   vendorAttestationAcceptedIp String? @map("vendor_attestation_accepted_ip")
   complianceStatus ComplianceStatus @default(DRAFT) @map("compliance_status")
   complianceNotes String?      @map("compliance_notes")
+  pausedAt        DateTime?    @map("paused_at")
+  pausedByUserId  String?      @map("paused_by_user_id")
+  cancelledAt     DateTime?    @map("cancelled_at")
+  cancelledByUserId String?    @map("cancelled_by_user_id")
+  cancelReason    String?      @map("cancel_reason")
   createdAt       DateTime     @default(now()) @map("created_at")
   updatedAt       DateTime     @updatedAt @map("updated_at")
 
@@ -397,6 +413,7 @@ model Offer {
   redemptions     Redemption[]
   offerClicks     OfferClick[]
 
+  @@index([offerStatus])
   @@map("offers")
 }
 
@@ -457,8 +474,11 @@ model VendorBillingPlan {
   monthlyFee           Decimal?              @db.Decimal(10, 2) @map("monthly_fee")
   includedLeadsPerMonth Int?                 @map("included_leads_per_month")
   overagePricePerLead  Decimal?              @db.Decimal(10, 2) @map("overage_price_per_lead")
+  offerLimit           Int?                  @map("offer_limit")
   billingCycleDay      Int                   @default(1) @map("billing_cycle_day")
   currency             String                @default("CAD")
+  startsAt             DateTime              @default(now()) @map("starts_at")
+  endsAt               DateTime?             @map("ends_at")
   isActive             Boolean               @default(true) @map("is_active")
   createdAt            DateTime              @default(now()) @map("created_at")
   updatedAt            DateTime              @updatedAt @map("updated_at")

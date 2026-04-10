@@ -52,6 +52,11 @@ const hydrateRequestUser = async (userId: string) => {
       email: true,
       role: true,
       vendorId: true,
+      vendor: {
+        select: {
+          id: true,
+        },
+      },
       activeCompanyId: true,
       employeeCompanyId: true,
       provinceCode: true,
@@ -65,7 +70,7 @@ const hydrateRequestUser = async (userId: string) => {
     id: user.id,
     email: user.email,
     role: normalizeRole(user.role),
-    vendorId: user.vendorId,
+    vendorId: user.vendorId ?? user.vendor?.id ?? null,
     activeCompanyId: user.activeCompanyId,
     employeeCompanyId: user.employeeCompanyId,
     provinceCode: user.provinceCode,

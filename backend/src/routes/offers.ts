@@ -18,6 +18,7 @@ import {
   normalizeOfferDetailTemplateType,
   normalizeOptionalUrl,
 } from '../lib/offer-details';
+import { getActiveVendorBillingRelationFilter, syncExpiredVendorPlans } from '../lib/vendor-billing';
 
 const router = Router();
 type JsonObject = Record<string, any>;
@@ -173,6 +174,7 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
   const offer: any = await prisma.offer.findFirst({
     where: {
       OR: [{ id: offerRef }, { slug: offerRef }],
+      vendor: getActiveVendorBillingRelationFilter() as any,
     },
     select: {
       id: true,
@@ -395,11 +397,14 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
 // Get all offers (public)
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
+    await syncExpiredVendorPlans();
+
     const { companyId, categoryId, vendorId, featured, active, search } = req.query;
 
     const where: any = {
       active: true,
       complianceStatus: 'APPROVED',
+      vendor: getActiveVendorBillingRelationFilter() as any,
     };
     if (companyId) where.companyId = companyId;
     if (categoryId) where.categoryId = categoryId;
@@ -624,6 +629,8 @@ router.post('/:id/action', authenticateToken, requireUser, async (req: Request, 
 // Get offer by ID (authenticated, and employee users must be verified)
 router.get('/:id', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
+    await syncExpiredVendorPlans();
+
     const offerRef = String(req.params.id);
     const offer = await getOfferByIdOrSlug(offerRef);
 

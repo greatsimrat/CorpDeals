@@ -1,34 +1,8 @@
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
-import fs from 'fs';
-import path from 'path';
+import { loadRuntimeEnv } from './lib/runtime-env';
 
-const envFilePath = (filename: string) => path.resolve(process.cwd(), filename);
-const loadEnvFile = (filename: string, override = false) => {
-  const filePath = envFilePath(filename);
-  if (fs.existsSync(filePath)) {
-    dotenv.config({ path: filePath, override });
-  }
-};
-
-// Decide which override file to use before loading shared defaults.
-const requestedAppEnv = (process.env.APP_ENV || process.env.NODE_ENV || '').trim().toLowerCase();
-const hasProdOverride = fs.existsSync(envFilePath('.env.prod')) || fs.existsSync(envFilePath('.env.production'));
-const shouldUseProductionEnv =
-  requestedAppEnv === 'production' ||
-  requestedAppEnv === 'prod' ||
-  (!requestedAppEnv && hasProdOverride);
-
-// Load shared defaults first.
-loadEnvFile('.env');
-
-if (shouldUseProductionEnv) {
-  loadEnvFile('.env.production', true);
-  loadEnvFile('.env.prod', true);
-} else {
-  loadEnvFile('.env.local', true);
-}
+loadRuntimeEnv();
 
 // In CommonJS builds, `import` declarations are evaluated before dotenv setup.
 // Load env files first, then require modules that read process.env at import time.

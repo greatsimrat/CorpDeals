@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { authenticateToken, requireAdmin } from '../middleware/auth';
+import { getActiveVendorBillingRelationFilter, syncExpiredVendorPlans } from '../lib/vendor-billing';
 
 const router = Router();
 
@@ -43,6 +44,8 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 // Get category by ID or slug (public)
 router.get('/:idOrSlug', async (req: Request, res: Response): Promise<void> => {
   try {
+    await syncExpiredVendorPlans();
+
     const idOrSlug = firstString(req.params.idOrSlug);
     if (!idOrSlug) {
       res.status(400).json({ error: 'Invalid category identifier' });
@@ -70,6 +73,7 @@ router.get('/:idOrSlug', async (req: Request, res: Response): Promise<void> => {
               where: {
                 active: true,
                 complianceStatus: 'APPROVED',
+                vendor: getActiveVendorBillingRelationFilter() as any,
               } as any,
               include: {
                 vendor: {
@@ -86,6 +90,7 @@ router.get('/:idOrSlug', async (req: Request, res: Response): Promise<void> => {
           where: {
             active: true,
             complianceStatus: 'APPROVED',
+            vendor: getActiveVendorBillingRelationFilter() as any,
           } as any,
           include: {
             vendor: {

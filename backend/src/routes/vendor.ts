@@ -21,6 +21,7 @@ import {
   normalizeOfferDetailTemplateType,
   normalizeOptionalUrl,
 } from '../lib/offer-details';
+import { getVendorBillingState } from '../lib/vendor-billing';
 
 const router = Router();
 
@@ -203,6 +204,57 @@ const csvEscape = (value: unknown): string => {
 const asNumber = (value: unknown): number => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
+};
+
+type OfferLifecycleStatus =
+  | 'DRAFT'
+  | 'SUBMITTED'
+  | 'APPROVED'
+  | 'LIVE'
+  | 'PAUSED'
+  | 'CANCELLED'
+  | 'REJECTED';
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const buildReplicatedOfferTitle = (
+  title: string,
+  sourceCompanyName: string,
+  targetCompanyName: string
+) => {
+  const normalizedTitle = title.trim();
+  if (!normalizedTitle) return `${targetCompanyName} employee offer`;
+  if (!sourceCompanyName.trim()) return normalizedTitle;
+
+  const pattern = new RegExp(escapeRegExp(sourceCompanyName.trim()), 'ig');
+  return pattern.test(normalizedTitle)
+    ? normalizedTitle.replace(pattern, targetCompanyName.trim())
+    : normalizedTitle;
+};
+
+const loadOwnedOffer = async (
+  vendorId: string,
+  offerId: string,
+  select?: Record<string, unknown>
+) => {
+  const offer: any = await prisma.offer.findUnique({
+    where: { id: offerId },
+    select: {
+      id: true,
+      vendorId: true,
+      title: true,
+      active: true,
+      offerStatus: true,
+      complianceStatus: true,
+      ...(select || {}),
+    } as any,
+  });
+
+  if (!offer || offer.vendorId !== vendorId) {
+    return null;
+  }
+
+  return offer as any;
 };
 
 const requireVendorUser = async (req: Request, res: Response) => {
@@ -804,11 +856,8 @@ router.get('/billing', authenticateToken, requireVendorOnly, async (req: Request
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
 
-    const [activePlan, invoices] = await Promise.all([
-      (prisma as any).vendorBillingPlan.findFirst({
-        where: { vendorId: vendor.id, isActive: true },
-        orderBy: { updatedAt: 'desc' },
-      }),
+    const [billingState, invoices] = await Promise.all([
+      getVendorBillingState(vendor.id),
       (prisma as any).invoice.findMany({
         where: { vendorId: vendor.id },
         include: {
@@ -826,7 +875,19 @@ router.get('/billing', authenticateToken, requireVendorOnly, async (req: Request
         companyName: vendor.companyName,
         email: vendor.email,
       },
-      activePlan,
+      billingProfile: billingState.billingProfile,
+      activePlan: billingState.activePlan,
+      latestPlan: billingState.latestPlan,
+      planStatus: billingState.planStatus,
+      planDisplayName: billingState.planDisplayName,
+      offerLimit: billingState.offerLimit,
+      managedOfferCount: billingState.managedOfferCount,
+      liveOfferCount: billingState.liveOfferCount,
+      remainingOfferSlots: billingState.remainingOfferSlots,
+      canCreateOffer: billingState.canCreateOffer,
+      canPublishOffer: billingState.canPublishOffer,
+      createOfferMessage: billingState.createOfferMessage,
+      publishOfferMessage: billingState.publishOfferMessage,
       invoices,
     });
   } catch (error) {
@@ -896,6 +957,8 @@ router.get('/offers', authenticateToken, requireVendorOnly, async (req: Request,
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
 
+    await getVendorBillingState(vendor.id);
+
     const offers = await prisma.offer.findMany({
       where: { vendorId: vendor.id },
       include: {
@@ -943,6 +1006,16 @@ router.post('/offers', authenticateToken, requireVendorOnly, async (req: Request
 
     if (vendor.status !== 'APPROVED') {
       res.status(403).json({ error: 'Only approved vendors can create offers' });
+      return;
+    }
+
+    const billingState = await getVendorBillingState(vendor.id);
+    if (!billingState.canCreateOffer) {
+      res.status(400).json({
+        error:
+          billingState.createOfferMessage ||
+          'An active billing plan is required before you can create offers',
+      });
       return;
     }
 
@@ -1053,10 +1126,16 @@ router.post('/offers', authenticateToken, requireVendorOnly, async (req: Request
         detailSectionsJson: normalizeJsonField(req.body?.detailSectionsJson),
         termsUrl: normalizeOptionalUrl(req.body?.termsUrl),
         cancellationPolicyUrl: normalizeOptionalUrl(req.body?.cancellationPolicyUrl),
+        offerStatus: 'DRAFT',
         complianceStatus: 'DRAFT',
         complianceNotes: null,
         vendorAttestationAcceptedAt: null,
         vendorAttestationAcceptedIp: null,
+        pausedAt: null,
+        pausedByUserId: null,
+        cancelledAt: null,
+        cancelledByUserId: null,
+        cancelReason: null,
       } as any,
       include: {
         company: { select: { id: true, name: true, slug: true } },
@@ -1069,6 +1148,165 @@ router.post('/offers', authenticateToken, requireVendorOnly, async (req: Request
     res.status(500).json({ error: 'Failed to create offer' });
   }
 });
+
+router.post(
+  '/offers/:id/replicate',
+  authenticateToken,
+  requireVendorOnly,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const vendor = await requireVendorUser(req, res);
+      if (!vendor) return;
+
+      if (vendor.status !== 'APPROVED') {
+        res.status(403).json({ error: 'Only approved vendors can replicate offers' });
+        return;
+      }
+
+      const billingState = await getVendorBillingState(vendor.id);
+      if (!billingState.canCreateOffer) {
+        res.status(400).json({
+          error:
+            billingState.createOfferMessage ||
+            'An active billing plan is required before you can replicate another offer',
+        });
+        return;
+      }
+
+      const id = String(req.params.id || '').trim();
+      const targetCompanyId = String(
+        req.body?.targetCompanyId || req.body?.target_company_id || ''
+      ).trim();
+
+      if (!id || !targetCompanyId) {
+        res.status(400).json({ error: 'Offer id and target company are required' });
+        return;
+      }
+
+      const existing = await prisma.offer.findUnique({
+        where: { id },
+        include: {
+          company: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+            },
+          },
+        },
+      });
+
+      if (!existing) {
+        res.status(404).json({ error: 'Offer not found' });
+        return;
+      }
+
+      if (existing.vendorId !== vendor.id) {
+        res.status(403).json({ error: 'Access denied' });
+        return;
+      }
+
+      if (existing.companyId === targetCompanyId) {
+        res.status(400).json({
+          error: 'Replicate this offer to a different company. The current company cannot be selected.',
+        });
+        return;
+      }
+
+      const targetCompany = await prisma.company.findUnique({
+        where: { id: targetCompanyId },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+        },
+      });
+
+      if (!targetCompany) {
+        res.status(404).json({ error: 'Target company not found' });
+        return;
+      }
+
+      const replicatedTitle = buildReplicatedOfferTitle(
+        existing.title,
+        existing.company.name,
+        targetCompany.name
+      );
+      const slug = await getUniqueOfferSlug(replicatedTitle);
+
+      const duplicated = await prisma.offer.create({
+        data: {
+          slug,
+          vendorId: existing.vendorId,
+          companyId: targetCompany.id,
+          categoryId: existing.categoryId,
+          offerType: existing.offerType,
+          coverageType: existing.coverageType,
+          provinceCode: existing.provinceCode,
+          cityName: existing.cityName,
+          detailTemplateType: existing.detailTemplateType,
+          highlightsJson: existing.highlightsJson,
+          detailSectionsJson: existing.detailSectionsJson,
+          configJson: existing.configJson,
+          productName: existing.productName,
+          productModel: existing.productModel,
+          productUrl: existing.productUrl,
+          title: replicatedTitle,
+          description: existing.description,
+          discountValue: existing.discountValue,
+          discountType: existing.discountType,
+          originalPrice: existing.originalPrice,
+          discountedPrice: existing.discountedPrice,
+          terms: existing.terms,
+          howToClaim: existing.howToClaim,
+          expiryDate: existing.expiryDate,
+          featured: false,
+          verified: false,
+          active: false,
+          location: existing.location,
+          image: existing.image,
+          rating: 0,
+          reviewCount: 0,
+          leadCount: 0,
+          termsText: existing.termsText,
+          termsUrl: existing.termsUrl,
+          cancellationPolicyText: existing.cancellationPolicyText,
+          cancellationPolicyUrl: existing.cancellationPolicyUrl,
+          redemptionInstructionsText: existing.redemptionInstructionsText,
+          restrictionsText: existing.restrictionsText,
+          usePlatformDefaultTerms: existing.usePlatformDefaultTerms,
+          usePlatformDefaultCancellationPolicy: existing.usePlatformDefaultCancellationPolicy,
+          offerStatus: 'DRAFT',
+          vendorAttestationAcceptedAt: null,
+          vendorAttestationAcceptedIp: null,
+          complianceStatus: 'DRAFT',
+          complianceNotes: null,
+          pausedAt: null,
+          pausedByUserId: null,
+          cancelledAt: null,
+          cancelledByUserId: null,
+          cancelReason: null,
+        } as any,
+        include: {
+          company: {
+            select: { id: true, name: true, slug: true },
+          },
+          _count: {
+            select: { leads: true },
+          },
+        },
+      });
+
+      res.status(201).json({
+        message: `Created a draft copy for ${targetCompany.name}`,
+        offer: duplicated,
+      });
+    } catch (error) {
+      console.error('POST /api/vendor/offers/:id/replicate error:', error);
+      res.status(500).json({ error: 'Failed to replicate offer' });
+    }
+  }
+);
 
 const updateDraftOffer = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -1083,6 +1321,7 @@ const updateDraftOffer = async (req: Request, res: Response): Promise<void> => {
         vendorId: true,
         slug: true,
         title: true,
+        offerStatus: true,
         coverageType: true,
         provinceCode: true,
         cityName: true,
@@ -1096,6 +1335,10 @@ const updateDraftOffer = async (req: Request, res: Response): Promise<void> => {
     const offerRecord = existing as any;
     if (offerRecord.vendorId !== vendor.id) {
       res.status(403).json({ error: 'Access denied' });
+      return;
+    }
+    if (String(offerRecord.offerStatus || '').toUpperCase() === 'CANCELLED') {
+      res.status(400).json({ error: 'Cancelled offers cannot be edited. Replicate the offer instead.' });
       return;
     }
 
@@ -1235,10 +1478,16 @@ const updateDraftOffer = async (req: Request, res: Response): Promise<void> => {
     }
 
     data.active = false;
+    data.offerStatus = 'DRAFT';
     data.complianceStatus = 'DRAFT';
     data.complianceNotes = null;
     data.vendorAttestationAcceptedAt = null;
     data.vendorAttestationAcceptedIp = null;
+    data.pausedAt = null;
+    data.pausedByUserId = null;
+    data.cancelledAt = null;
+    data.cancelledByUserId = null;
+    data.cancelReason = null;
     data.offerType = 'lead';
     data.coverageType = coverage.coverageType;
     data.provinceCode = coverage.provinceCode;
@@ -1274,6 +1523,7 @@ router.post('/offers/:id/submit', authenticateToken, requireVendorOnly, async (r
         id: true,
         vendorId: true,
         title: true,
+        offerStatus: true,
         termsText: true,
         cancellationPolicyText: true,
         redemptionInstructionsText: true,
@@ -1303,6 +1553,21 @@ router.post('/offers/:id/submit', authenticateToken, requireVendorOnly, async (r
 
     if (offerRecord.vendorId !== vendor.id) {
       res.status(403).json({ error: 'Access denied' });
+      return;
+    }
+    const billingState = await getVendorBillingState(vendor.id, {
+      excludeOfferId: String(offerRecord.id),
+    });
+    if (!billingState.canPublishOffer) {
+      res.status(400).json({
+        error:
+          billingState.publishOfferMessage ||
+          'An active billing plan is required before you can submit an offer for review',
+      });
+      return;
+    }
+    if (String(offerRecord.offerStatus || '').toUpperCase() === 'CANCELLED') {
+      res.status(400).json({ error: 'Cancelled offers cannot be submitted' });
       return;
     }
 
@@ -1375,9 +1640,15 @@ router.post('/offers/:id/submit', authenticateToken, requireVendorOnly, async (r
         usePlatformDefaultCancellationPolicy,
         vendorAttestationAcceptedAt: acceptedAt,
         vendorAttestationAcceptedIp: acceptedIp,
+        offerStatus: 'SUBMITTED',
         complianceStatus: 'SUBMITTED',
         complianceNotes: null,
         active: false,
+        pausedAt: null,
+        pausedByUserId: null,
+        cancelledAt: null,
+        cancelledByUserId: null,
+        cancelReason: null,
       } as any,
       include: {
         company: { select: { id: true, name: true, slug: true } },
@@ -1409,6 +1680,178 @@ router.post('/offers/:id/submit', authenticateToken, requireVendorOnly, async (r
   } catch (error) {
     console.error('POST /api/vendor/offers/:id/submit error:', error);
     res.status(500).json({ error: 'Failed to submit offer for review' });
+  }
+});
+
+router.post('/offers/:id/pause', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const vendor = await requireVendorUser(req, res);
+    if (!vendor) return;
+
+    const offer = await loadOwnedOffer(vendor.id, String(req.params.id));
+    if (!offer) {
+      res.status(404).json({ error: 'Offer not found' });
+      return;
+    }
+    if (String(offer.offerStatus || '').toUpperCase() !== 'LIVE') {
+      res.status(400).json({ error: 'Only live offers can be paused' });
+      return;
+    }
+
+    const updated = await prisma.offer.update({
+      where: { id: offer.id },
+      data: {
+        active: false,
+        offerStatus: 'PAUSED',
+        pausedAt: new Date(),
+        pausedByUserId: req.user?.id || null,
+      } as any,
+      include: {
+        company: { select: { id: true, name: true, slug: true } },
+        _count: { select: { leads: true } },
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('POST /api/vendor/offers/:id/pause error:', error);
+    res.status(500).json({ error: 'Failed to pause offer' });
+  }
+});
+
+router.post('/offers/:id/resume', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const vendor = await requireVendorUser(req, res);
+    if (!vendor) return;
+
+    const offer = await loadOwnedOffer(vendor.id, String(req.params.id));
+    if (!offer) {
+      res.status(404).json({ error: 'Offer not found' });
+      return;
+    }
+    if (String(offer.offerStatus || '').toUpperCase() !== 'PAUSED') {
+      res.status(400).json({ error: 'Only paused offers can be resumed' });
+      return;
+    }
+    if (String(offer.complianceStatus || '').toUpperCase() !== 'APPROVED') {
+      res.status(400).json({ error: 'Only approved offers can be resumed' });
+      return;
+    }
+    const billingState = await getVendorBillingState(vendor.id, {
+      excludeOfferId: String(offer.id),
+    });
+    if (!billingState.canPublishOffer) {
+      res.status(400).json({
+        error:
+          billingState.publishOfferMessage ||
+          'An active billing plan is required before you can resume a live offer',
+      });
+      return;
+    }
+
+    const updated = await prisma.offer.update({
+      where: { id: offer.id },
+      data: {
+        active: true,
+        offerStatus: 'LIVE',
+        pausedAt: null,
+        pausedByUserId: null,
+      } as any,
+      include: {
+        company: { select: { id: true, name: true, slug: true } },
+        _count: { select: { leads: true } },
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('POST /api/vendor/offers/:id/resume error:', error);
+    res.status(500).json({ error: 'Failed to resume offer' });
+  }
+});
+
+router.post('/offers/:id/cancel', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const vendor = await requireVendorUser(req, res);
+    if (!vendor) return;
+
+    const offer = await loadOwnedOffer(vendor.id, String(req.params.id));
+    if (!offer) {
+      res.status(404).json({ error: 'Offer not found' });
+      return;
+    }
+    if (String(offer.offerStatus || '').toUpperCase() === 'CANCELLED') {
+      res.status(400).json({ error: 'Offer is already cancelled' });
+      return;
+    }
+
+    const cancelReason = String(req.body?.cancelReason || req.body?.cancel_reason || '').trim() || null;
+    const updated = await prisma.offer.update({
+      where: { id: offer.id },
+      data: {
+        active: false,
+        offerStatus: 'CANCELLED',
+        cancelledAt: new Date(),
+        cancelledByUserId: req.user?.id || null,
+        cancelReason,
+        pausedAt: null,
+        pausedByUserId: null,
+      } as any,
+      include: {
+        company: { select: { id: true, name: true, slug: true } },
+        _count: { select: { leads: true } },
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('POST /api/vendor/offers/:id/cancel error:', error);
+    res.status(500).json({ error: 'Failed to cancel offer' });
+  }
+});
+
+router.delete('/offers/:id', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const vendor = await requireVendorUser(req, res);
+    if (!vendor) return;
+
+    const offer = await prisma.offer.findUnique({
+      where: { id: String(req.params.id) },
+      include: {
+        _count: {
+          select: {
+            leads: true,
+            claims: true,
+            redemptions: true,
+            offerClicks: true,
+          },
+        },
+      },
+    });
+
+    if (!offer || offer.vendorId !== vendor.id) {
+      res.status(404).json({ error: 'Offer not found' });
+      return;
+    }
+    if (String((offer as any).offerStatus || '').toUpperCase() !== 'DRAFT') {
+      res.status(400).json({ error: 'Only draft offers can be deleted' });
+      return;
+    }
+
+    const counts = (offer as any)._count || {};
+    if (counts.leads || counts.claims || counts.redemptions || counts.offerClicks) {
+      res.status(400).json({ error: 'Offers with activity cannot be deleted' });
+      return;
+    }
+
+    await prisma.offer.delete({
+      where: { id: offer.id },
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('DELETE /api/vendor/offers/:id error:', error);
+    res.status(500).json({ error: 'Failed to delete offer' });
   }
 });
 

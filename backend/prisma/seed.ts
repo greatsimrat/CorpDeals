@@ -1126,6 +1126,137 @@ function getQaCompanyProfile(slug: string) {
   return QA_COMPANY_PROFILES.find((profile) => profile.slug === slug) || null;
 }
 
+const BILLING_PLAN_PRESETS = {
+  FREE: {
+    planType: 'SUBSCRIPTION',
+    monthlyFee: '0.00',
+    includedLeadsPerMonth: 10,
+    overagePricePerLead: '5.00',
+    currency: 'USD',
+    offerLimit: 5,
+    durationDays: 90,
+  },
+  PAID: {
+    planType: 'SUBSCRIPTION',
+    monthlyFee: '149.00',
+    includedLeadsPerMonth: 75,
+    overagePricePerLead: '3.00',
+    currency: 'USD',
+    offerLimit: 25,
+    durationDays: 365,
+  },
+  PREMIUM: {
+    planType: 'SUBSCRIPTION',
+    monthlyFee: '499.00',
+    includedLeadsPerMonth: 300,
+    overagePricePerLead: '2.00',
+    currency: 'USD',
+    offerLimit: 100,
+    durationDays: 365,
+  },
+  PAY_PER_LEAD: {
+    planType: 'PAY_PER_LEAD',
+    pricePerLead: '12.50',
+    monthlyFee: null,
+    includedLeadsPerMonth: null,
+    overagePricePerLead: null,
+    currency: 'CAD',
+    offerLimit: 25,
+    durationDays: 365,
+  },
+} as const;
+
+const daysFromNow = (days: number) => {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + days);
+  return date;
+};
+
+async function upsertVendorBillingSetup(
+  vendorId: string,
+  planId: string,
+  presetKey: keyof typeof BILLING_PLAN_PRESETS,
+  options?: {
+    billingCycleDay?: number;
+    startsAt?: Date;
+    endsAt?: Date | null;
+  }
+) {
+  const preset = BILLING_PLAN_PRESETS[presetKey];
+  const startsAt = options?.startsAt || daysFromNow(-15);
+  const endsAt =
+    options?.endsAt === undefined ? daysFromNow(preset.durationDays) : options.endsAt;
+  const billingCycleDay = options?.billingCycleDay || 1;
+
+  await prisma.vendorBilling.upsert({
+    where: { vendorId },
+    update: {
+      billingMode: preset.planType === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : 'MONTHLY',
+      postTrialMode: preset.planType === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : 'MONTHLY',
+      trialEndsAt: null,
+      leadPriceCents: preset.pricePerLead ? Math.round(Number(preset.pricePerLead) * 100) : 0,
+      monthlyFeeCents: preset.monthlyFee ? Math.round(Number(preset.monthlyFee) * 100) : 0,
+      paymentMethod: 'MANUAL',
+      currency: preset.currency,
+      billingDay: billingCycleDay,
+    },
+    create: {
+      vendorId,
+      billingMode: preset.planType === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : 'MONTHLY',
+      postTrialMode: preset.planType === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : 'MONTHLY',
+      trialEndsAt: null,
+      leadPriceCents: preset.pricePerLead ? Math.round(Number(preset.pricePerLead) * 100) : 0,
+      monthlyFeeCents: preset.monthlyFee ? Math.round(Number(preset.monthlyFee) * 100) : 0,
+      paymentMethod: 'MANUAL',
+      currency: preset.currency,
+      billingDay: billingCycleDay,
+    },
+  });
+
+  await (prisma as any).vendorBillingPlan.updateMany({
+    where: {
+      vendorId,
+      isActive: true,
+      id: { not: planId },
+    },
+    data: { isActive: false },
+  });
+
+  await (prisma as any).vendorBillingPlan.upsert({
+    where: { id: planId },
+    update: {
+      vendorId,
+      planType: preset.planType,
+      pricePerLead: preset.pricePerLead,
+      monthlyFee: preset.monthlyFee,
+      includedLeadsPerMonth: preset.includedLeadsPerMonth,
+      overagePricePerLead: preset.overagePricePerLead,
+      offerLimit: preset.offerLimit,
+      billingCycleDay,
+      currency: preset.currency,
+      startsAt,
+      endsAt,
+      isActive: true,
+    },
+    create: {
+      id: planId,
+      vendorId,
+      planType: preset.planType,
+      pricePerLead: preset.pricePerLead,
+      monthlyFee: preset.monthlyFee,
+      includedLeadsPerMonth: preset.includedLeadsPerMonth,
+      overagePricePerLead: preset.overagePricePerLead,
+      offerLimit: preset.offerLimit,
+      billingCycleDay,
+      currency: preset.currency,
+      startsAt,
+      endsAt,
+      isActive: true,
+    },
+  });
+}
+
 async function upsertApprovedVendorAccount(input: (typeof QA_VENDOR_DEFINITIONS)[number]) {
   const passwordHash = await bcrypt.hash('vendor123', 10);
 
@@ -1726,41 +1857,7 @@ async function main() {
   });
   console.log('Created sample vendor:', vendor.companyName);
 
-  await (prisma as any).vendorBillingPlan.updateMany({
-    where: {
-      vendorId: vendor.id,
-      isActive: true,
-      id: { not: 'seed-plan-coast-pay-per-lead' },
-    },
-    data: { isActive: false },
-  });
-
-  await (prisma as any).vendorBillingPlan.upsert({
-    where: { id: 'seed-plan-coast-pay-per-lead' },
-    update: {
-      vendorId: vendor.id,
-      planType: 'PAY_PER_LEAD',
-      pricePerLead: '12.50',
-      monthlyFee: null,
-      includedLeadsPerMonth: null,
-      overagePricePerLead: null,
-      billingCycleDay: 1,
-      currency: 'CAD',
-      isActive: true,
-    },
-    create: {
-      id: 'seed-plan-coast-pay-per-lead',
-      vendorId: vendor.id,
-      planType: 'PAY_PER_LEAD',
-      pricePerLead: '12.50',
-      monthlyFee: null,
-      includedLeadsPerMonth: null,
-      overagePricePerLead: null,
-      billingCycleDay: 1,
-      currency: 'CAD',
-      isActive: true,
-    },
-  });
+  await upsertVendorBillingSetup(vendor.id, 'seed-plan-coast-pay-per-lead', 'PAY_PER_LEAD');
   console.log('Seeded billing plan for sample vendor:', vendor.companyName);
 
   const bmoPassword = await bcrypt.hash('vendor123', 10);
@@ -1866,6 +1963,10 @@ async function main() {
       description: 'Telus corporate employee plans and services.',
       status: 'APPROVED',
     },
+  });
+  await prisma.user.update({
+    where: { id: telusUser.id },
+    data: { vendorId: telusVendor.id } as any,
   });
   console.log('Created sample vendor:', telusVendor.companyName);
 
@@ -2080,6 +2181,27 @@ async function main() {
     qaVendorRegistry.set(vendorDefinition.key, qaVendor);
   }
   console.log('Created QA vendors:', QA_VENDOR_DEFINITIONS.length);
+
+  await Promise.all([
+    upsertVendorBillingSetup(bmoVendor.id, 'seed-plan-bmo-paid', 'PAID'),
+    upsertVendorBillingSetup(kiaVendor.id, 'seed-plan-kia-paid', 'PAID'),
+    upsertVendorBillingSetup(telusVendor.id, 'seed-plan-telus-premium', 'PREMIUM'),
+    upsertVendorBillingSetup(chaseVendor.id, 'seed-plan-chase-paid', 'PAID'),
+    upsertVendorBillingSetup(appleVendor.id, 'seed-plan-apple-premium', 'PREMIUM'),
+    upsertVendorBillingSetup(equinoxVendor.id, 'seed-plan-equinox-free', 'FREE'),
+    upsertVendorBillingSetup(bmwVendor.id, 'seed-plan-bmw-paid', 'PAID'),
+    upsertVendorBillingSetup(adobeVendor.id, 'seed-plan-adobe-premium', 'PREMIUM'),
+    upsertVendorBillingSetup(marriottVendor.id, 'seed-plan-marriott-premium', 'PREMIUM'),
+    upsertVendorBillingSetup(cactusVendor.id, 'seed-plan-cactus-paid', 'PAID'),
+    ...Array.from(qaVendorRegistry.entries()).map(([key, vendor]) =>
+      upsertVendorBillingSetup(
+        vendor.id,
+        `seed-plan-${key}`,
+        key === 'qa-technology' || key === 'qa-travel' ? 'PREMIUM' : 'PAID'
+      )
+    ),
+  ]);
+  console.log('Seeded billing plans for sample and QA vendors');
 
   // Get category and company IDs for offers
   const bankingCategory = await prisma.category.findUnique({ where: { slug: 'banking' } });
@@ -3469,6 +3591,17 @@ async function main() {
     ]);
     console.log('Seeded BMO city-specific enrolled leads for Amazon and Microsoft');
   }
+
+  await prisma.$executeRawUnsafe(`
+    UPDATE "offers"
+    SET "offer_status" = CASE
+      WHEN "compliance_status" = 'submitted' THEN 'SUBMITTED'::"OfferStatus"
+      WHEN "compliance_status" = 'rejected' THEN 'REJECTED'::"OfferStatus"
+      WHEN "compliance_status" = 'approved' AND "active" = TRUE THEN 'LIVE'::"OfferStatus"
+      WHEN "compliance_status" = 'approved' AND "active" = FALSE THEN 'APPROVED'::"OfferStatus"
+      ELSE 'DRAFT'::"OfferStatus"
+    END
+  `);
 
   console.log('Seeding completed!');
   console.log('\nTest credentials:');
