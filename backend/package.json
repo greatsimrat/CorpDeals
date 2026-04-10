@@ -15,6 +15,12 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:uat": "tsx prisma/seed-uat.ts",
+    "db:categories:audit": "tsx prisma/category-taxonomy-audit.ts",
+    "db:billing:backfill": "tsx src/scripts/backfill-vendor-billing-associations.ts",
+    "db:billing:audit-offers": "tsx src/scripts/audit-offer-billing-compliance.ts",
+    "db:billing:revalidate-live-offers": "tsx src/scripts/revalidate-live-offers-billing.ts",
+    "db:offers:sync-state": "tsx src/scripts/sync-offer-state-live-status.ts",
+    "test:billing": "tsx --test src/lib/vendor-billing-access.test.ts src/lib/vendor-offer-enforcement.test.ts",
     "db:prepare:uat": "bash scripts/prepare-uat-demo.sh",
     "db:studio": "prisma studio"
   },

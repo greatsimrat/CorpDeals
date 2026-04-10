@@ -22,6 +22,7 @@ import {
   normalizeOptionalUrl,
 } from '../lib/offer-details';
 import { getVendorBillingState } from '../lib/vendor-billing';
+import { getVendorBillingAccess, toBillingAccessDeniedResponse } from '../lib/vendor-billing-access';
 
 const router = Router();
 
@@ -69,6 +70,49 @@ const normalizeText = (value: unknown) => {
 
 const isTruthy = (value: unknown) =>
   value === true || value === 'true' || value === '1' || value === 1;
+
+const VENDOR_BILLING_PLAN_PRESETS = {
+  FREE: {
+    monthlyFee: 0,
+    includedLeadsPerMonth: 10,
+    overagePricePerLead: 5,
+    currency: 'CAD',
+    offerLimit: 50 as number | null,
+    billingMode: 'FREE' as const,
+    associationStatus: 'FREE' as const,
+  },
+  GOLD: {
+    monthlyFee: 100,
+    includedLeadsPerMonth: 100,
+    overagePricePerLead: 3,
+    currency: 'CAD',
+    offerLimit: 100 as number | null,
+    billingMode: 'MONTHLY' as const,
+    associationStatus: 'ACTIVE' as const,
+  },
+  PREMIUM: {
+    monthlyFee: 300,
+    includedLeadsPerMonth: 300,
+    overagePricePerLead: 2,
+    currency: 'CAD',
+    offerLimit: null as number | null,
+    billingMode: 'MONTHLY' as const,
+    associationStatus: 'ACTIVE' as const,
+  },
+} as const;
+
+type VendorBillingPlanTier = keyof typeof VENDOR_BILLING_PLAN_PRESETS;
+
+const resolveVendorBillingPlanTier = (value: unknown): VendorBillingPlanTier | null => {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (!normalized) return null;
+  if (normalized === 'GROWTH') return 'GOLD';
+  if (normalized === 'PRO') return 'PREMIUM';
+  if (Object.prototype.hasOwnProperty.call(VENDOR_BILLING_PLAN_PRESETS, normalized)) {
+    return normalized as VendorBillingPlanTier;
+  }
+  return null;
+};
 
 const extractRequestIp = (req: Request) => {
   const forwarded = req.headers['x-forwarded-for'];
@@ -147,7 +191,7 @@ const getDashboardSummary = async (vendorId: string) => {
   const todayStart = startOfToday();
   const monthStart = startOfMonth();
 
-  const [leadsToday, leadsMonth, activeOffers, qualifiedLeads, leadsSent] = await Promise.all([
+  const [leadsToday, leadsMonth, activeOffers, qualifiedLeads, leadsSent, hiddenLeads] = await Promise.all([
     prisma.lead.count({
       where: {
         vendorId,
@@ -164,6 +208,7 @@ const getDashboardSummary = async (vendorId: string) => {
       where: {
         vendorId,
         active: true,
+        offerState: 'APPROVED',
       },
     }),
     prisma.lead.count({
@@ -182,6 +227,12 @@ const getDashboardSummary = async (vendorId: string) => {
         },
       },
     }),
+    prisma.vendorLeadEvent.count({
+      where: {
+        vendorId,
+        visibilityStatus: 'LOCKED',
+      } as any,
+    }),
   ]);
 
   return {
@@ -190,6 +241,7 @@ const getDashboardSummary = async (vendorId: string) => {
     active_offers: activeOffers,
     qualified_leads: qualifiedLeads,
     leads_sent: leadsSent,
+    hidden_leads: hiddenLeads,
   };
 };
 
@@ -206,12 +258,39 @@ const asNumber = (value: unknown): number => {
   return Number.isFinite(numeric) ? numeric : 0;
 };
 
+const serializeVendorLeadForResponse = (lead: any) => {
+  const visibilityStatus = String(lead?.vendorLeadEvent?.visibilityStatus || 'VISIBLE').toUpperCase();
+  const lockedReason = lead?.vendorLeadEvent?.lockedReason || null;
+  const isLocked = visibilityStatus === 'LOCKED';
+
+  if (!isLocked) {
+    return {
+      ...lead,
+      visibilityStatus: 'VISIBLE',
+      lockedReason: null,
+      leadAccess: 'VISIBLE',
+    };
+  }
+
+  return {
+    ...lead,
+    firstName: 'Locked',
+    lastName: 'Lead',
+    email: null,
+    phone: null,
+    message: null,
+    employeeId: null,
+    consentIp: null,
+    visibilityStatus: 'LOCKED',
+    lockedReason,
+    leadAccess: 'LOCKED',
+  };
+};
+
 type OfferLifecycleStatus =
   | 'DRAFT'
   | 'SUBMITTED'
   | 'APPROVED'
-  | 'LIVE'
-  | 'PAUSED'
   | 'CANCELLED'
   | 'REJECTED';
 
@@ -245,6 +324,7 @@ const loadOwnedOffer = async (
       title: true,
       active: true,
       offerStatus: true,
+      offerState: true,
       complianceStatus: true,
       ...(select || {}),
     } as any,
@@ -856,7 +936,7 @@ router.get('/billing', authenticateToken, requireVendorOnly, async (req: Request
     const vendor = await requireVendorUser(req, res);
     if (!vendor) return;
 
-    const [billingState, invoices] = await Promise.all([
+    const [billingState, invoices, hiddenLeadCount, walletTransactions] = await Promise.all([
       getVendorBillingState(vendor.id),
       (prisma as any).invoice.findMany({
         where: { vendorId: vendor.id },
@@ -866,6 +946,17 @@ router.get('/billing', authenticateToken, requireVendorOnly, async (req: Request
           },
         },
         orderBy: [{ periodStart: 'desc' }, { createdAt: 'desc' }],
+      }),
+      (prisma as any).vendorLeadEvent.count({
+        where: {
+          vendorId: vendor.id,
+          visibilityStatus: 'LOCKED',
+        },
+      }),
+      (prisma as any).vendorWalletTransaction.findMany({
+        where: { vendorId: vendor.id },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
       }),
     ]);
 
@@ -888,11 +979,244 @@ router.get('/billing', authenticateToken, requireVendorOnly, async (req: Request
       canPublishOffer: billingState.canPublishOffer,
       createOfferMessage: billingState.createOfferMessage,
       publishOfferMessage: billingState.publishOfferMessage,
+      hiddenLeadCount,
+      walletBalance: billingState.billingProfile?.walletBalance ?? '0.00',
+      currencyCode: billingState.billingProfile?.currencyCode || billingState.billingProfile?.currency || 'CAD',
+      includedLeadsTotal: billingState.billingProfile?.includedLeadsTotal ?? 0,
+      includedLeadsUsed: billingState.billingProfile?.includedLeadsUsed ?? 0,
+      walletTransactions,
       invoices,
     });
   } catch (error) {
     console.error('GET /api/vendor/billing error:', error);
     res.status(500).json({ error: 'Failed to load vendor billing' });
+  }
+});
+
+router.put('/billing/plan', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const vendor = await requireVendorUser(req, res);
+    if (!vendor) return;
+
+    if (vendor.status !== 'APPROVED') {
+      res.status(403).json({ error: 'Only approved vendors can update billing plans' });
+      return;
+    }
+
+    const requestedTier = resolveVendorBillingPlanTier(
+      req.body?.planTier ?? req.body?.subscriptionTier ?? req.body?.tier
+    );
+    if (!requestedTier) {
+      res.status(400).json({ error: 'planTier must be one of FREE, GOLD, or PREMIUM' });
+      return;
+    }
+
+    const existingBilling = await prisma.vendorBilling.findUnique({
+      where: { vendorId: vendor.id },
+      select: { billingDay: true },
+    });
+    const billingCycleDayRaw = req.body?.billingCycleDay ?? req.body?.billing_cycle_day;
+    const billingCycleDay =
+      billingCycleDayRaw === undefined || billingCycleDayRaw === null || String(billingCycleDayRaw).trim() === ''
+        ? existingBilling?.billingDay || 1
+        : Number(billingCycleDayRaw);
+    if (!Number.isInteger(billingCycleDay) || billingCycleDay < 1 || billingCycleDay > 28) {
+      res.status(400).json({ error: 'billingCycleDay must be an integer between 1 and 28' });
+      return;
+    }
+
+    const preset = VENDOR_BILLING_PLAN_PRESETS[requestedTier];
+    const now = new Date();
+
+    await prisma.$transaction(async (tx) => {
+      await (tx as any).vendorBillingPlan.updateMany({
+        where: { vendorId: vendor.id, isActive: true },
+        data: { isActive: false },
+      });
+
+      await (tx as any).vendorBillingPlan.create({
+        data: {
+          vendorId: vendor.id,
+          code: requestedTier,
+          name: requestedTier === 'FREE' ? 'Free' : requestedTier === 'GOLD' ? 'Gold' : 'Premium',
+          planType: 'SUBSCRIPTION',
+          pricePerLead: null,
+          monthlyFee: preset.monthlyFee.toFixed(2),
+          includedLeadsPerMonth: preset.includedLeadsPerMonth,
+          includedLeadsPerCycle: preset.includedLeadsPerMonth,
+          overagePricePerLead: preset.overagePricePerLead.toFixed(2),
+          offerLimit: preset.offerLimit,
+          maxActiveOffers: preset.offerLimit,
+          overageEnabled: true,
+          billingCycleDay,
+          currency: preset.currency,
+          startsAt: now,
+          endsAt: null,
+          isActive: true,
+        },
+      });
+
+      await tx.vendorBilling.upsert({
+        where: { vendorId: vendor.id },
+        update: {
+          billingMode: preset.billingMode,
+          postTrialMode: preset.billingMode === 'FREE' ? 'FREE' : 'MONTHLY',
+          trialEndsAt: null,
+          leadPriceCents: 0,
+          monthlyFeeCents: Math.max(0, Math.round(preset.monthlyFee * 100)),
+          paymentMethod: 'MANUAL',
+          currency: preset.currency,
+          currencyCode: preset.currency,
+          billingCycleStartAt: now,
+          billingCycleEndAt: null,
+          includedLeadsTotal: preset.includedLeadsPerMonth,
+          includedLeadsUsed: 0,
+          billingDay: billingCycleDay,
+          associationStatus: preset.associationStatus as any,
+          statusReason: 'vendor-self-service-plan-update',
+          lastValidatedAt: now,
+        } as any,
+        create: {
+          vendorId: vendor.id,
+          billingMode: preset.billingMode,
+          postTrialMode: preset.billingMode === 'FREE' ? 'FREE' : 'MONTHLY',
+          trialEndsAt: null,
+          leadPriceCents: 0,
+          monthlyFeeCents: Math.max(0, Math.round(preset.monthlyFee * 100)),
+          paymentMethod: 'MANUAL',
+          currency: preset.currency,
+          currencyCode: preset.currency,
+          billingCycleStartAt: now,
+          billingCycleEndAt: null,
+          includedLeadsTotal: preset.includedLeadsPerMonth,
+          includedLeadsUsed: 0,
+          walletBalance: '0.00',
+          billingDay: billingCycleDay,
+          associationStatus: preset.associationStatus as any,
+          statusReason: 'vendor-self-service-plan-update',
+          lastValidatedAt: now,
+        } as any,
+      });
+    });
+
+    const billingState = await getVendorBillingState(vendor.id);
+    res.json({
+      message: 'Billing plan updated',
+      planTier: requestedTier,
+      billingProfile: billingState.billingProfile,
+      activePlan: billingState.activePlan,
+      latestPlan: billingState.latestPlan,
+      planStatus: billingState.planStatus,
+      planDisplayName: billingState.planDisplayName,
+      offerLimit: billingState.offerLimit,
+      managedOfferCount: billingState.managedOfferCount,
+      liveOfferCount: billingState.liveOfferCount,
+      remainingOfferSlots: billingState.remainingOfferSlots,
+      canCreateOffer: billingState.canCreateOffer,
+      canPublishOffer: billingState.canPublishOffer,
+      createOfferMessage: billingState.createOfferMessage,
+      publishOfferMessage: billingState.publishOfferMessage,
+    });
+  } catch (error) {
+    console.error('PUT /api/vendor/billing/plan error:', error);
+    res.status(500).json({ error: 'Failed to update billing plan' });
+  }
+});
+
+router.get('/billing/wallet', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const vendor = await requireVendorUser(req, res);
+    if (!vendor) return;
+
+    const [billingProfile, recentTransactions] = await Promise.all([
+      prisma.vendorBilling.findUnique({
+        where: { vendorId: vendor.id },
+      }),
+      (prisma as any).vendorWalletTransaction.findMany({
+        where: { vendorId: vendor.id },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      }),
+    ]);
+
+    res.json({
+      vendorId: vendor.id,
+      walletBalance: billingProfile?.walletBalance ?? '0.00',
+      currencyCode: billingProfile?.currencyCode || billingProfile?.currency || 'CAD',
+      includedLeadsTotal: billingProfile?.includedLeadsTotal ?? 0,
+      includedLeadsUsed: billingProfile?.includedLeadsUsed ?? 0,
+      transactions: recentTransactions,
+    });
+  } catch (error) {
+    console.error('GET /api/vendor/billing/wallet error:', error);
+    res.status(500).json({ error: 'Failed to load vendor wallet' });
+  }
+});
+
+router.post('/billing/wallet/top-up', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const vendor = await requireVendorUser(req, res);
+    if (!vendor) return;
+
+    const amountRaw = Number(req.body?.amount);
+    const amount = Number.isFinite(amountRaw) ? Math.round(amountRaw * 100) / 100 : 0;
+    if (amount <= 0) {
+      res.status(400).json({ error: 'Top-up amount must be greater than zero' });
+      return;
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const billing = await tx.vendorBilling.upsert({
+        where: { vendorId: vendor.id },
+        update: {},
+        create: {
+          vendorId: vendor.id,
+          billingMode: 'FREE',
+          postTrialMode: 'FREE',
+          associationStatus: 'INACTIVE',
+          statusReason: 'wallet-top-up-bootstrap',
+          currency: 'CAD',
+          currencyCode: 'CAD',
+          walletBalance: '0.00',
+        } as any,
+      });
+
+      const before = asNumber((billing as any).walletBalance);
+      const after = Math.round((before + amount) * 100) / 100;
+
+      const updated = await tx.vendorBilling.update({
+        where: { vendorId: vendor.id },
+        data: {
+          walletBalance: after.toFixed(2),
+          lastValidatedAt: new Date(),
+        } as any,
+      });
+
+      const transaction = await (tx as any).vendorWalletTransaction.create({
+        data: {
+          vendorId: vendor.id,
+          subscriptionId: (billing as any).id,
+          type: 'TOP_UP',
+          amount: amount.toFixed(2),
+          balanceBefore: before.toFixed(2),
+          balanceAfter: after.toFixed(2),
+          referenceType: 'MANUAL_TOP_UP',
+          referenceId: null,
+        },
+      });
+
+      return { updated, transaction };
+    });
+
+    res.status(201).json({
+      message: 'Wallet topped up',
+      walletBalance: result.updated.walletBalance,
+      currencyCode: result.updated.currencyCode || result.updated.currency || 'CAD',
+      transaction: result.transaction,
+    });
+  } catch (error) {
+    console.error('POST /api/vendor/billing/wallet/top-up error:', error);
+    res.status(500).json({ error: 'Failed to top up wallet' });
   }
 });
 
@@ -1009,13 +1333,9 @@ router.post('/offers', authenticateToken, requireVendorOnly, async (req: Request
       return;
     }
 
-    const billingState = await getVendorBillingState(vendor.id);
-    if (!billingState.canCreateOffer) {
-      res.status(400).json({
-        error:
-          billingState.createOfferMessage ||
-          'An active billing plan is required before you can create offers',
-      });
+    const billingAccess = await getVendorBillingAccess(vendor.id, 'CREATE_OFFER');
+    if (!billingAccess.allowed) {
+      res.status(403).json(toBillingAccessDeniedResponse(billingAccess));
       return;
     }
 
@@ -1127,6 +1447,7 @@ router.post('/offers', authenticateToken, requireVendorOnly, async (req: Request
         termsUrl: normalizeOptionalUrl(req.body?.termsUrl),
         cancellationPolicyUrl: normalizeOptionalUrl(req.body?.cancellationPolicyUrl),
         offerStatus: 'DRAFT',
+        offerState: 'DRAFT',
         complianceStatus: 'DRAFT',
         complianceNotes: null,
         vendorAttestationAcceptedAt: null,
@@ -1163,13 +1484,9 @@ router.post(
         return;
       }
 
-      const billingState = await getVendorBillingState(vendor.id);
-      if (!billingState.canCreateOffer) {
-        res.status(400).json({
-          error:
-            billingState.createOfferMessage ||
-            'An active billing plan is required before you can replicate another offer',
-        });
+      const billingAccess = await getVendorBillingAccess(vendor.id, 'CREATE_OFFER');
+      if (!billingAccess.allowed) {
+        res.status(403).json(toBillingAccessDeniedResponse(billingAccess));
         return;
       }
 
@@ -1277,6 +1594,7 @@ router.post(
           usePlatformDefaultTerms: existing.usePlatformDefaultTerms,
           usePlatformDefaultCancellationPolicy: existing.usePlatformDefaultCancellationPolicy,
           offerStatus: 'DRAFT',
+          offerState: 'DRAFT',
           vendorAttestationAcceptedAt: null,
           vendorAttestationAcceptedIp: null,
           complianceStatus: 'DRAFT',
@@ -1322,6 +1640,7 @@ const updateDraftOffer = async (req: Request, res: Response): Promise<void> => {
         slug: true,
         title: true,
         offerStatus: true,
+        offerState: true,
         coverageType: true,
         provinceCode: true,
         cityName: true,
@@ -1337,7 +1656,7 @@ const updateDraftOffer = async (req: Request, res: Response): Promise<void> => {
       res.status(403).json({ error: 'Access denied' });
       return;
     }
-    if (String(offerRecord.offerStatus || '').toUpperCase() === 'CANCELLED') {
+    if (String(offerRecord.offerState || '').toUpperCase() === 'CANCELLED') {
       res.status(400).json({ error: 'Cancelled offers cannot be edited. Replicate the offer instead.' });
       return;
     }
@@ -1479,6 +1798,7 @@ const updateDraftOffer = async (req: Request, res: Response): Promise<void> => {
 
     data.active = false;
     data.offerStatus = 'DRAFT';
+    data.offerState = 'DRAFT';
     data.complianceStatus = 'DRAFT';
     data.complianceNotes = null;
     data.vendorAttestationAcceptedAt = null;
@@ -1524,6 +1844,7 @@ router.post('/offers/:id/submit', authenticateToken, requireVendorOnly, async (r
         vendorId: true,
         title: true,
         offerStatus: true,
+        offerState: true,
         termsText: true,
         cancellationPolicyText: true,
         redemptionInstructionsText: true,
@@ -1555,18 +1876,14 @@ router.post('/offers/:id/submit', authenticateToken, requireVendorOnly, async (r
       res.status(403).json({ error: 'Access denied' });
       return;
     }
-    const billingState = await getVendorBillingState(vendor.id, {
+    const billingAccess = await getVendorBillingAccess(vendor.id, 'SUBMIT_OFFER', {
       excludeOfferId: String(offerRecord.id),
     });
-    if (!billingState.canPublishOffer) {
-      res.status(400).json({
-        error:
-          billingState.publishOfferMessage ||
-          'An active billing plan is required before you can submit an offer for review',
-      });
+    if (!billingAccess.allowed) {
+      res.status(400).json(toBillingAccessDeniedResponse(billingAccess));
       return;
     }
-    if (String(offerRecord.offerStatus || '').toUpperCase() === 'CANCELLED') {
+    if (String(offerRecord.offerState || '').toUpperCase() === 'CANCELLED') {
       res.status(400).json({ error: 'Cancelled offers cannot be submitted' });
       return;
     }
@@ -1641,6 +1958,7 @@ router.post('/offers/:id/submit', authenticateToken, requireVendorOnly, async (r
         vendorAttestationAcceptedAt: acceptedAt,
         vendorAttestationAcceptedIp: acceptedIp,
         offerStatus: 'SUBMITTED',
+        offerState: 'SUBMITTED',
         complianceStatus: 'SUBMITTED',
         complianceNotes: null,
         active: false,
@@ -1693,8 +2011,8 @@ router.post('/offers/:id/pause', authenticateToken, requireVendorOnly, async (re
       res.status(404).json({ error: 'Offer not found' });
       return;
     }
-    if (String(offer.offerStatus || '').toUpperCase() !== 'LIVE') {
-      res.status(400).json({ error: 'Only live offers can be paused' });
+    if (String(offer.offerState || '').toUpperCase() !== 'APPROVED' || !offer.active) {
+      res.status(400).json({ error: 'Only active approved offers can be paused' });
       return;
     }
 
@@ -1703,6 +2021,7 @@ router.post('/offers/:id/pause', authenticateToken, requireVendorOnly, async (re
       data: {
         active: false,
         offerStatus: 'PAUSED',
+        offerState: 'APPROVED',
         pausedAt: new Date(),
         pausedByUserId: req.user?.id || null,
       } as any,
@@ -1729,23 +2048,19 @@ router.post('/offers/:id/resume', authenticateToken, requireVendorOnly, async (r
       res.status(404).json({ error: 'Offer not found' });
       return;
     }
-    if (String(offer.offerStatus || '').toUpperCase() !== 'PAUSED') {
-      res.status(400).json({ error: 'Only paused offers can be resumed' });
-      return;
-    }
-    if (String(offer.complianceStatus || '').toUpperCase() !== 'APPROVED') {
+    if (String(offer.offerState || '').toUpperCase() !== 'APPROVED') {
       res.status(400).json({ error: 'Only approved offers can be resumed' });
       return;
     }
-    const billingState = await getVendorBillingState(vendor.id, {
+    if (offer.active) {
+      res.status(400).json({ error: 'Offer is already active' });
+      return;
+    }
+    const billingAccess = await getVendorBillingAccess(vendor.id, 'PUBLISH_OFFER', {
       excludeOfferId: String(offer.id),
     });
-    if (!billingState.canPublishOffer) {
-      res.status(400).json({
-        error:
-          billingState.publishOfferMessage ||
-          'An active billing plan is required before you can resume a live offer',
-      });
+    if (!billingAccess.allowed) {
+      res.status(400).json(toBillingAccessDeniedResponse(billingAccess));
       return;
     }
 
@@ -1754,6 +2069,7 @@ router.post('/offers/:id/resume', authenticateToken, requireVendorOnly, async (r
       data: {
         active: true,
         offerStatus: 'LIVE',
+        offerState: 'APPROVED',
         pausedAt: null,
         pausedByUserId: null,
       } as any,
@@ -1780,7 +2096,7 @@ router.post('/offers/:id/cancel', authenticateToken, requireVendorOnly, async (r
       res.status(404).json({ error: 'Offer not found' });
       return;
     }
-    if (String(offer.offerStatus || '').toUpperCase() === 'CANCELLED') {
+    if (String(offer.offerState || '').toUpperCase() === 'CANCELLED') {
       res.status(400).json({ error: 'Offer is already cancelled' });
       return;
     }
@@ -1791,6 +2107,7 @@ router.post('/offers/:id/cancel', authenticateToken, requireVendorOnly, async (r
       data: {
         active: false,
         offerStatus: 'CANCELLED',
+        offerState: 'CANCELLED',
         cancelledAt: new Date(),
         cancelledByUserId: req.user?.id || null,
         cancelReason,
@@ -1833,7 +2150,7 @@ router.delete('/offers/:id', authenticateToken, requireVendorOnly, async (req: R
       res.status(404).json({ error: 'Offer not found' });
       return;
     }
-    if (String((offer as any).offerStatus || '').toUpperCase() !== 'DRAFT') {
+    if (String((offer as any).offerState || '').toUpperCase() !== 'DRAFT') {
       res.status(400).json({ error: 'Only draft offers can be deleted' });
       return;
     }
@@ -1877,6 +2194,14 @@ router.get('/leads', authenticateToken, requireVendorOnly, async (req: Request, 
     const leads = await prisma.lead.findMany({
       where: where as any,
       include: {
+        vendorLeadEvent: {
+          select: {
+            visibilityStatus: true,
+            lockedReason: true,
+            pricingSource: true,
+            priceApplied: true,
+          },
+        },
         offer: {
           select: {
             id: true,
@@ -1890,6 +2215,7 @@ router.get('/leads', authenticateToken, requireVendorOnly, async (req: Request, 
       },
       orderBy: { createdAt: 'desc' },
     });
+    const serializedLeads = leads.map((lead) => serializeVendorLeadForResponse(lead));
 
     if (exportFormat === 'csv') {
       const header = [
@@ -1907,12 +2233,12 @@ router.get('/leads', authenticateToken, requireVendorOnly, async (req: Request, 
         'created_at',
       ];
 
-      const rows = leads.map((lead) =>
+      const rows = serializedLeads.map((lead: any) =>
         [
           lead.id,
           lead.status,
           `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
-          lead.email,
+          lead.email || '',
           lead.phone || '',
           lead.company.name,
           lead.offer.title,
@@ -1935,7 +2261,7 @@ router.get('/leads', authenticateToken, requireVendorOnly, async (req: Request, 
       return;
     }
 
-    res.json(leads);
+    res.json(serializedLeads);
   } catch (error) {
     console.error('GET /api/vendor/leads error:', error);
     res.status(500).json({ error: 'Failed to load vendor leads' });
@@ -1951,6 +2277,14 @@ router.get('/leads/:id', authenticateToken, requireVendorOnly, async (req: Reque
     const lead = await prisma.lead.findFirst({
       where: { id, vendorId: vendor.id },
       include: {
+        vendorLeadEvent: {
+          select: {
+            visibilityStatus: true,
+            lockedReason: true,
+            pricingSource: true,
+            priceApplied: true,
+          },
+        },
         offer: {
           select: {
             id: true,
@@ -1969,7 +2303,7 @@ router.get('/leads/:id', authenticateToken, requireVendorOnly, async (req: Reque
       return;
     }
 
-    res.json(lead);
+    res.json(serializeVendorLeadForResponse(lead));
   } catch (error) {
     console.error('GET /api/vendor/leads/:id error:', error);
     res.status(500).json({ error: 'Failed to load lead' });
@@ -1989,7 +2323,15 @@ router.patch('/leads/:id', authenticateToken, requireVendorOnly, async (req: Req
 
     const lead = await prisma.lead.findFirst({
       where: { id, vendorId: vendor.id },
-      select: { id: true, status: true },
+      select: {
+        id: true,
+        status: true,
+        vendorLeadEvent: {
+          select: {
+            visibilityStatus: true,
+          },
+        },
+      },
     });
 
     if (!lead) {
@@ -1998,6 +2340,13 @@ router.patch('/leads/:id', authenticateToken, requireVendorOnly, async (req: Req
     }
 
     if (nextStatus) {
+      if (String(lead?.vendorLeadEvent?.visibilityStatus || '').toUpperCase() === 'LOCKED') {
+        res.status(400).json({
+          error: 'Lead is locked by billing. Upgrade or top up before changing lead status.',
+          code: 'LEAD_LOCKED',
+        });
+        return;
+      }
       const current = String(lead.status).toUpperCase();
       const normalizedCurrent = current === 'SENT' ? 'NEW' : current;
       const allowedTransitions: Record<string, string> = {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import api from '../../services/api';
+import { getBillingErrorMessage } from '../../lib/billing-access';
 
 type Company = { id: string; name: string; slug: string };
 
@@ -187,6 +188,7 @@ export default function VendorOfferFormPage() {
   const effectiveCancellationPreview = form.usePlatformDefaultCancellationPolicy
     ? policyDefaults.cancellationTemplate.bodyText
     : form.cancellationPolicyText;
+  const isCreateBlocked = !isEdit && Boolean(billing && !billing.canCreateOffer);
 
   const validateCommonFields = () => {
     if (!form.companyId || !form.title || !form.description) {
@@ -249,7 +251,7 @@ export default function VendorOfferFormPage() {
       await persistDraft();
       navigate('/vendor/offers');
     } catch (err: any) {
-      setError(err.message || 'Failed to save draft');
+      setError(getBillingErrorMessage(err, 'Failed to save draft'));
     } finally {
       setSubmitMode(null);
     }
@@ -299,7 +301,7 @@ export default function VendorOfferFormPage() {
       });
       navigate('/vendor/offers');
     } catch (err: any) {
-      setError(err.message || 'Failed to submit offer for review');
+      setError(getBillingErrorMessage(err, 'Failed to submit offer for review'));
     } finally {
       setSubmitMode(null);
     }
@@ -307,6 +309,46 @@ export default function VendorOfferFormPage() {
 
   if (isLoading) {
     return <div className="rounded-xl border border-slate-200 bg-white p-6">Loading...</div>;
+  }
+
+  if (isCreateBlocked) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-6">
+          <div>
+            <h2 className="text-xl font-semibold text-slate-900">Create Offer</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Billing setup is required before creating new offers.
+            </p>
+          </div>
+          <Link to="/vendor/offers" className="text-sm font-medium text-blue-600 hover:underline">
+            Back to offers
+          </Link>
+        </div>
+
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-800">
+          <p className="font-semibold">Offer creation is currently blocked</p>
+          <p className="mt-1 text-sm">
+            {billing?.createOfferMessage ||
+              'A valid billing plan is required before you can create offers.'}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link
+              to="/vendor/billing"
+              className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Review Billing
+            </Link>
+            <Link
+              to="/vendor/offers"
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+            >
+              Back to Offer List
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

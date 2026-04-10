@@ -288,6 +288,7 @@ class ApiService {
       active_offers: number;
       qualified_leads: number;
       leads_sent: number;
+      hidden_leads?: number;
     }>('/vendor/dashboard/summary');
   }
 
@@ -345,8 +346,40 @@ class ApiService {
       canPublishOffer?: boolean;
       createOfferMessage?: string;
       publishOfferMessage?: string;
+      hiddenLeadCount?: number;
+      walletBalance?: string;
+      currencyCode?: string;
+      includedLeadsTotal?: number;
+      includedLeadsUsed?: number;
+      walletTransactions?: any[];
       invoices: any[];
     }>('/vendor/billing');
+  }
+
+  async updateVendorBillingPlan(data: {
+    planTier: 'FREE' | 'GOLD' | 'PREMIUM';
+    billingCycleDay?: number;
+  }) {
+    return this.request<{
+      message: string;
+      planTier: 'FREE' | 'GOLD' | 'PREMIUM';
+      billingProfile?: any;
+      activePlan: any | null;
+      latestPlan?: any | null;
+      planStatus?: 'ACTIVE' | 'EXPIRED' | 'SCHEDULED' | 'INACTIVE' | 'NONE';
+      planDisplayName?: string;
+      offerLimit?: number | null;
+      managedOfferCount?: number;
+      liveOfferCount?: number;
+      remainingOfferSlots?: number | null;
+      canCreateOffer?: boolean;
+      canPublishOffer?: boolean;
+      createOfferMessage?: string;
+      publishOfferMessage?: string;
+    }>('/vendor/billing/plan', {
+      method: 'PUT',
+      body: data,
+    });
   }
 
   async exportVendorInvoiceCsv(invoiceId: string) {
@@ -365,6 +398,29 @@ class ApiService {
       throw new Error('Failed to export invoice CSV');
     }
     return response.text();
+  }
+
+  async getVendorWallet() {
+    return this.request<{
+      vendorId: string;
+      walletBalance: string;
+      currencyCode: string;
+      includedLeadsTotal: number;
+      includedLeadsUsed: number;
+      transactions: any[];
+    }>('/vendor/billing/wallet');
+  }
+
+  async topUpVendorWallet(amount: number) {
+    return this.request<{
+      message: string;
+      walletBalance: string;
+      currencyCode: string;
+      transaction: any;
+    }>('/vendor/billing/wallet/top-up', {
+      method: 'POST',
+      body: { amount },
+    });
   }
 
   async getVendorPolicyDefaults() {
@@ -766,6 +822,21 @@ class ApiService {
     return this.request<any[]>(`/admin/vendors${query}`);
   }
 
+  async getAdminVendorBillingEligibility(params?: { status?: string; invalidOnly?: boolean }) {
+    const query = this.buildQuery(params as Record<string, unknown> | undefined);
+    return this.request<{
+      totalVendors: number;
+      invalidVendors: number;
+      returnedVendors: number;
+      invalidOnly: boolean;
+      vendors: any[];
+    }>(`/admin/vendors/billing-eligibility${query}`);
+  }
+
+  async getAdminVendorBillingEligibilityById(vendorId: string) {
+    return this.request<any>(`/admin/vendors/${encodeURIComponent(vendorId)}/billing-eligibility`);
+  }
+
   async reviewAdminVendor(id: string, status: 'APPROVED' | 'REJECTED') {
     return this.request<any>(`/admin/vendors/${encodeURIComponent(id)}`, {
       method: 'PATCH',
@@ -778,9 +849,66 @@ class ApiService {
     return this.request<any[]>(`/admin/offers-review${query}`);
   }
 
-  async approveAdminOfferReview(id: string) {
+  async getAdminBillingBlockedOffers(params?: { limit?: number; statuses?: string[] | string }) {
+    const normalizedStatuses = Array.isArray(params?.statuses)
+      ? params?.statuses.join(',')
+      : params?.statuses;
+    const query = this.buildQuery({
+      limit: params?.limit,
+      statuses: normalizedStatuses,
+    });
+    return this.request<{
+      scannedOffers: number;
+      blockedOffers: number;
+      results: any[];
+    }>(`/admin/offers/billing-blocked${query}`);
+  }
+
+  async revalidateAdminOfferBilling(data?: { applyChanges?: boolean; limit?: number }) {
+    return this.request<any>('/admin/offers/revalidate-billing', {
+      method: 'POST',
+      body: data || {},
+    });
+  }
+
+  async getAdminCategoryLeadPricing(params?: {
+    categoryId?: string;
+    subcategoryId?: string;
+    isActive?: boolean;
+  }) {
+    const query = this.buildQuery(params as Record<string, unknown> | undefined);
+    return this.request<any[]>(`/admin/pricing/category-leads${query}`);
+  }
+
+  async saveAdminCategoryLeadPricing(data: {
+    categoryId: string;
+    subcategoryId?: string | null;
+    leadPrice: number;
+    billingType?: 'PER_LEAD' | 'PER_SALE';
+    isActive?: boolean;
+  }) {
+    return this.request<any>('/admin/pricing/category-leads', {
+      method: 'PUT',
+      body: data,
+    });
+  }
+
+  async getAdminLeadMonetizationAnalytics(params?: {
+    days?: number;
+    walletThreshold?: number;
+    highLockedThreshold?: number;
+  }) {
+    const query = this.buildQuery(params as Record<string, unknown> | undefined);
+    return this.request<any>(`/admin/analytics/lead-monetization${query}`);
+  }
+
+  async approveAdminOfferReview(
+    id: string,
+    data?: { billingOverride?: boolean; billingOverrideReason?: string }
+  ) {
     return this.request<any>(`/admin/offers-review/${encodeURIComponent(id)}/approve`, {
       method: 'POST',
+      body: data || {},
     });
   }
 

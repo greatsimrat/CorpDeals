@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../services/api';
+import { getBillingReasonMessage } from '../../lib/billing-access';
 
 type VendorRow = {
   id: string;
@@ -16,6 +17,23 @@ type VendorRow = {
   _count?: { offers: number; leads: number };
 };
 
+type BillingAccess = {
+  allowed: boolean;
+  reasonCode?: string;
+  message?: string;
+  planName?: string;
+  currentOfferCount?: number;
+  maxAllowedOffers?: number | null;
+};
+
+type VendorBillingEligibility = {
+  vendorId: string;
+  isFullyEligible: boolean;
+  createAccess: BillingAccess;
+  submitAccess: BillingAccess;
+  publishAccess: BillingAccess;
+};
+
 const statusBadge = (status: string) => {
   if (status === 'APPROVED') return 'bg-green-50 text-green-700';
   if (status === 'REJECTED') return 'bg-red-50 text-red-700';
@@ -25,6 +43,7 @@ const statusBadge = (status: string) => {
 
 export default function VendorsPage() {
   const [vendors, setVendors] = useState<VendorRow[]>([]);
+  const [billingByVendorId, setBillingByVendorId] = useState<Record<string, VendorBillingEligibility>>({});
   const [statusFilter, setStatusFilter] = useState('PENDING');
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingId, setIsSavingId] = useState<string | null>(null);
@@ -34,8 +53,17 @@ export default function VendorsPage() {
     try {
       setIsLoading(true);
       setError('');
-      const data = await api.getAdminVendors({ status: statusFilter });
+      const status = statusFilter === 'all' ? undefined : statusFilter;
+      const [data, billingEligibility] = await Promise.all([
+        api.getAdminVendors(status ? { status } : {}),
+        api.getAdminVendorBillingEligibility({ status, invalidOnly: false }),
+      ]);
       setVendors(data as VendorRow[]);
+      const entries = (billingEligibility?.vendors || []).map((item: VendorBillingEligibility) => [
+        item.vendorId,
+        item,
+      ]);
+      setBillingByVendorId(Object.fromEntries(entries));
     } catch (err: any) {
       setError(err.message || 'Failed to load vendors');
     } finally {
@@ -58,6 +86,15 @@ export default function VendorsPage() {
     } finally {
       setIsSavingId(null);
     }
+  };
+
+  const getBlockingAccess = (vendorId: string): BillingAccess | null => {
+    const row = billingByVendorId[vendorId];
+    if (!row) return null;
+    if (!row.createAccess?.allowed) return row.createAccess;
+    if (!row.submitAccess?.allowed) return row.submitAccess;
+    if (!row.publishAccess?.allowed) return row.publishAccess;
+    return null;
   };
 
   return (
@@ -110,6 +147,9 @@ export default function VendorsPage() {
                   Stats
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
+                  Billing
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
                   Status
                 </th>
                 <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
@@ -120,7 +160,7 @@ export default function VendorsPage() {
             <tbody>
               {vendors.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
+                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-500">
                     No vendors found.
                   </td>
                 </tr>
@@ -143,6 +183,27 @@ export default function VendorsPage() {
                     <td className="px-4 py-3 text-sm text-slate-700">
                       <p>Offers: {vendor._count?.offers || 0}</p>
                       <p>Leads: {vendor._count?.leads || 0}</p>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-700">
+                      {billingByVendorId[vendor.id]?.isFullyEligible ? (
+                        <div className="space-y-1">
+                          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                            Eligible
+                          </span>
+                          <p className="text-xs text-slate-500">
+                            {billingByVendorId[vendor.id]?.publishAccess?.planName || 'Active plan'}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                            Billing issue
+                          </span>
+                          <p className="max-w-[220px] text-xs text-amber-700">
+                            {getBillingReasonMessage(getBlockingAccess(vendor.id)?.reasonCode)}
+                          </p>
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-sm">
                       <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadge(vendor.status)}`}>

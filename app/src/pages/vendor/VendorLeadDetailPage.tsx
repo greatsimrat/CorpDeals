@@ -9,12 +9,15 @@ type VendorLead = {
   status: string;
   firstName: string;
   lastName: string;
-  email: string;
+  email?: string | null;
   phone?: string | null;
   consentAt?: string | null;
   consentIp?: string | null;
   payloadJson?: Record<string, unknown> | null;
   vendorNotes?: string | null;
+  visibilityStatus?: 'VISIBLE' | 'LOCKED';
+  lockedReason?: 'PLAN_LIMIT' | 'NO_BALANCE' | null;
+  leadAccess?: 'VISIBLE' | 'LOCKED';
   createdAt: string;
   company: { id: string; name: string; slug: string };
   offer: {
@@ -82,8 +85,13 @@ export default function VendorLeadDetailPage() {
         <div>
           <h2 className="text-xl font-semibold text-slate-900">Lead #{lead.id}</h2>
           <p className="text-sm text-slate-600">
-            {lead.firstName} {lead.lastName} - {lead.email}
+            {lead.firstName} {lead.lastName} - {lead.email || 'Hidden until billing unlock'}
           </p>
+          {lead.visibilityStatus === 'LOCKED' ? (
+            <p className="mt-1 text-xs font-medium text-amber-700">
+              Lead is locked by billing. Contact details are hidden until wallet/plan is updated.
+            </p>
+          ) : null}
         </div>
         <Link to="/vendor/leads" className="text-sm font-medium text-blue-600 hover:underline">
           Back to leads
@@ -136,6 +144,7 @@ export default function VendorLeadDetailPage() {
             Status
             <select
               value={status}
+              disabled={lead.visibilityStatus === 'LOCKED'}
               onChange={(e) => setStatus(e.target.value)}
               className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2"
             >
@@ -158,6 +167,7 @@ export default function VendorLeadDetailPage() {
         </div>
         <button
           onClick={save}
+          disabled={lead.visibilityStatus === 'LOCKED'}
           className="mt-4 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
         >
           Save

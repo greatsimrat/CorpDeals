@@ -13,7 +13,7 @@ type VendorPlanResponse = {
   plans: any[];
 };
 
-type SubscriptionTier = 'FREE' | 'GROWTH' | 'PRO';
+type SubscriptionTier = 'FREE' | 'GOLD' | 'PREMIUM';
 
 const SUBSCRIPTION_TIERS: Record<
   SubscriptionTier,
@@ -30,15 +30,15 @@ const SUBSCRIPTION_TIERS: Record<
     includedLeadsPerMonth: 10,
     overagePricePerLead: 5,
   },
-  GROWTH: {
-    label: 'Growth',
+  GOLD: {
+    label: 'Gold',
     monthlyFee: 100,
-    includedLeadsPerMonth: 50,
+    includedLeadsPerMonth: 100,
     overagePricePerLead: 3,
   },
-  PRO: {
-    label: 'Pro',
-    monthlyFee: 500,
+  PREMIUM: {
+    label: 'Premium',
+    monthlyFee: 300,
     includedLeadsPerMonth: 300,
     overagePricePerLead: 2,
   },
@@ -48,10 +48,10 @@ const inferSubscriptionTier = (activePlan: any): SubscriptionTier => {
   const monthlyFee = Number(activePlan?.monthlyFee);
   if (Number.isFinite(monthlyFee)) {
     if (monthlyFee === SUBSCRIPTION_TIERS.FREE.monthlyFee) return 'FREE';
-    if (monthlyFee === SUBSCRIPTION_TIERS.PRO.monthlyFee) return 'PRO';
-    if (monthlyFee === SUBSCRIPTION_TIERS.GROWTH.monthlyFee) return 'GROWTH';
+    if (monthlyFee === SUBSCRIPTION_TIERS.PREMIUM.monthlyFee) return 'PREMIUM';
+    if (monthlyFee === SUBSCRIPTION_TIERS.GOLD.monthlyFee) return 'GOLD';
   }
-  return 'GROWTH';
+  return 'GOLD';
 };
 
 export default function AdminVendorBillingPlanPage() {
@@ -63,7 +63,7 @@ export default function AdminVendorBillingPlanPage() {
   const [success, setSuccess] = useState('');
 
   const [planType, setPlanType] = useState<'PAY_PER_LEAD' | 'SUBSCRIPTION'>('PAY_PER_LEAD');
-  const [subscriptionTier, setSubscriptionTier] = useState<SubscriptionTier>('GROWTH');
+  const [subscriptionTier, setSubscriptionTier] = useState<SubscriptionTier>('GOLD');
   const [pricePerLead, setPricePerLead] = useState('');
   const [billingCycleDay, setBillingCycleDay] = useState('1');
   const [currency, setCurrency] = useState('CAD');
@@ -105,7 +105,7 @@ export default function AdminVendorBillingPlanPage() {
 
   useEffect(() => {
     if (planType === 'SUBSCRIPTION') {
-      setCurrency('USD');
+      setCurrency('CAD');
     }
   }, [planType]);
 
@@ -124,7 +124,7 @@ export default function AdminVendorBillingPlanPage() {
         includedLeadsPerMonth: planType === 'SUBSCRIPTION' ? subscriptionPreset.includedLeadsPerMonth : null,
         overagePricePerLead: planType === 'SUBSCRIPTION' ? subscriptionPreset.overagePricePerLead : null,
         billingCycleDay: Number(billingCycleDay || '1'),
-        currency: planType === 'SUBSCRIPTION' ? 'USD' : currency,
+        currency: planType === 'SUBSCRIPTION' ? 'CAD' : currency,
       });
       setSuccess('Billing plan updated.');
       await load();
@@ -190,7 +190,7 @@ export default function AdminVendorBillingPlanPage() {
               Currency
               <input
                 type="text"
-                value="USD"
+                value="CAD"
                 disabled
                 className="mt-1 block w-full rounded-md border border-slate-300 bg-slate-100 px-3 py-2 text-slate-500"
               />
@@ -219,8 +219,8 @@ export default function AdminVendorBillingPlanPage() {
                   className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2"
                 >
                   <option value="FREE">Free - $0 / month</option>
-                  <option value="GROWTH">Growth - $100 / month</option>
-                  <option value="PRO">Pro - $500 / month</option>
+                  <option value="GOLD">Gold - $100 / month</option>
+                  <option value="PREMIUM">Premium - $300 / month</option>
                 </select>
               </label>
               <div className="rounded-md border border-slate-200 bg-slate-50 p-4 sm:col-span-2">
@@ -228,7 +228,7 @@ export default function AdminVendorBillingPlanPage() {
                   {SUBSCRIPTION_TIERS[subscriptionTier].label} Plan
                 </p>
                 <p className="mt-1 text-sm text-slate-700">
-                  Monthly fee: ${SUBSCRIPTION_TIERS[subscriptionTier].monthlyFee} USD
+                  Monthly fee: ${SUBSCRIPTION_TIERS[subscriptionTier].monthlyFee} CAD
                 </p>
                 <p className="text-sm text-slate-700">
                   Included leads/month: {SUBSCRIPTION_TIERS[subscriptionTier].includedLeadsPerMonth}

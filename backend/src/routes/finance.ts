@@ -45,19 +45,19 @@ const SUBSCRIPTION_PRESETS = {
     monthlyFee: 0,
     includedLeadsPerMonth: 10,
     overagePricePerLead: 5,
-    currency: 'USD',
+    currency: 'CAD',
   },
-  GROWTH: {
+  GOLD: {
     monthlyFee: 100,
-    includedLeadsPerMonth: 50,
+    includedLeadsPerMonth: 100,
     overagePricePerLead: 3,
-    currency: 'USD',
+    currency: 'CAD',
   },
-  PRO: {
-    monthlyFee: 500,
+  PREMIUM: {
+    monthlyFee: 300,
     includedLeadsPerMonth: 300,
     overagePricePerLead: 2,
-    currency: 'USD',
+    currency: 'CAD',
   },
 } as const;
 
@@ -66,6 +66,8 @@ type SubscriptionPresetKey = keyof typeof SUBSCRIPTION_PRESETS;
 const resolveSubscriptionPresetKey = (value: unknown): SubscriptionPresetKey | null => {
   const normalized = String(value || '').trim().toUpperCase();
   if (!normalized) return null;
+  if (normalized === 'GROWTH') return 'GOLD';
+  if (normalized === 'PRO') return 'PREMIUM';
   if (Object.prototype.hasOwnProperty.call(SUBSCRIPTION_PRESETS, normalized)) {
     return normalized as SubscriptionPresetKey;
   }
@@ -179,7 +181,7 @@ router.get('/vendors/summary', async (req: Request, res: Response): Promise<void
           chargeableLeadCount: 0,
           waivedLeadCount: 0,
           amountCents: 0,
-          currency: activePlan?.currency || vendor.billing?.currency || 'USD',
+          currency: activePlan?.currency || vendor.billing?.currency || 'CAD',
         };
 
         const trialActive =
@@ -253,7 +255,7 @@ router.get('/invoices', async (req: Request, res: Response): Promise<void> => {
         const billing = vendor.billing;
         if (!billing) return null;
 
-        const currency = billing.currency || 'USD';
+        const currency = billing.currency || 'CAD';
         const baseFee =
           billing.billingMode === 'MONTHLY' || billing.billingMode === 'HYBRID'
             ? billing.monthlyFeeCents
@@ -391,6 +393,7 @@ router.patch('/vendors/:id/billing', async (req: Request, res: Response): Promis
       paymentMethod,
       stripeCustomerId,
       stripeSubscriptionId,
+      associationStatus,
     } = req.body;
     const subscriptionTier = req.body?.subscriptionTier ?? req.body?.subscription_tier;
 
@@ -445,7 +448,7 @@ router.patch('/vendors/:id/billing', async (req: Request, res: Response): Promis
           getSubscriptionPresetByMonthlyFee(requestedMonthlyFee);
         if (!resolvedTier) {
           res.status(400).json({
-            error: 'subscriptionTier must be FREE, GROWTH, or PRO (or monthlyFee must match 0, 100, or 500)',
+            error: 'subscriptionTier must be FREE, GOLD, or PREMIUM (or monthlyFee must match 0, 100, or 300)',
           });
           return;
         }
@@ -497,19 +500,33 @@ router.patch('/vendors/:id/billing', async (req: Request, res: Response): Promis
           },
         });
 
+        const billingModeToStore =
+          normalizedPlanType === 'PAY_PER_LEAD'
+            ? 'PAY_PER_LEAD'
+            : parsedMonthlyFee !== null && parsedMonthlyFee <= 0
+            ? 'FREE'
+            : 'MONTHLY';
+        const associationStatusToStore =
+          normalizedPlanType === 'SUBSCRIPTION' && parsedMonthlyFee !== null && parsedMonthlyFee <= 0
+            ? 'FREE'
+            : 'ACTIVE';
+
         // Keep legacy billing in sync for old screens/routes.
         const legacyBilling = await tx.vendorBilling.upsert({
           where: { vendorId },
           update: {
-            billingMode: normalizedPlanType === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : 'MONTHLY',
+            billingMode: billingModeToStore,
             leadPriceCents: parsedPricePerLead !== null ? toCents(parsedPricePerLead) : 0,
             monthlyFeeCents: parsedMonthlyFee !== null ? toCents(parsedMonthlyFee) : 0,
             currency: normalizedCurrency,
             billingDay: parsedBillingCycleDay,
+            associationStatus: associationStatusToStore as any,
+            statusReason: 'finance-plan-update',
+            lastValidatedAt: new Date(),
           },
           create: {
             vendorId,
-            billingMode: normalizedPlanType === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : 'MONTHLY',
+            billingMode: billingModeToStore,
             postTrialMode: normalizedPlanType === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : 'MONTHLY',
             trialEndsAt: null,
             leadPriceCents: parsedPricePerLead !== null ? toCents(parsedPricePerLead) : 0,
@@ -517,6 +534,9 @@ router.patch('/vendors/:id/billing', async (req: Request, res: Response): Promis
             paymentMethod: 'MANUAL',
             currency: normalizedCurrency,
             billingDay: parsedBillingCycleDay,
+            associationStatus: associationStatusToStore as any,
+            statusReason: 'finance-plan-update',
+            lastValidatedAt: new Date(),
           },
         });
 
@@ -538,6 +558,19 @@ router.patch('/vendors/:id/billing', async (req: Request, res: Response): Promis
     }
     if (paymentMethod && !['MANUAL', 'STRIPE'].includes(paymentMethod)) {
       res.status(400).json({ error: 'Invalid paymentMethod' });
+      return;
+    }
+    const normalizedAssociationStatus =
+      associationStatus === undefined || associationStatus === null || String(associationStatus).trim() === ''
+        ? undefined
+        : String(associationStatus).trim().toUpperCase();
+    if (
+      normalizedAssociationStatus &&
+      !['TRIALING', 'ACTIVE', 'FREE', 'INACTIVE', 'PAST_DUE', 'CANCELED', 'INCOMPLETE', 'EXPIRED'].includes(
+        normalizedAssociationStatus
+      )
+    ) {
+      res.status(400).json({ error: 'Invalid associationStatus' });
       return;
     }
     if (leadPriceCents !== undefined && (!Number.isFinite(leadPriceCents) || leadPriceCents < 0)) {
@@ -566,6 +599,9 @@ router.patch('/vendors/:id/billing', async (req: Request, res: Response): Promis
     if (paymentMethod !== undefined) data.paymentMethod = paymentMethod;
     if (stripeCustomerId !== undefined) data.stripeCustomerId = stripeCustomerId;
     if (stripeSubscriptionId !== undefined) data.stripeSubscriptionId = stripeSubscriptionId;
+    if (normalizedAssociationStatus !== undefined) data.associationStatus = normalizedAssociationStatus;
+    if (normalizedAssociationStatus !== undefined) data.statusReason = 'finance-status-update';
+    if (normalizedAssociationStatus !== undefined) data.lastValidatedAt = new Date();
 
     const trialDays = Number(process.env.VENDOR_TRIAL_DAYS || 30);
     const defaultTrialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
@@ -583,7 +619,7 @@ router.patch('/vendors/:id/billing', async (req: Request, res: Response): Promis
         paymentMethod: data.paymentMethod || 'MANUAL',
         stripeCustomerId: data.stripeCustomerId || null,
         stripeSubscriptionId: data.stripeSubscriptionId || null,
-        currency: data.currency || 'USD',
+        currency: data.currency || 'CAD',
         billingDay: data.billingDay ?? 1,
       },
     });

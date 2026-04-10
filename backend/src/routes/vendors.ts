@@ -218,18 +218,40 @@ router.patch('/:id', authenticateToken, async (req: Request, res: Response): Pro
       return;
     }
 
-    const { companyName, contactName, phone, website, logo, description } = req.body;
+    const data: Record<string, unknown> = {};
+    const setString = (
+      key: 'companyName' | 'contactName' | 'phone' | 'website' | 'logo' | 'description' | 'businessEmail' | 'notes' | 'city' | 'businessType',
+      value: unknown,
+      options?: { nullable?: boolean }
+    ) => {
+      if (value === undefined) return;
+      const normalized = String(value || '').trim();
+      if (!normalized && options?.nullable) {
+        data[key] = null;
+        return;
+      }
+      data[key] = normalized;
+    };
+
+    setString('companyName', req.body?.companyName);
+    setString('contactName', req.body?.contactName);
+    setString('phone', req.body?.phone, { nullable: true });
+    setString('website', req.body?.website, { nullable: true });
+    setString('logo', req.body?.logo, { nullable: true });
+    setString('description', req.body?.description, { nullable: true });
+    setString('businessEmail', req.body?.businessEmail, { nullable: true });
+    setString('notes', req.body?.notes, { nullable: true });
+    setString('city', req.body?.city, { nullable: true });
+    setString('businessType', req.body?.businessType, { nullable: true });
+
+    if (!Object.keys(data).length) {
+      res.status(400).json({ error: 'No updatable fields provided' });
+      return;
+    }
 
     const updated = await prisma.vendor.update({
       where: { id },
-      data: {
-        companyName,
-        contactName,
-        phone,
-        website,
-        logo,
-        description,
-      },
+      data: data as any,
     });
 
     res.json(updated);

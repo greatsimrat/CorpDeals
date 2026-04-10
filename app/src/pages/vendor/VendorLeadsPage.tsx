@@ -9,10 +9,13 @@ type VendorLead = {
   status: string;
   firstName: string;
   lastName: string;
-  email: string;
+  email?: string | null;
   phone?: string | null;
   vendorNotes?: string | null;
   createdAt: string;
+  visibilityStatus?: 'VISIBLE' | 'LOCKED';
+  lockedReason?: 'PLAN_LIMIT' | 'NO_BALANCE' | null;
+  leadAccess?: 'VISIBLE' | 'LOCKED';
   company: { id: string; name: string; slug: string };
   offer: {
     id: string;
@@ -182,13 +185,23 @@ export default function VendorLeadsPage() {
                     <p className="font-medium text-slate-900">
                       {lead.firstName} {lead.lastName}
                     </p>
+                    {lead.visibilityStatus === 'LOCKED' ? (
+                      <p className="mt-1 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                        Locked lead
+                      </p>
+                    ) : null}
                     <p className="text-sm text-slate-600">
-                      {lead.email}
+                      {lead.email || 'Hidden until billing unlock'}
                       {lead.phone ? ` | ${lead.phone}` : ''}
                     </p>
                     <p className="text-sm text-slate-600">
                       {lead.company.name} | {lead.offer.title}
                     </p>
+                    {lead.visibilityStatus === 'LOCKED' ? (
+                      <p className="text-xs text-amber-700">
+                        Unlock this lead by topping up wallet or increasing plan capacity.
+                      </p>
+                    ) : null}
                     <p className="text-xs text-slate-500">
                       Submitted {new Date(lead.createdAt).toLocaleString()}
                     </p>
@@ -206,6 +219,7 @@ export default function VendorLeadsPage() {
                     Status
                     <select
                       value={editing[lead.id]?.status || 'NEW'}
+                      disabled={lead.visibilityStatus === 'LOCKED'}
                       onChange={(e) =>
                         setEditing((prev) => ({
                           ...prev,
@@ -241,6 +255,7 @@ export default function VendorLeadsPage() {
                 <div className="mt-3">
                   <button
                     onClick={() => saveLead(lead.id)}
+                    disabled={lead.visibilityStatus === 'LOCKED'}
                     className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                   >
                     Save Lead Update

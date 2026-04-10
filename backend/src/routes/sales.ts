@@ -53,12 +53,12 @@ router.get('/dashboard', async (_req: Request, res: Response): Promise<void> => 
       prisma.vendorRequest.count({ where: { status: 'PENDING' } }),
       prisma.companyRequest.count({ where: { status: 'PENDING' } }),
       prisma.vendor.count({ where: { status: 'APPROVED' } }),
-      prisma.offer.count({ where: { complianceStatus: 'DRAFT' } as any }),
-      prisma.offer.count({ where: { complianceStatus: 'SUBMITTED' } as any }),
+      prisma.offer.count({ where: { offerState: 'DRAFT' } as any }),
+      prisma.offer.count({ where: { offerState: 'SUBMITTED' } as any }),
       prisma.offer.count({
         where: {
           active: true,
-          complianceStatus: 'APPROVED',
+          offerState: 'APPROVED',
         } as any,
       }),
       prisma.vendorRequest.findMany({
@@ -287,6 +287,8 @@ router.post('/offers', async (req: Request, res: Response): Promise<void> => {
         featured: false,
         verified: false,
         active: false,
+        offerState: 'DRAFT',
+        offerStatus: 'DRAFT',
         offerType: 'lead',
         coverageType: coverage.coverageType,
         provinceCode: coverage.provinceCode,
@@ -345,7 +347,14 @@ router.get('/offers', async (req: Request, res: Response): Promise<void> => {
     const where: Record<string, unknown> = {};
 
     if (status) {
-      where.complianceStatus = status.trim().toUpperCase();
+      const normalizedStatus = status.trim().toUpperCase();
+      const mappedStatus =
+        normalizedStatus === 'LIVE' || normalizedStatus === 'PAUSED'
+          ? 'APPROVED'
+          : normalizedStatus;
+      if (['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'CANCELLED'].includes(mappedStatus)) {
+        where.offerState = mappedStatus;
+      }
     }
     if (vendorId) {
       where.vendorId = vendorId.trim();

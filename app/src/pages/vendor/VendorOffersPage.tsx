@@ -12,11 +12,13 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuLabel,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu';
 import api from '../../services/api';
+import { getBillingBlockedTag, getBillingErrorMessage, getBillingReasonMessage } from '../../lib/billing-access';
 
 type Company = {
   id: string;
@@ -24,14 +26,15 @@ type Company = {
   slug: string;
 };
 
-type OfferStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'LIVE' | 'PAUSED' | 'CANCELLED' | 'REJECTED';
+type OfferState = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'CANCELLED' | 'REJECTED';
 
 type VendorOffer = {
   id: string;
   title: string;
   description?: string | null;
   active: boolean;
-  offerStatus?: OfferStatus;
+  offerState?: OfferState;
+  offerStatus?: string;
   complianceStatus?: 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
   complianceNotes?: string | null;
   expiryDate?: string | null;
@@ -45,12 +48,8 @@ type VendorOffer = {
 
 type PendingAction = 'pause' | 'resume' | 'cancel' | 'delete';
 
-const lifecycleBadgeClass = (status: OfferStatus | undefined) => {
+const lifecycleBadgeClass = (status: OfferState | undefined) => {
   switch (status) {
-    case 'LIVE':
-      return 'bg-emerald-50 text-emerald-700';
-    case 'PAUSED':
-      return 'bg-amber-50 text-amber-700';
     case 'CANCELLED':
       return 'bg-rose-50 text-rose-700';
     case 'SUBMITTED':
@@ -64,14 +63,10 @@ const lifecycleBadgeClass = (status: OfferStatus | undefined) => {
   }
 };
 
-const lifecycleStatusLabel = (status: OfferStatus | undefined) => {
+const lifecycleStatusLabel = (status: OfferState | undefined) => {
   switch (status) {
     case 'SUBMITTED':
       return 'Pending Approval';
-    case 'LIVE':
-      return 'Live';
-    case 'PAUSED':
-      return 'Paused';
     case 'CANCELLED':
       return 'Cancelled';
     case 'REJECTED':
@@ -84,16 +79,35 @@ const lifecycleStatusLabel = (status: OfferStatus | undefined) => {
   }
 };
 
+const normalizeOfferState = (offer: VendorOffer): OfferState => {
+  const state = String(offer.offerState || '').toUpperCase();
+  if (['DRAFT', 'SUBMITTED', 'APPROVED', 'CANCELLED', 'REJECTED'].includes(state)) {
+    return state as OfferState;
+  }
+
+  const legacyStatus = String(offer.offerStatus || '').toUpperCase();
+  if (legacyStatus === 'LIVE' || legacyStatus === 'PAUSED' || legacyStatus === 'APPROVED') return 'APPROVED';
+  if (legacyStatus === 'SUBMITTED') return 'SUBMITTED';
+  if (legacyStatus === 'REJECTED') return 'REJECTED';
+  if (legacyStatus === 'CANCELLED') return 'CANCELLED';
+  return 'DRAFT';
+};
+
 const statusSupportingNote = (offer: VendorOffer) => {
+  const billingBlocked = getBillingBlockedTag(offer.complianceNotes);
+  if (billingBlocked) {
+    return billingBlocked.message;
+  }
+
   if (offer.cancelReason) {
     return offer.cancelReason;
   }
 
-  if (offer.offerStatus === 'REJECTED') {
+  if (normalizeOfferState(offer) === 'REJECTED') {
     return offer.complianceNotes || 'Update the offer and submit it again for approval.';
   }
 
-  if (offer.offerStatus === 'SUBMITTED') {
+  if (normalizeOfferState(offer) === 'SUBMITTED') {
     return 'Waiting for admin approval.';
   }
 
@@ -199,7 +213,7 @@ export default function VendorOffersPage() {
       closeReplicateDialog();
       await loadOffers();
     } catch (err: any) {
-      setReplicateError(err.message || 'Failed to replicate offer');
+      setReplicateError(getBillingErrorMessage(err, 'Failed to replicate offer'));
     } finally {
       setIsReplicating(false);
     }
@@ -212,6 +226,13 @@ export default function VendorOffersPage() {
     setIsMutating(true);
 
     try {
+      if (pendingAction === 'resume' && billing && !billing.canPublishOffer) {
+        throw new Error(
+          billing.publishOfferMessage ||
+            getBillingReasonMessage('VENDOR_BILLING_BLOCKED', 'Billing must be valid before resuming offers.')
+        );
+      }
+
       if (pendingAction === 'pause') {
         await api.pauseVendorOffer(actionOffer.id);
         setNotice('Offer paused');
@@ -231,7 +252,7 @@ export default function VendorOffersPage() {
       closeActionDialog();
       await loadOffers();
     } catch (err: any) {
-      setActionError(err.message || 'Failed to update offer');
+      setActionError(getBillingErrorMessage(err, 'Failed to update offer'));
     } finally {
       setIsMutating(false);
     }
@@ -318,6 +339,30 @@ export default function VendorOffersPage() {
           {notice}
         </div>
       ) : null}
+      {billing ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-slate-500">Current Plan</p>
+              <p className="text-sm font-semibold text-slate-900">
+                {billing.planDisplayName || 'Not configured'}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-slate-500">Plan Status</p>
+              <p className="text-sm font-semibold text-slate-900">{billing.planStatus || 'NONE'}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-slate-500">Offer Capacity</p>
+              <p className="text-sm font-semibold text-slate-900">
+                {billing.offerLimit == null
+                  ? `${billing.managedOfferCount || 0} managed`
+                  : `${billing.managedOfferCount || 0}/${billing.offerLimit}`}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <table className="w-full min-w-[860px]">
@@ -333,11 +378,12 @@ export default function VendorOffersPage() {
           </thead>
           <tbody>
             {offers.map((offer) => {
-              const lifecycleStatus = offer.offerStatus || 'DRAFT';
+              const lifecycleStatus = normalizeOfferState(offer);
               const supportingNote = statusSupportingNote(offer);
+              const billingBlockedTag = getBillingBlockedTag(offer.complianceNotes);
               const canEdit = lifecycleStatus !== 'CANCELLED';
-              const canPause = lifecycleStatus === 'LIVE';
-              const canResume = lifecycleStatus === 'PAUSED';
+              const canPause = lifecycleStatus === 'APPROVED' && offer.active;
+              const canResume = lifecycleStatus === 'APPROVED' && !offer.active && (billing?.canPublishOffer ?? true);
               const canCancel = lifecycleStatus !== 'CANCELLED';
               const canDelete = lifecycleStatus === 'DRAFT';
 
@@ -363,17 +409,33 @@ export default function VendorOffersPage() {
                   <td className="px-4 py-3 text-sm text-slate-700">{offer._count?.leads || 0}</td>
                   <td className="px-4 py-3 text-sm">
                     <div className="space-y-1">
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-xs font-semibold ${lifecycleBadgeClass(
-                          lifecycleStatus
-                        )}`}
-                      >
-                        {lifecycleStatusLabel(lifecycleStatus)}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${lifecycleBadgeClass(
+                            lifecycleStatus
+                          )}`}
+                        >
+                          {lifecycleStatusLabel(lifecycleStatus)}
+                        </span>
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                            offer.active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          {offer.active ? 'Active' : 'Inactive'}
+                        </span>
+                        {billingBlockedTag ? (
+                          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                            Billing blocked
+                          </span>
+                        ) : null}
+                      </div>
                       {supportingNote ? (
                         <p
                           className={`max-w-[240px] text-xs ${
-                            lifecycleStatus === 'CANCELLED' || lifecycleStatus === 'REJECTED'
+                            billingBlockedTag
+                              ? 'text-amber-700'
+                              : lifecycleStatus === 'CANCELLED' || lifecycleStatus === 'REJECTED'
                               ? 'text-rose-600'
                               : 'text-slate-500'
                           }`}
@@ -408,6 +470,9 @@ export default function VendorOffersPage() {
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <DropdownMenuLabel className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Manage Offer
+                          </DropdownMenuLabel>
                           <DropdownMenuItem
                             onClick={() => {
                               setNotice('');
@@ -424,6 +489,10 @@ export default function VendorOffersPage() {
                           {canResume ? (
                             <DropdownMenuItem onClick={() => openActionDialog(offer, 'resume')}>
                               Resume
+                            </DropdownMenuItem>
+                          ) : lifecycleStatus === 'APPROVED' && !offer.active ? (
+                            <DropdownMenuItem disabled>
+                              {billing?.publishOfferMessage || 'Resume blocked by billing'}
                             </DropdownMenuItem>
                           ) : null}
                           {canCancel ? (

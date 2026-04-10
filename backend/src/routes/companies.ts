@@ -657,7 +657,7 @@ router.get('/:idOrSlug/deals/search', authenticateToken, async (req: Request, re
       where: {
         companyId: company.id,
         active: true,
-        complianceStatus: 'APPROVED',
+        offerState: 'APPROVED',
         vendor: getActiveVendorBillingRelationFilter() as any,
       } as any,
       include: {
@@ -785,7 +785,7 @@ router.get('/:idOrSlug/deals', authenticateToken, async (req: Request, res: Resp
       where: {
         companyId: company.id,
         active: true,
-        complianceStatus: 'APPROVED',
+        offerState: 'APPROVED',
         vendor: getActiveVendorBillingRelationFilter() as any,
         OR: offerVisibility as any,
       } as any,
@@ -839,7 +839,7 @@ router.get('/:idOrSlug', async (req: Request, res: Response): Promise<void> => {
         offers: {
           where: {
             active: true,
-            complianceStatus: 'APPROVED',
+            offerState: 'APPROVED',
             vendor: getActiveVendorBillingRelationFilter() as any,
           } as any,
           include: {

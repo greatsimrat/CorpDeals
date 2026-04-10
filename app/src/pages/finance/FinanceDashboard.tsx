@@ -55,7 +55,7 @@ interface FinanceSummaryResponse {
   vendors: VendorSummary[];
 }
 
-type SubscriptionTier = 'FREE' | 'GROWTH' | 'PRO';
+type SubscriptionTier = 'FREE' | 'GOLD' | 'PREMIUM';
 
 const SUBSCRIPTION_TIERS: Record<
   SubscriptionTier,
@@ -72,15 +72,15 @@ const SUBSCRIPTION_TIERS: Record<
     includedLeadsPerMonth: 10,
     overagePricePerLead: 5,
   },
-  GROWTH: {
-    label: 'Growth',
+  GOLD: {
+    label: 'Gold',
     monthlyFee: 100,
-    includedLeadsPerMonth: 50,
+    includedLeadsPerMonth: 100,
     overagePricePerLead: 3,
   },
-  PRO: {
-    label: 'Pro',
-    monthlyFee: 500,
+  PREMIUM: {
+    label: 'Premium',
+    monthlyFee: 300,
     includedLeadsPerMonth: 300,
     overagePricePerLead: 2,
   },
@@ -88,12 +88,12 @@ const SUBSCRIPTION_TIERS: Record<
 
 const formatDateInput = (value: string) => value.slice(0, 10);
 
-const formatCurrencyCents = (amountCents: number, currency = 'USD') => {
+const formatCurrencyCents = (amountCents: number, currency = 'CAD') => {
   const value = (amountCents || 0) / 100;
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(value);
 };
 
-const formatCurrencyDollars = (amount: number, currency = 'USD') =>
+const formatCurrencyDollars = (amount: number, currency = 'CAD') =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount || 0);
 
 const asNumber = (value: unknown): number => {
@@ -102,7 +102,7 @@ const asNumber = (value: unknown): number => {
 };
 
 const getVendorCurrency = (vendor: VendorSummary) =>
-  vendor.billingPlan?.currency || vendor.billing?.currency || vendor.currency || 'USD';
+  vendor.billingPlan?.currency || vendor.billing?.currency || vendor.currency || 'CAD';
 
 const getVendorPlanLabel = (vendor: VendorSummary) => {
   if (vendor.billingPlan?.planType === 'PAY_PER_LEAD') return 'PAY_PER_LEAD';
@@ -114,9 +114,10 @@ const inferSubscriptionTier = (monthlyFee: unknown): SubscriptionTier => {
   const value = Number(monthlyFee);
   if (Number.isFinite(value)) {
     if (value === SUBSCRIPTION_TIERS.FREE.monthlyFee) return 'FREE';
-    if (value === SUBSCRIPTION_TIERS.PRO.monthlyFee) return 'PRO';
+    if (value === SUBSCRIPTION_TIERS.PREMIUM.monthlyFee) return 'PREMIUM';
+    if (value === SUBSCRIPTION_TIERS.GOLD.monthlyFee) return 'GOLD';
   }
-  return 'GROWTH';
+  return 'GOLD';
 };
 
 const billingBadgeClasses: Record<string, string> = {
@@ -138,10 +139,10 @@ export default function FinanceDashboard() {
   const [search, setSearch] = useState('');
   const [editingVendor, setEditingVendor] = useState<VendorSummary | null>(null);
   const [planType, setPlanType] = useState<'PAY_PER_LEAD' | 'SUBSCRIPTION'>('PAY_PER_LEAD');
-  const [subscriptionTier, setSubscriptionTier] = useState<SubscriptionTier>('GROWTH');
+  const [subscriptionTier, setSubscriptionTier] = useState<SubscriptionTier>('GOLD');
   const [leadPrice, setLeadPrice] = useState('');
   const [billingCycleDay, setBillingCycleDay] = useState('1');
-  const [currency, setCurrency] = useState('USD');
+  const [currency, setCurrency] = useState('CAD');
   const [saving, setSaving] = useState(false);
 
   const loadData = async (params?: { start?: string; end?: string }) => {
@@ -190,7 +191,7 @@ export default function FinanceDashboard() {
     setBillingCycleDay(
       String(activePlan?.billingCycleDay || legacyBilling?.billingDay || 1)
     );
-    setCurrency(activePlan?.currency || legacyBilling?.currency || 'USD');
+    setCurrency(activePlan?.currency || legacyBilling?.currency || 'CAD');
   }, [editingVendor]);
 
   const handleApply = () => {
@@ -211,7 +212,7 @@ export default function FinanceDashboard() {
       const payload: any = {
         planType,
         subscriptionTier: planType === 'SUBSCRIPTION' ? subscriptionTier : undefined,
-        currency: planType === 'SUBSCRIPTION' ? 'USD' : currency,
+        currency: planType === 'SUBSCRIPTION' ? 'CAD' : currency,
         billingCycleDay: parsedBillingDay,
         pricePerLead: planType === 'PAY_PER_LEAD' ? parsedLeadPrice : null,
         monthlyFee: planType === 'SUBSCRIPTION' ? selectedTier.monthlyFee : null,
@@ -493,7 +494,6 @@ export default function FinanceDashboard() {
                     onChange={(e) => setCurrency(e.target.value)}
                     className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2"
                   >
-                    <option value="USD">USD</option>
                     <option value="CAD">CAD</option>
                   </select>
                 </label>
@@ -502,7 +502,7 @@ export default function FinanceDashboard() {
                   Currency
                   <input
                     type="text"
-                    value="USD"
+                    value="CAD"
                     disabled
                     className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 bg-slate-100 text-slate-500"
                   />
@@ -546,8 +546,8 @@ export default function FinanceDashboard() {
                       className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2"
                     >
                       <option value="FREE">Free - $0 / month</option>
-                      <option value="GROWTH">Growth - $100 / month</option>
-                      <option value="PRO">Pro - $500 / month</option>
+                      <option value="GOLD">Gold - $100 / month</option>
+                      <option value="PREMIUM">Premium - $300 / month</option>
                     </select>
                   </label>
                   <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -555,7 +555,7 @@ export default function FinanceDashboard() {
                       {SUBSCRIPTION_TIERS[subscriptionTier].label} plan
                     </p>
                     <p className="text-sm text-slate-700">
-                      Monthly fee: ${SUBSCRIPTION_TIERS[subscriptionTier].monthlyFee} USD
+                      Monthly fee: ${SUBSCRIPTION_TIERS[subscriptionTier].monthlyFee} CAD
                     </p>
                     <p className="text-sm text-slate-700">
                       Included leads/month: {SUBSCRIPTION_TIERS[subscriptionTier].includedLeadsPerMonth}

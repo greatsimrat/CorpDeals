@@ -72,7 +72,7 @@ router.get('/:idOrSlug', async (req: Request, res: Response): Promise<void> => {
             offers: {
               where: {
                 active: true,
-                complianceStatus: 'APPROVED',
+                offerState: 'APPROVED',
                 vendor: getActiveVendorBillingRelationFilter() as any,
               } as any,
               include: {
@@ -89,7 +89,7 @@ router.get('/:idOrSlug', async (req: Request, res: Response): Promise<void> => {
         offers: {
           where: {
             active: true,
-            complianceStatus: 'APPROVED',
+            offerState: 'APPROVED',
             vendor: getActiveVendorBillingRelationFilter() as any,
           } as any,
           include: {

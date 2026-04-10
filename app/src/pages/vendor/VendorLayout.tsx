@@ -30,7 +30,7 @@ export default function VendorLayout() {
             <div className="min-w-0">
               <h1 className="text-lg font-semibold text-slate-900">Vendor Portal</h1>
               <p className="truncate text-sm font-medium text-slate-900">{user?.vendor?.companyName || displayName}</p>
-              <p className="truncate text-xs text-slate-500">{user?.loginEmail || user?.email}</p>
+              <p className="break-all text-xs text-slate-500">{user?.loginEmail || user?.email}</p>
             </div>
           </div>
           <div className="flex items-center gap-3 self-start sm:self-auto">
@@ -51,9 +51,12 @@ export default function VendorLayout() {
 
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-6 md:flex-row">
         <aside className="md:w-56 md:shrink-0">
-          <nav className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-white p-2 sm:grid-cols-4 md:flex md:flex-col">
+          <nav className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-white p-2 sm:grid-cols-3 md:flex md:flex-col">
             <NavLink to="/vendor/dashboard" className={linkClass}>
               Dashboard
+            </NavLink>
+            <NavLink to="/vendor/profile" className={linkClass}>
+              Profile
             </NavLink>
             <NavLink to="/vendor/offers" className={linkClass}>
               Offers

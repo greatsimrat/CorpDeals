@@ -8,7 +8,12 @@ import {
 } from '../lib/mailer';
 import { createVendorSetPasswordToken } from '../lib/vendor-password';
 import { isAppRole, normalizeRole } from '../lib/roles';
-import { getVendorBillingState } from '../lib/vendor-billing';
+import {
+  canApplyAdminBillingOverride,
+  getVendorBillingAccess,
+  toBillingAccessDeniedResponse,
+} from '../lib/vendor-billing-access';
+import { enforceLiveOfferBillingEligibility } from '../lib/vendor-offer-enforcement';
 
 const router = Router();
 
@@ -46,6 +51,9 @@ const asNumber = (value: unknown): number => {
   return Number.isFinite(numeric) ? numeric : 0;
 };
 
+const isTruthy = (value: unknown) =>
+  value === true || value === 'true' || value === '1' || value === 1;
+
 const toMoney = (value: number): string => value.toFixed(2);
 
 const ADMIN_SUBSCRIPTION_PRESETS = {
@@ -53,22 +61,22 @@ const ADMIN_SUBSCRIPTION_PRESETS = {
     monthlyFee: 0,
     includedLeadsPerMonth: 10,
     overagePricePerLead: 5,
-    currency: 'USD',
-    offerLimit: 5,
+    currency: 'CAD',
+    offerLimit: 50,
   },
-  GROWTH: {
+  GOLD: {
     monthlyFee: 100,
-    includedLeadsPerMonth: 50,
+    includedLeadsPerMonth: 100,
     overagePricePerLead: 3,
-    currency: 'USD',
-    offerLimit: 25,
+    currency: 'CAD',
+    offerLimit: 100,
   },
-  PRO: {
-    monthlyFee: 500,
+  PREMIUM: {
+    monthlyFee: 300,
     includedLeadsPerMonth: 300,
     overagePricePerLead: 2,
-    currency: 'USD',
-    offerLimit: 100,
+    currency: 'CAD',
+    offerLimit: null,
   },
 } as const;
 
@@ -77,6 +85,8 @@ type AdminSubscriptionPresetKey = keyof typeof ADMIN_SUBSCRIPTION_PRESETS;
 const resolveAdminSubscriptionPresetKey = (value: unknown): AdminSubscriptionPresetKey | null => {
   const normalized = String(value || '').trim().toUpperCase();
   if (!normalized) return null;
+  if (normalized === 'GROWTH') return 'GOLD';
+  if (normalized === 'PRO') return 'PREMIUM';
   if (Object.prototype.hasOwnProperty.call(ADMIN_SUBSCRIPTION_PRESETS, normalized)) {
     return normalized as AdminSubscriptionPresetKey;
   }
@@ -117,12 +127,12 @@ const normalizeInvoiceStatus = (value: unknown) => {
 const countActiveApprovedOffers = async () => {
   try {
     return await prisma.offer.count({
-      where: { active: true, complianceStatus: 'APPROVED' } as any,
+      where: { active: true, offerState: 'APPROVED' } as any,
     });
   } catch (error: any) {
     const message = String(error?.message || '');
     const isCompatibilityIssue =
-      message.includes('Unknown argument `complianceStatus`') ||
+      message.includes('Unknown argument `offerState`') ||
       String(error?.code || '') === 'P2022';
     if (!isCompatibilityIssue) {
       throw error;
@@ -381,12 +391,16 @@ router.patch('/vendor-requests/:id', async (req: Request, res: Response): Promis
 router.get('/offers-review', async (req: Request, res: Response): Promise<void> => {
   try {
     const statusParam = String(req.query.status || '').trim().toUpperCase();
-    const status = statusParam || 'SUBMITTED';
+    const normalizedStatus =
+      statusParam === 'LIVE' || statusParam === 'PAUSED'
+        ? 'APPROVED'
+        : ['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'CANCELLED'].includes(statusParam)
+        ? statusParam
+        : 'SUBMITTED';
 
     const offers = await prisma.offer.findMany({
       where: {
-        complianceStatus: status as any,
-        ...(status === 'SUBMITTED' ? { offerStatus: 'SUBMITTED' } : {}),
+        offerState: normalizedStatus as any,
       } as any,
       include: {
         vendor: {
@@ -439,31 +453,44 @@ router.post('/offers-review/:id/approve', async (req: Request, res: Response): P
       return;
     }
 
-    if (
-      String((offer as any).complianceStatus) !== 'SUBMITTED' ||
-      String((offer as any).offerStatus || '') !== 'SUBMITTED'
-    ) {
+    if (String((offer as any).offerState || '') !== 'SUBMITTED') {
       res.status(400).json({ error: 'Only submitted offers can be approved' });
       return;
     }
-    const billingState = await getVendorBillingState(offer.vendor.id, {
+    const billingAccess = await getVendorBillingAccess(offer.vendor.id, 'PUBLISH_OFFER', {
       excludeOfferId: String(offer.id),
     });
-    if (!billingState.canPublishOffer) {
+    const billingOverrideRequested = isTruthy(
+      req.body?.billingOverride ?? req.body?.billing_override
+    );
+    const billingOverrideReason = String(
+      req.body?.billingOverrideReason ?? req.body?.billing_override_reason ?? ''
+    ).trim();
+    const canUseBillingOverride = canApplyAdminBillingOverride({
+      requested: billingOverrideRequested,
+      reason: billingOverrideReason,
+    });
+    if (!billingAccess.allowed && !canUseBillingOverride) {
       res.status(400).json({
-        error:
-          billingState.publishOfferMessage ||
-          'An active billing plan is required before an offer can go live',
+        ...toBillingAccessDeniedResponse(billingAccess),
+        overrideHint:
+          'Set billingOverride=true and provide billingOverrideReason (8+ chars) to force publish.',
       });
       return;
     }
+
+    const overrideComplianceNote = canUseBillingOverride
+      ? `[BILLING_OVERRIDE:${billingAccess.reasonCode}] ${billingOverrideReason}`
+      : null;
 
     const updated = await prisma.offer.update({
       where: { id: offer.id },
       data: {
         offerStatus: 'LIVE',
+        offerState: 'APPROVED',
         complianceStatus: 'APPROVED',
-        complianceNotes: null,
+        adminApprovedAt: new Date(),
+        complianceNotes: overrideComplianceNote,
         active: true,
         pausedAt: null,
         pausedByUserId: null,
@@ -527,10 +554,7 @@ router.post('/offers-review/:id/reject', async (req: Request, res: Response): Pr
       return;
     }
 
-    if (
-      String((offer as any).complianceStatus) !== 'SUBMITTED' ||
-      String((offer as any).offerStatus || '') !== 'SUBMITTED'
-    ) {
+    if (String((offer as any).offerState || '') !== 'SUBMITTED') {
       res.status(400).json({ error: 'Only submitted offers can be rejected' });
       return;
     }
@@ -539,6 +563,7 @@ router.post('/offers-review/:id/reject', async (req: Request, res: Response): Pr
       where: { id: offer.id },
       data: {
         offerStatus: 'REJECTED',
+        offerState: 'REJECTED',
         complianceStatus: 'REJECTED',
         complianceNotes,
         active: false,
@@ -585,15 +610,15 @@ router.post('/offers/:id/pause', async (req: Request, res: Response): Promise<vo
 
     const offer = await prisma.offer.findUnique({
       where: { id },
-      select: { id: true, offerStatus: true } as any,
+      select: { id: true, offerStatus: true, offerState: true, active: true } as any,
     });
 
     if (!offer) {
       res.status(404).json({ error: 'Offer not found' });
       return;
     }
-    if (String((offer as any).offerStatus || '') !== 'LIVE') {
-      res.status(400).json({ error: 'Only live offers can be paused' });
+    if (String((offer as any).offerState || '') !== 'APPROVED' || !(offer as any).active) {
+      res.status(400).json({ error: 'Only active approved offers can be paused' });
       return;
     }
 
@@ -602,6 +627,7 @@ router.post('/offers/:id/pause', async (req: Request, res: Response): Promise<vo
       data: {
         active: false,
         offerStatus: 'PAUSED',
+        offerState: 'APPROVED',
         pausedAt: new Date(),
         pausedByUserId: req.user?.id || null,
       } as any,
@@ -628,7 +654,9 @@ router.post('/offers/:id/resume', async (req: Request, res: Response): Promise<v
         id: true,
         vendorId: true,
         offerStatus: true,
+        offerState: true,
         complianceStatus: true,
+        complianceNotes: true,
       } as any,
     });
 
@@ -636,31 +664,47 @@ router.post('/offers/:id/resume', async (req: Request, res: Response): Promise<v
       res.status(404).json({ error: 'Offer not found' });
       return;
     }
-    if (String((offer as any).offerStatus || '') !== 'PAUSED') {
-      res.status(400).json({ error: 'Only paused offers can be resumed' });
-      return;
-    }
-    if (String((offer as any).complianceStatus || '') !== 'APPROVED') {
+    if (String((offer as any).offerState || '') !== 'APPROVED') {
       res.status(400).json({ error: 'Only approved offers can be resumed' });
       return;
     }
-    const billingState = await getVendorBillingState(String(offer.vendorId), {
+    if ((offer as any).active) {
+      res.status(400).json({ error: 'Offer is already active' });
+      return;
+    }
+    const billingAccess = await getVendorBillingAccess(String(offer.vendorId), 'PUBLISH_OFFER', {
       excludeOfferId: String(offer.id),
     });
-    if (!billingState.canPublishOffer) {
+    const billingOverrideRequested = isTruthy(
+      req.body?.billingOverride ?? req.body?.billing_override
+    );
+    const billingOverrideReason = String(
+      req.body?.billingOverrideReason ?? req.body?.billing_override_reason ?? ''
+    ).trim();
+    const canUseBillingOverride = canApplyAdminBillingOverride({
+      requested: billingOverrideRequested,
+      reason: billingOverrideReason,
+    });
+    if (!billingAccess.allowed && !canUseBillingOverride) {
       res.status(400).json({
-        error:
-          billingState.publishOfferMessage ||
-          'An active billing plan is required before an offer can go live',
+        ...toBillingAccessDeniedResponse(billingAccess),
+        overrideHint:
+          'Set billingOverride=true and provide billingOverrideReason (8+ chars) to force resume.',
       });
       return;
     }
+
+    const overrideComplianceNote = canUseBillingOverride
+      ? `[BILLING_OVERRIDE:${billingAccess.reasonCode}] ${billingOverrideReason}`
+      : String(offer.complianceNotes || '').trim() || null;
 
     const updated = await prisma.offer.update({
       where: { id },
       data: {
         active: true,
         offerStatus: 'LIVE',
+        offerState: 'APPROVED',
+        complianceNotes: overrideComplianceNote,
         pausedAt: null,
         pausedByUserId: null,
       } as any,
@@ -683,14 +727,14 @@ router.post('/offers/:id/cancel', async (req: Request, res: Response): Promise<v
 
     const offer = await prisma.offer.findUnique({
       where: { id },
-      select: { id: true, offerStatus: true } as any,
+      select: { id: true, offerStatus: true, offerState: true } as any,
     });
 
     if (!offer) {
       res.status(404).json({ error: 'Offer not found' });
       return;
     }
-    if (String((offer as any).offerStatus || '') === 'CANCELLED') {
+    if (String((offer as any).offerState || '') === 'CANCELLED') {
       res.status(400).json({ error: 'Offer is already cancelled' });
       return;
     }
@@ -701,6 +745,7 @@ router.post('/offers/:id/cancel', async (req: Request, res: Response): Promise<v
       data: {
         active: false,
         offerStatus: 'CANCELLED',
+        offerState: 'CANCELLED',
         cancelledAt: new Date(),
         cancelledByUserId: req.user?.id || null,
         cancelReason,
@@ -1144,7 +1189,7 @@ router.put('/vendors/:id/billing-plan', async (req: Request, res: Response): Pro
         getSubscriptionPresetByMonthlyFee(monthlyFeeFromRequest);
       if (!resolvedTier) {
         res.status(400).json({
-          error: 'subscription_tier must be one of FREE, GROWTH, PRO (or monthly_fee must match 0, 100, 500)',
+          error: 'subscription_tier must be one of FREE, GOLD, PREMIUM (or monthly_fee must match 0, 100, 300)',
         });
         return;
       }
@@ -1173,7 +1218,7 @@ router.put('/vendors/:id/billing-plan', async (req: Request, res: Response): Pro
         data: { isActive: false },
       });
 
-      return (tx as any).vendorBillingPlan.create({
+      const createdPlan = await (tx as any).vendorBillingPlan.create({
         data: {
           vendorId,
           planType: planTypeRaw,
@@ -1189,12 +1234,483 @@ router.put('/vendors/:id/billing-plan', async (req: Request, res: Response): Pro
           isActive: true,
         },
       });
+
+      const billingMode =
+        planTypeRaw === 'PAY_PER_LEAD'
+          ? 'PAY_PER_LEAD'
+          : Number(normalizedMonthlyFee || 0) <= 0
+          ? 'FREE'
+          : 'MONTHLY';
+      const associationStatus =
+        planTypeRaw === 'SUBSCRIPTION' && Number(normalizedMonthlyFee || 0) <= 0
+          ? 'FREE'
+          : 'ACTIVE';
+
+      await tx.vendorBilling.upsert({
+        where: { vendorId },
+        update: {
+          billingMode,
+          postTrialMode: billingMode === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : 'MONTHLY',
+          trialEndsAt: null,
+          leadPriceCents:
+            normalizedPricePerLead === null ? 0 : Math.max(0, Math.round(normalizedPricePerLead * 100)),
+          monthlyFeeCents:
+            normalizedMonthlyFee === null ? 0 : Math.max(0, Math.round(normalizedMonthlyFee * 100)),
+          paymentMethod: 'MANUAL',
+          currency: normalizedCurrency,
+          billingDay: billingCycleDay,
+          associationStatus: associationStatus as any,
+          statusReason: 'admin-billing-plan-update',
+          lastValidatedAt: new Date(),
+        } as any,
+        create: {
+          vendorId,
+          billingMode,
+          postTrialMode: billingMode === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : 'MONTHLY',
+          trialEndsAt: null,
+          leadPriceCents:
+            normalizedPricePerLead === null ? 0 : Math.max(0, Math.round(normalizedPricePerLead * 100)),
+          monthlyFeeCents:
+            normalizedMonthlyFee === null ? 0 : Math.max(0, Math.round(normalizedMonthlyFee * 100)),
+          paymentMethod: 'MANUAL',
+          currency: normalizedCurrency,
+          billingDay: billingCycleDay,
+          associationStatus: associationStatus as any,
+          statusReason: 'admin-billing-plan-update',
+          lastValidatedAt: new Date(),
+        } as any,
+      });
+
+      return createdPlan;
     });
 
     res.json(created);
   } catch (error) {
     console.error('PUT /api/admin/vendors/:id/billing-plan error:', error);
     res.status(500).json({ error: 'Failed to save vendor billing plan' });
+  }
+});
+
+router.get('/vendors/billing-eligibility', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const invalidOnlyRaw = req.query.invalidOnly ?? req.query.invalid_only;
+    const invalidOnly =
+      invalidOnlyRaw === undefined || invalidOnlyRaw === null || invalidOnlyRaw === ''
+        ? true
+        : isTruthy(invalidOnlyRaw);
+    const status = normalizeOptionalQueryValue(req.query.status);
+
+    const vendors = await prisma.vendor.findMany({
+      where: {
+        ...(status ? { status: normalizeVendorStatus(status) as any } : {}),
+      },
+      select: {
+        id: true,
+        companyName: true,
+        status: true,
+        _count: {
+          select: {
+            offers: true,
+          },
+        },
+      },
+      orderBy: { companyName: 'asc' },
+    });
+
+    const vendorEligibility = [];
+    for (const vendor of vendors) {
+      const [createAccess, submitAccess, publishAccess] = await Promise.all([
+        getVendorBillingAccess(vendor.id, 'CREATE_OFFER'),
+        getVendorBillingAccess(vendor.id, 'SUBMIT_OFFER'),
+        getVendorBillingAccess(vendor.id, 'PUBLISH_OFFER'),
+      ]);
+      const isFullyEligible = createAccess.allowed && submitAccess.allowed && publishAccess.allowed;
+      vendorEligibility.push({
+        vendorId: vendor.id,
+        vendorName: vendor.companyName,
+        vendorStatus: vendor.status,
+        offerCount: (vendor as any)._count?.offers || 0,
+        isFullyEligible,
+        createAccess,
+        submitAccess,
+        publishAccess,
+      });
+    }
+
+    const filtered = invalidOnly
+      ? vendorEligibility.filter((vendor) => !vendor.isFullyEligible)
+      : vendorEligibility;
+
+    res.json({
+      totalVendors: vendors.length,
+      invalidVendors: vendorEligibility.filter((vendor) => !vendor.isFullyEligible).length,
+      returnedVendors: filtered.length,
+      invalidOnly,
+      vendors: filtered,
+    });
+  } catch (error) {
+    console.error('GET /api/admin/vendors/billing-eligibility error:', error);
+    res.status(500).json({ error: 'Failed to load vendor billing eligibility' });
+  }
+});
+
+router.get('/vendors/:id/billing-eligibility', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const vendorId = firstString(req.params.id);
+    if (!vendorId) {
+      res.status(400).json({ error: 'Invalid vendor id' });
+      return;
+    }
+
+    const vendor = await prisma.vendor.findUnique({
+      where: { id: vendorId },
+      select: { id: true, companyName: true, status: true },
+    });
+    if (!vendor) {
+      res.status(404).json({ error: 'Vendor not found' });
+      return;
+    }
+
+    const [createAccess, submitAccess, publishAccess] = await Promise.all([
+      getVendorBillingAccess(vendor.id, 'CREATE_OFFER'),
+      getVendorBillingAccess(vendor.id, 'SUBMIT_OFFER'),
+      getVendorBillingAccess(vendor.id, 'PUBLISH_OFFER'),
+    ]);
+
+    res.json({
+      vendorId: vendor.id,
+      vendorName: vendor.companyName,
+      vendorStatus: vendor.status,
+      isFullyEligible: createAccess.allowed && submitAccess.allowed && publishAccess.allowed,
+      createAccess,
+      submitAccess,
+      publishAccess,
+    });
+  } catch (error) {
+    console.error('GET /api/admin/vendors/:id/billing-eligibility error:', error);
+    res.status(500).json({ error: 'Failed to load vendor billing eligibility' });
+  }
+});
+
+router.get('/offers/billing-blocked', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const limitRaw = Number(req.query.limit || 200);
+    const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 1000) : 200;
+    const statusesRaw = normalizeOptionalQueryValue(req.query.statuses);
+    const states = statusesRaw
+      ? statusesRaw
+          .split(',')
+          .map((value) => value.trim().toUpperCase())
+          .filter(Boolean)
+          .map((value) => {
+            if (value === 'LIVE' || value === 'PAUSED') return 'APPROVED';
+            return value;
+          })
+      : ['SUBMITTED', 'APPROVED'];
+
+    const offers = await prisma.offer.findMany({
+      where: {
+        offerState: { in: states as any },
+      } as any,
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        offerState: true,
+        offerStatus: true,
+        active: true,
+        complianceStatus: true,
+        complianceNotes: true,
+        vendorId: true,
+        company: {
+          select: { id: true, name: true },
+        },
+        vendor: {
+          select: { id: true, companyName: true },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: limit,
+    } as any);
+
+    const blocked = [];
+    for (const offer of offers as any[]) {
+      const publishAccess = await getVendorBillingAccess(String(offer.vendorId), 'PUBLISH_OFFER', {
+        excludeOfferId: String(offer.id),
+      });
+      if (publishAccess.allowed) continue;
+      blocked.push({
+        offerId: offer.id,
+        slug: offer.slug,
+        title: offer.title,
+        offerState: offer.offerState,
+        offerStatus: offer.offerStatus,
+        active: offer.active,
+        complianceStatus: offer.complianceStatus,
+        complianceNotes: offer.complianceNotes,
+        vendorId: offer.vendor?.id || offer.vendorId,
+        vendorName: offer.vendor?.companyName || null,
+        company: offer.company,
+        blockingAccess: publishAccess,
+      });
+    }
+
+    res.json({
+      scannedOffers: offers.length,
+      blockedOffers: blocked.length,
+      results: blocked,
+    });
+  } catch (error) {
+    console.error('GET /api/admin/offers/billing-blocked error:', error);
+    res.status(500).json({ error: 'Failed to load billing-blocked offers' });
+  }
+});
+
+router.post('/offers/revalidate-billing', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const applyChanges = isTruthy(req.body?.applyChanges ?? req.body?.apply_changes);
+    const limitRaw = Number(req.body?.limit);
+    const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? limitRaw : undefined;
+
+    const result = await enforceLiveOfferBillingEligibility({
+      applyChanges,
+      limit,
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('POST /api/admin/offers/revalidate-billing error:', error);
+    res.status(500).json({ error: 'Failed to revalidate live offers against billing eligibility' });
+  }
+});
+
+router.get('/pricing/category-leads', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const categoryId = normalizeOptionalQueryValue(req.query.categoryId ?? req.query.category_id);
+    const subcategoryId = normalizeOptionalQueryValue(req.query.subcategoryId ?? req.query.subcategory_id);
+    const isActiveRaw = normalizeOptionalQueryValue(req.query.isActive ?? req.query.is_active);
+
+    const rows = await (prisma as any).categoryLeadPricing.findMany({
+      where: {
+        ...(categoryId ? { categoryId } : {}),
+        ...(subcategoryId ? { subcategoryId } : {}),
+        ...(isActiveRaw !== undefined ? { isActive: isTruthy(isActiveRaw) } : {}),
+      },
+      include: {
+        category: { select: { id: true, name: true, slug: true } },
+        subcategory: { select: { id: true, name: true, slug: true, parentId: true } },
+      },
+      orderBy: [{ category: { name: 'asc' } }, { subcategory: { name: 'asc' } }],
+    });
+
+    res.json(rows);
+  } catch (error) {
+    console.error('GET /api/admin/pricing/category-leads error:', error);
+    res.status(500).json({ error: 'Failed to load category lead pricing' });
+  }
+});
+
+router.put('/pricing/category-leads', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const categoryId = String(req.body?.categoryId ?? req.body?.category_id ?? '').trim();
+    const subcategoryIdRaw = req.body?.subcategoryId ?? req.body?.subcategory_id;
+    const subcategoryId =
+      subcategoryIdRaw === undefined || subcategoryIdRaw === null || String(subcategoryIdRaw).trim() === ''
+        ? null
+        : String(subcategoryIdRaw).trim();
+    const leadPrice = Number(req.body?.leadPrice ?? req.body?.lead_price);
+    const billingType = String(req.body?.billingType ?? req.body?.billing_type ?? 'PER_LEAD')
+      .trim()
+      .toUpperCase();
+    const isActive = req.body?.isActive === undefined ? true : isTruthy(req.body?.isActive);
+
+    if (!categoryId) {
+      res.status(400).json({ error: 'categoryId is required' });
+      return;
+    }
+    if (!Number.isFinite(leadPrice) || leadPrice < 0) {
+      res.status(400).json({ error: 'leadPrice must be a non-negative number' });
+      return;
+    }
+    if (!['PER_LEAD', 'PER_SALE'].includes(billingType)) {
+      res.status(400).json({ error: 'billingType must be PER_LEAD or PER_SALE' });
+      return;
+    }
+
+    const category = await prisma.category.findUnique({
+      where: { id: categoryId },
+      select: { id: true, name: true },
+    });
+    if (!category) {
+      res.status(404).json({ error: 'Category not found' });
+      return;
+    }
+
+    if (subcategoryId) {
+      const subcategory = await prisma.category.findUnique({
+        where: { id: subcategoryId },
+        select: { id: true, parentId: true, name: true },
+      });
+      if (!subcategory) {
+        res.status(404).json({ error: 'Subcategory not found' });
+        return;
+      }
+      if (String(subcategory.parentId || '') !== categoryId) {
+        res.status(400).json({ error: 'Subcategory does not belong to category' });
+        return;
+      }
+    }
+
+    const existing = await (prisma as any).categoryLeadPricing.findFirst({
+      where: {
+        categoryId,
+        subcategoryId,
+      },
+      select: { id: true },
+    });
+
+    const saved = existing
+      ? await (prisma as any).categoryLeadPricing.update({
+          where: { id: existing.id },
+          data: {
+            leadPrice: leadPrice.toFixed(2),
+            billingType,
+            isActive,
+          },
+          include: {
+            category: { select: { id: true, name: true, slug: true } },
+            subcategory: { select: { id: true, name: true, slug: true, parentId: true } },
+          },
+        })
+      : await (prisma as any).categoryLeadPricing.create({
+          data: {
+            categoryId,
+            subcategoryId,
+            leadPrice: leadPrice.toFixed(2),
+            billingType,
+            isActive,
+          },
+          include: {
+            category: { select: { id: true, name: true, slug: true } },
+            subcategory: { select: { id: true, name: true, slug: true, parentId: true } },
+          },
+        });
+
+    res.json(saved);
+  } catch (error) {
+    console.error('PUT /api/admin/pricing/category-leads error:', error);
+    res.status(500).json({ error: 'Failed to save category lead pricing' });
+  }
+});
+
+router.get('/analytics/lead-monetization', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const daysRaw = Number(req.query.days || 30);
+    const days = Number.isInteger(daysRaw) ? Math.max(1, Math.min(daysRaw, 120)) : 30;
+    const walletThresholdRaw = Number(req.query.walletThreshold ?? req.query.wallet_threshold ?? 20);
+    const walletThreshold = Number.isFinite(walletThresholdRaw) ? walletThresholdRaw : 20;
+    const highLockedThresholdRaw = Number(req.query.highLockedThreshold ?? req.query.high_locked_threshold ?? 5);
+    const highLockedThreshold = Number.isInteger(highLockedThresholdRaw) ? highLockedThresholdRaw : 5;
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - (days - 1));
+
+    const [eventRows, lowBalanceProfiles] = await Promise.all([
+      (prisma as any).vendorLeadEvent.findMany({
+        where: { createdAt: { gte: start } },
+        select: {
+          id: true,
+          vendorId: true,
+          visibilityStatus: true,
+          status: true,
+          deductedFromIncludedLeads: true,
+          deductedFromWallet: true,
+          priceApplied: true,
+          createdAt: true,
+        },
+      }),
+      prisma.vendorBilling.findMany({
+        where: {
+          associationStatus: { in: ['ACTIVE', 'FREE', 'TRIALING'] as any },
+        } as any,
+        select: {
+          vendorId: true,
+          walletBalance: true,
+          currencyCode: true,
+          associationStatus: true,
+          vendor: {
+            select: {
+              companyName: true,
+              status: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const metricsByVendor = new Map<string, {
+      vendorId: string;
+      visibleLeads: number;
+      lockedLeads: number;
+      deliveredLeads: number;
+      blockedLeads: number;
+      chargedFromWallet: number;
+      chargedFromIncluded: number;
+    }>();
+
+    for (const row of eventRows as any[]) {
+      const bucket = metricsByVendor.get(row.vendorId) || {
+        vendorId: row.vendorId,
+        visibleLeads: 0,
+        lockedLeads: 0,
+        deliveredLeads: 0,
+        blockedLeads: 0,
+        chargedFromWallet: 0,
+        chargedFromIncluded: 0,
+      };
+      if (String(row.visibilityStatus) === 'VISIBLE') bucket.visibleLeads += 1;
+      if (String(row.visibilityStatus) === 'LOCKED') bucket.lockedLeads += 1;
+      if (String(row.status) === 'DELIVERED') bucket.deliveredLeads += 1;
+      if (String(row.status) === 'BLOCKED') bucket.blockedLeads += 1;
+      bucket.chargedFromWallet += asNumber(row.deductedFromWallet);
+      bucket.chargedFromIncluded += Number(row.deductedFromIncludedLeads || 0);
+      metricsByVendor.set(row.vendorId, bucket);
+    }
+
+    const vendorsWithHighLockedLeads = Array.from(metricsByVendor.values())
+      .filter((item) => item.lockedLeads >= highLockedThreshold)
+      .sort((a, b) => b.lockedLeads - a.lockedLeads);
+
+    const vendorsLowBalance = (lowBalanceProfiles as any[])
+      .map((profile) => ({
+        vendorId: profile.vendorId,
+        vendorName: profile.vendor?.companyName || null,
+        vendorStatus: profile.vendor?.status || null,
+        associationStatus: profile.associationStatus,
+        walletBalance: asNumber(profile.walletBalance),
+        currencyCode: profile.currencyCode || 'CAD',
+      }))
+      .filter((profile) => profile.walletBalance <= walletThreshold)
+      .sort((a, b) => a.walletBalance - b.walletBalance);
+
+    const totalVisible = (eventRows as any[]).filter((row) => row.visibilityStatus === 'VISIBLE').length;
+    const totalLocked = (eventRows as any[]).filter((row) => row.visibilityStatus === 'LOCKED').length;
+
+    res.json({
+      days,
+      walletThreshold,
+      highLockedThreshold,
+      totals: {
+        leadEvents: (eventRows as any[]).length,
+        visibleLeads: totalVisible,
+        lockedLeads: totalLocked,
+      },
+      vendorsLowBalance,
+      vendorsWithHighLockedLeads,
+    });
+  } catch (error) {
+    console.error('GET /api/admin/analytics/lead-monetization error:', error);
+    res.status(500).json({ error: 'Failed to load lead monetization analytics' });
   }
 });
 

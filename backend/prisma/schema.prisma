@@ -59,6 +59,14 @@ enum OfferStatus {
   REJECTED
 }
 
+enum OfferState {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  CANCELLED
+  REJECTED
+}
+
 enum LeadStatus {
   NEW
   SENT
@@ -102,6 +110,17 @@ enum BillingMode {
   PAY_PER_LEAD
   MONTHLY
   HYBRID
+}
+
+enum VendorBillingAssociationStatus {
+  TRIALING
+  ACTIVE
+  FREE
+  INACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  EXPIRED
 }
 
 enum LeadChargeStatus {
@@ -148,6 +167,44 @@ enum LeadBillingEventStatus {
   VOID     @map("void")
 }
 
+enum CategoryLeadPricingBillingType {
+  PER_LEAD
+  PER_SALE
+}
+
+enum VendorLeadType {
+  FORM_SUBMISSION
+  PURCHASE
+}
+
+enum VendorLeadPricingSource {
+  INCLUDED
+  CATEGORY
+  SUBCATEGORY
+}
+
+enum VendorLeadVisibilityStatus {
+  VISIBLE
+  LOCKED
+}
+
+enum VendorLeadLockedReason {
+  PLAN_LIMIT
+  NO_BALANCE
+}
+
+enum VendorLeadEventStatus {
+  DELIVERED
+  BLOCKED
+  REFUNDED
+}
+
+enum VendorWalletTransactionType {
+  TOP_UP
+  LEAD_CHARGE
+  REFUND
+}
+
 model User {
   id            String    @id @default(uuid())
   email         String    @unique
@@ -172,6 +229,7 @@ model User {
   companyVerifications UserCompanyVerification[]
   offerClaims          OfferClaim[]
   leads                Lead[]                    @relation("UserLeads")
+  vendorLeadEvents     VendorLeadEvent[]
   redemptions          Redemption[]
   offerClicks          OfferClick[]
 
@@ -204,6 +262,8 @@ model Vendor {
   invoices      Invoice[]
   leadCharges   LeadCharge[]
   leadBillingEvents LeadBillingEvent[]
+  vendorLeadEvents VendorLeadEvent[]
+  walletTransactions VendorWalletTransaction[]
   leads         Lead[]         @relation("VendorLeads")
 
   @@map("vendors")
@@ -255,6 +315,7 @@ model Company {
   userVerifications     UserCompanyVerification[]
   redemptions           Redemption[]
   offerClicks           OfferClick[]
+  vendorLeadEvents      VendorLeadEvent[]
 
   @@map("companies")
 }
@@ -345,6 +406,10 @@ model Category {
   parent      Category? @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
   children    Category[] @relation("CategoryHierarchy")
   offers      Offer[]
+  categoryLeadPricingRows CategoryLeadPricing[] @relation("CategoryLeadPricingCategory")
+  subcategoryLeadPricingRows CategoryLeadPricing[] @relation("CategoryLeadPricingSubcategory")
+  vendorLeadEventsAsCategory VendorLeadEvent[] @relation("VendorLeadEventCategory")
+  vendorLeadEventsAsSubcategory VendorLeadEvent[] @relation("VendorLeadEventSubcategory")
 
   @@index([parentId])
   @@map("categories")
@@ -358,6 +423,7 @@ model Offer {
   categoryId      String       @map("category_id")
   offerType       String       @default("lead") @map("offer_type")
   offerStatus     OfferStatus  @default(DRAFT) @map("offer_status")
+  offerState      OfferState   @default(DRAFT) @map("offer_state")
   coverageType    CoverageType @default(COMPANY_WIDE) @map("coverage_type")
   provinceCode    String?      @map("province_code")
   cityName        String?      @map("city_name")
@@ -397,6 +463,7 @@ model Offer {
   vendorAttestationAcceptedIp String? @map("vendor_attestation_accepted_ip")
   complianceStatus ComplianceStatus @default(DRAFT) @map("compliance_status")
   complianceNotes String?      @map("compliance_notes")
+  adminApprovedAt DateTime?    @map("admin_approved_at")
   pausedAt        DateTime?    @map("paused_at")
   pausedByUserId  String?      @map("paused_by_user_id")
   cancelledAt     DateTime?    @map("cancelled_at")
@@ -409,11 +476,13 @@ model Offer {
   company         Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   category        Category     @relation(fields: [categoryId], references: [id])
   leads           Lead[]
+  vendorLeadEvents VendorLeadEvent[]
   claims          OfferClaim[]
   redemptions     Redemption[]
   offerClicks     OfferClick[]
 
   @@index([offerStatus])
+  @@index([offerState])
   @@map("offers")
 }
 
@@ -462,6 +531,7 @@ model Lead {
   vendor      Vendor?    @relation("VendorLeads", fields: [vendorId], references: [id], onDelete: SetNull)
   leadCharge  LeadCharge?
   billingEvent LeadBillingEvent?
+  vendorLeadEvent VendorLeadEvent?
 
   @@map("leads")
 }
@@ -469,12 +539,17 @@ model Lead {
 model VendorBillingPlan {
   id                   String                @id @default(uuid())
   vendorId             String                @map("vendor_id")
+  code                 String?               @map("code")
+  name                 String?               @map("name")
   planType             VendorBillingPlanType @map("plan_type")
   pricePerLead         Decimal?              @db.Decimal(10, 2) @map("price_per_lead")
   monthlyFee           Decimal?              @db.Decimal(10, 2) @map("monthly_fee")
   includedLeadsPerMonth Int?                 @map("included_leads_per_month")
+  includedLeadsPerCycle Int?                 @map("included_leads_per_cycle")
   overagePricePerLead  Decimal?              @db.Decimal(10, 2) @map("overage_price_per_lead")
   offerLimit           Int?                  @map("offer_limit")
+  maxActiveOffers      Int?                  @map("max_active_offers")
+  overageEnabled       Boolean               @default(true) @map("overage_enabled")
   billingCycleDay      Int                   @default(1) @map("billing_cycle_day")
   currency             String                @default("CAD")
   startsAt             DateTime              @default(now()) @map("starts_at")
@@ -548,10 +623,86 @@ model LeadBillingEvent {
   @@map("lead_billing_events")
 }
 
+model CategoryLeadPricing {
+  id            String                         @id @default(uuid())
+  categoryId    String                         @map("category_id")
+  subcategoryId String?                        @map("subcategory_id")
+  leadPrice     Decimal                        @db.Decimal(10, 2) @map("lead_price")
+  billingType   CategoryLeadPricingBillingType @default(PER_LEAD) @map("billing_type")
+  isActive      Boolean                        @default(true) @map("is_active")
+  createdAt     DateTime                       @default(now()) @map("created_at")
+  updatedAt     DateTime                       @updatedAt @map("updated_at")
+
+  category      Category                       @relation("CategoryLeadPricingCategory", fields: [categoryId], references: [id], onDelete: Cascade)
+  subcategory   Category?                      @relation("CategoryLeadPricingSubcategory", fields: [subcategoryId], references: [id], onDelete: SetNull)
+
+  @@unique([categoryId, subcategoryId], map: "category_lead_pricing_category_subcategory_key")
+  @@index([categoryId, isActive])
+  @@index([subcategoryId, isActive])
+  @@map("category_lead_pricing")
+}
+
+model VendorLeadEvent {
+  id                         String                     @id @default(uuid())
+  leadId                     String                     @unique @map("lead_id")
+  vendorId                   String                     @map("vendor_id")
+  offerId                    String                     @map("offer_id")
+  userId                     String?                    @map("user_id")
+  companyId                  String                     @map("company_id")
+  categoryId                 String                     @map("category_id")
+  subcategoryId              String?                    @map("subcategory_id")
+  leadType                   VendorLeadType             @default(FORM_SUBMISSION) @map("lead_type")
+  priceApplied               Decimal                    @default(0) @db.Decimal(10, 2) @map("price_applied")
+  pricingSource              VendorLeadPricingSource    @default(INCLUDED) @map("pricing_source")
+  visibilityStatus           VendorLeadVisibilityStatus @default(VISIBLE) @map("visibility_status")
+  lockedReason               VendorLeadLockedReason?    @map("locked_reason")
+  deductedFromIncludedLeads  Int                        @default(0) @map("deducted_from_included_leads")
+  deductedFromWallet         Decimal                    @default(0) @db.Decimal(10, 2) @map("deducted_from_wallet")
+  unlockedAt                 DateTime?                  @map("unlocked_at")
+  status                     VendorLeadEventStatus      @default(DELIVERED)
+  createdAt                  DateTime                   @default(now()) @map("created_at")
+
+  lead                       Lead                       @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  vendor                     Vendor                     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  offer                      Offer                      @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  user                       User?                      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  company                    Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category                   Category                   @relation("VendorLeadEventCategory", fields: [categoryId], references: [id], onDelete: Cascade)
+  subcategory                Category?                  @relation("VendorLeadEventSubcategory", fields: [subcategoryId], references: [id], onDelete: SetNull)
+
+  @@index([vendorId, createdAt])
+  @@index([visibilityStatus, createdAt])
+  @@index([status, createdAt])
+  @@map("vendor_lead_events")
+}
+
+model VendorWalletTransaction {
+  id            String                      @id @default(uuid())
+  vendorId      String                      @map("vendor_id")
+  subscriptionId String?                    @map("subscription_id")
+  type          VendorWalletTransactionType
+  amount        Decimal                     @db.Decimal(12, 2)
+  balanceBefore Decimal                     @db.Decimal(12, 2) @map("balance_before")
+  balanceAfter  Decimal                     @db.Decimal(12, 2) @map("balance_after")
+  referenceType String?                     @map("reference_type")
+  referenceId   String?                     @map("reference_id")
+  createdAt     DateTime                    @default(now()) @map("created_at")
+
+  vendor        Vendor                      @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  subscription  VendorBilling?              @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@index([vendorId, createdAt])
+  @@index([subscriptionId, createdAt])
+  @@map("vendor_wallet_transactions")
+}
+
 model VendorBilling {
   id              String       @id @default(uuid())
   vendorId        String       @unique @map("vendor_id")
   billingMode     BillingMode  @default(TRIAL) @map("billing_mode")
+  associationStatus VendorBillingAssociationStatus @default(INACTIVE) @map("association_status")
+  statusReason    String?      @map("status_reason")
+  lastValidatedAt DateTime?    @map("last_validated_at")
   postTrialMode   BillingMode? @map("post_trial_mode")
   trialEndsAt     DateTime?    @map("trial_ends_at")
   leadPriceCents  Int          @default(0) @map("lead_price_cents")
@@ -560,12 +711,20 @@ model VendorBilling {
   stripeCustomerId String?      @map("stripe_customer_id")
   stripeSubscriptionId String?  @map("stripe_subscription_id")
   currency        String       @default("USD")
+  currencyCode    String       @default("CAD") @map("currency_code")
+  billingCycleStartAt DateTime? @map("billing_cycle_start_at")
+  billingCycleEndAt DateTime?  @map("billing_cycle_end_at")
+  includedLeadsTotal Int       @default(0) @map("included_leads_total")
+  includedLeadsUsed Int        @default(0) @map("included_leads_used")
+  walletBalance   Decimal      @default(0) @db.Decimal(12, 2) @map("wallet_balance")
   billingDay      Int          @default(1) @map("billing_day")
   createdAt       DateTime     @default(now()) @map("created_at")
   updatedAt       DateTime     @updatedAt @map("updated_at")
 
   vendor      Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  walletTransactions VendorWalletTransaction[]
 
+  @@index([associationStatus])
   @@map("vendor_billing")
 }
 

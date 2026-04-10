@@ -23,26 +23,26 @@ const plans = [
     ],
   },
   {
-    key: 'GROWTH',
-    name: 'Growth',
+    key: 'GOLD',
+    name: 'Gold',
     price: '$100',
     cadence: '/month',
     description: 'Best for teams growing predictable lead flow every month.',
-    includedLeads: 50,
+    includedLeads: 100,
     overage: '$3 / lead',
-    cta: 'Choose Growth',
+    cta: 'Choose Gold',
     href: '/vendor/apply',
     featured: true,
     points: [
-      '50 qualified leads per month',
+      '100 qualified leads per month',
       'Priority listing placement',
       'CSV/CRM export support',
     ],
   },
   {
-    key: 'PRO',
-    name: 'Pro',
-    price: '$500',
+    key: 'PREMIUM',
+    name: 'Premium',
+    price: '$300',
     cadence: '/month',
     description: 'Scale faster with high volume lead allocation and support.',
     includedLeads: 300,
@@ -51,7 +51,7 @@ const plans = [
     href: '/vendor/apply',
     featured: false,
     points: [
-      '300 qualified leads per month',
+      'Unlimited active offers',
       'Top placement opportunities',
       'Dedicated account support',
     ],
@@ -63,7 +63,7 @@ export default function PricingPage() {
     <>
       <Seo
         title="CorpDeals Pricing | Vendor Plans"
-        description="Simple vendor pricing with three plans: Free, Growth, and Pro. Scale from your first leads to high-volume monthly demand."
+        description="Simple vendor pricing with three plans: Free, Gold, and Premium. Scale from your first leads to high-volume monthly demand."
         keywords="corpdeals pricing, vendor plans, subscription pricing, employee marketplace pricing"
         path="/pricing"
         image="/hero_main.jpg"

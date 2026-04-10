@@ -3,7 +3,6 @@ import prisma from '../lib/prisma';
 import { authenticateToken, requireUser, requireVendor } from '../middleware/auth';
 import { getUserVerification, isUserVerifiedForCompany, VERIFIED_STATUS } from '../lib/verifications';
 import { sendLeadSubmissionConfirmationEmail, sendVendorLeadNotificationEmail } from '../lib/mailer';
-import { recordLeadDeliveryBillingEvent } from '../lib/lead-billing';
 import {
   buildEligibilityMessage,
   coverageTypeToLocationApplicability,
@@ -19,6 +18,11 @@ import {
   normalizeOptionalUrl,
 } from '../lib/offer-details';
 import { getActiveVendorBillingRelationFilter, syncExpiredVendorPlans } from '../lib/vendor-billing';
+import { getVendorBillingAccess, toBillingAccessDeniedResponse } from '../lib/vendor-billing-access';
+import {
+  processVendorLeadMonetization,
+  resolveOfferCategoryContext,
+} from '../lib/vendor-lead-monetization';
 
 const router = Router();
 type JsonObject = Record<string, any>;
@@ -145,7 +149,7 @@ const getOfferForUserAccess = async (
     return { offer: null, verification: null, canAccess: false };
   }
 
-  if (!offer.active || String((offer as any).complianceStatus || '') !== 'APPROVED') {
+  if (!offer.active || String((offer as any).offerState || (offer as any).complianceStatus || '') !== 'APPROVED') {
     return { offer: null, verification: null, canAccess: false };
   }
 
@@ -182,12 +186,20 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
       title: true,
       configJson: true,
       active: true,
+      offerState: true,
       complianceStatus: true,
       companyId: true,
       vendorId: true,
+      categoryId: true,
       coverageType: true,
       provinceCode: true,
       cityName: true,
+      category: {
+        select: {
+          id: true,
+          parentId: true,
+        },
+      },
       productName: true,
       productModel: true,
       productUrl: true,
@@ -201,7 +213,11 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
     } as any,
   });
 
-  if (!offer || !offer.active || offer.complianceStatus !== 'APPROVED') {
+  if (
+    !offer ||
+    !offer.active ||
+    String((offer as any).offerState || offer.complianceStatus || '') !== 'APPROVED'
+  ) {
     res.status(404).json({ error: 'Offer not found' });
     return;
   }
@@ -304,54 +320,90 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
     return;
   }
 
-  const lead = await prisma.lead.create({
-    data: {
-      userId: user.id,
-      offerId: offer.id,
-      companyId: offer.companyId,
+  const leadResult = await prisma.$transaction(async (tx) => {
+    const createdLead = await tx.lead.create({
+      data: {
+        userId: user.id,
+        offerId: offer.id,
+        companyId: offer.companyId,
+        vendorId: offer.vendorId,
+        payloadJson,
+        consent,
+        consentAt: new Date(),
+        consentIp: req.ip || null,
+        termsAccepted,
+        termsAcceptedAt: new Date(),
+        userProvinceCodeAtSubmission: location.provinceCode,
+        userCityAtSubmission: location.cityName,
+        firstName,
+        lastName,
+        email,
+        phone,
+        message: typeof req.body?.message === 'string' ? req.body.message : null,
+        employeeId: typeof req.body?.employeeId === 'string' ? req.body.employeeId : null,
+        vendorNotificationEmail: offer.vendor.email,
+        status: 'NEW',
+      } as any,
+    });
+
+    const categoryContext = resolveOfferCategoryContext({
+      categoryId: offer.categoryId,
+      category: offer.category,
+    });
+    const monetization = await processVendorLeadMonetization(tx as any, {
+      leadId: createdLead.id,
       vendorId: offer.vendorId,
-      payloadJson,
-      consent,
-      consentAt: new Date(),
-      consentIp: req.ip || null,
-      termsAccepted,
-      termsAcceptedAt: new Date(),
-      userProvinceCodeAtSubmission: location.provinceCode,
-      userCityAtSubmission: location.cityName,
-      firstName,
-      lastName,
-      email,
-      phone,
-      message: typeof req.body?.message === 'string' ? req.body.message : null,
-      employeeId: typeof req.body?.employeeId === 'string' ? req.body.employeeId : null,
-      vendorNotificationEmail: offer.vendor.email,
-      status: 'NEW',
-    } as any,
+      offerId: offer.id,
+      userId: user.id,
+      companyId: offer.companyId,
+      categoryId: categoryContext.categoryId,
+      subcategoryId: categoryContext.subcategoryId,
+      leadType: 'FORM_SUBMISSION',
+    });
+
+    await tx.offer.update({
+      where: { id: offer.id },
+      data: { leadCount: { increment: 1 } },
+    });
+
+    return { lead: createdLead, monetization };
   });
 
-  const vendorEmailResult = await sendVendorLeadNotificationEmail({
-    vendorEmail: offer.vendor.email,
-    vendorCompanyName: offer.vendor.companyName,
-    companyName: offer.company.name,
-    offerTitle: offer.title,
-      dashboardLeadUrl: `${
-        process.env.FRONTEND_URL || 'http://localhost:5173'
-      }/vendor/leads/${encodeURIComponent(lead.id)}`,
-      lead: {
-        id: lead.id,
-        firstName: lead.firstName,
-        lastName: lead.lastName,
-        email: lead.email,
-        phone: lead.phone,
-        message: lead.message,
-        createdAt: lead.createdAt,
-        consentAt: lead.consentAt,
-        consentIp: lead.consentIp,
-        productName: (offer as any).productName || null,
-        productModel: (offer as any).productModel || null,
-        productUrl: (offer as any).productUrl || null,
-      },
-    });
+  const lead = leadResult.lead;
+  const monetization = leadResult.monetization;
+
+  const vendorEmailResult =
+    monetization.canSharePII
+      ? await sendVendorLeadNotificationEmail({
+          vendorEmail: offer.vendor.email,
+          vendorCompanyName: offer.vendor.companyName,
+          companyName: offer.company.name,
+          offerTitle: offer.title,
+          dashboardLeadUrl: `${
+            process.env.FRONTEND_URL || 'http://localhost:5173'
+          }/vendor/leads/${encodeURIComponent(lead.id)}`,
+          lead: {
+            id: lead.id,
+            firstName: lead.firstName,
+            lastName: lead.lastName,
+            email: lead.email,
+            phone: lead.phone,
+            message: lead.message,
+            createdAt: lead.createdAt,
+            consentAt: lead.consentAt,
+            consentIp: lead.consentIp,
+            productName: (offer as any).productName || null,
+            productModel: (offer as any).productModel || null,
+            productUrl: (offer as any).productUrl || null,
+          },
+        })
+      : {
+          sent: false,
+          recipient: offer.vendor.email,
+          error: monetization.lockedReason
+            ? `Lead locked (${monetization.lockedReason})`
+            : 'Lead locked',
+        };
 
   if (!vendorEmailResult.sent) {
     console.error('Offer apply vendor email failed', {
@@ -361,8 +413,6 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
       error: vendorEmailResult.error,
       recipient: vendorEmailResult.recipient,
     });
-  } else {
-    await recordLeadDeliveryBillingEvent(lead.id, offer.vendorId);
   }
 
   const userConfirmationResult = await sendLeadSubmissionConfirmationEmail({
@@ -384,13 +434,19 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
 
   await prisma.lead.update({
     where: { id: lead.id },
-    data: { status: vendorEmailResult.sent ? 'SENT' : 'FAILED' },
+    data: {
+      status: monetization.canSharePII ? (vendorEmailResult.sent ? 'SENT' : 'FAILED') : 'NEW',
+    },
   });
 
   res.json({
     ok: true,
     lead_id: lead.id,
-    message: 'Submitted. Vendor will contact you.',
+    visibility_status: monetization.visibilityStatus,
+    locked_reason: monetization.lockedReason,
+    message: monetization.canSharePII
+      ? 'Submitted. Vendor will contact you.'
+      : 'Submitted. Your request is recorded and pending vendor unlock.',
   });
 };
 
@@ -403,7 +459,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
     const where: any = {
       active: true,
-      complianceStatus: 'APPROVED',
+      offerState: 'APPROVED',
       vendor: getActiveVendorBillingRelationFilter() as any,
     };
     if (companyId) where.companyId = companyId;
@@ -639,7 +695,10 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response): Promi
       return;
     }
     if (req.user?.role !== 'ADMIN') {
-      if (!offer.active || String((offer as any).complianceStatus || '') !== 'APPROVED') {
+      if (
+        !offer.active ||
+        String((offer as any).offerState || (offer as any).complianceStatus || '') !== 'APPROVED'
+      ) {
         res.status(404).json({ error: 'Offer not found' });
         return;
       }
@@ -760,6 +819,12 @@ router.post('/', authenticateToken, requireVendor, async (req: Request, res: Res
       vendorId = vendor.id;
     }
 
+    const billingAccess = await getVendorBillingAccess(vendorId, 'CREATE_OFFER');
+    if (!billingAccess.allowed) {
+      res.status(403).json(toBillingAccessDeniedResponse(billingAccess));
+      return;
+    }
+
     const offer = await prisma.offer.create({
       data: {
         vendorId,
@@ -780,6 +845,8 @@ router.post('/', authenticateToken, requireVendor, async (req: Request, res: Res
         featured: featured || false,
         verified: req.user?.role === 'ADMIN',
         active: false,
+        offerState: 'DRAFT',
+        offerStatus: 'DRAFT',
         complianceStatus: 'DRAFT',
         location,
         slug,
@@ -880,9 +947,22 @@ router.patch('/:id', authenticateToken, requireVendor, async (req: Request, res:
       cityName: rawCityName === undefined ? existingOffer.cityName : rawCityName,
     });
 
-    if (active === true && String((existingOffer as any).complianceStatus || '') !== 'APPROVED') {
+    if (
+      active === true &&
+      String((existingOffer as any).offerState || (existingOffer as any).complianceStatus || '') !==
+        'APPROVED'
+    ) {
       res.status(400).json({ error: 'Offer must be compliance-approved before activation' });
       return;
+    }
+    if (active === true) {
+      const billingAccess = await getVendorBillingAccess(String(existingOffer.vendorId), 'PUBLISH_OFFER', {
+        excludeOfferId: String(existingOffer.id),
+      });
+      if (!billingAccess.allowed) {
+        res.status(400).json(toBillingAccessDeniedResponse(billingAccess));
+        return;
+      }
     }
     if (coverage.error) {
       res.status(400).json({ error: coverage.error });

@@ -1,6 +1,11 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { WARM_COMPANY_CATALOG } from './company-warm-catalog';
+import {
+  ROOT_CATEGORY_TAXONOMY,
+  SUBCATEGORY_TAXONOMY,
+  upsertCategoryTaxonomy,
+} from './category-taxonomy';
 
 const prisma = new PrismaClient();
 
@@ -74,26 +79,8 @@ const roleUsers = [
   { email: 'finance@corpdeals.io', name: 'Finance User', role: 'FINANCE', password: 'finance123' },
 ];
 
-const rootCategories = [
-  { name: 'Banking & Finance', slug: 'banking', icon: 'Building2', color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
-  { name: 'Automotive', slug: 'automotive', icon: 'Car', color: 'text-blue-600', bgColor: 'bg-blue-50' },
-  { name: 'Telecom', slug: 'telecom', icon: 'Wifi', color: 'text-violet-600', bgColor: 'bg-violet-50' },
-  { name: 'Travel', slug: 'travel', icon: 'Plane', color: 'text-sky-600', bgColor: 'bg-sky-50' },
-  { name: 'Technology', slug: 'technology', icon: 'Laptop', color: 'text-indigo-600', bgColor: 'bg-indigo-50' },
-  { name: 'Wellness', slug: 'wellness', icon: 'Heart', color: 'text-rose-600', bgColor: 'bg-rose-50' },
-  { name: 'Dining', slug: 'dining', icon: 'UtensilsCrossed', color: 'text-orange-600', bgColor: 'bg-orange-50' },
-];
-
-const subcategories = [
-  { name: 'Personal Banking', slug: 'personal-banking', parentSlug: 'banking', icon: 'Wallet', color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
-  { name: 'Credit Cards', slug: 'credit-cards', parentSlug: 'banking', icon: 'CreditCard', color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
-  { name: 'Mobile Plans', slug: 'mobile-plans', parentSlug: 'telecom', icon: 'Smartphone', color: 'text-violet-600', bgColor: 'bg-violet-50' },
-  { name: 'Broadband & Internet', slug: 'broadband-internet', parentSlug: 'telecom', icon: 'Cable', color: 'text-violet-600', bgColor: 'bg-violet-50' },
-  { name: 'Hotels & Stays', slug: 'hotels-stays', parentSlug: 'travel', icon: 'Hotel', color: 'text-sky-600', bgColor: 'bg-sky-50' },
-  { name: 'Software & Productivity', slug: 'software-productivity', parentSlug: 'technology', icon: 'AppWindow', color: 'text-indigo-600', bgColor: 'bg-indigo-50' },
-  { name: 'Fitness Memberships', slug: 'fitness-memberships', parentSlug: 'wellness', icon: 'Dumbbell', color: 'text-rose-600', bgColor: 'bg-rose-50' },
-  { name: 'Restaurants', slug: 'restaurants', parentSlug: 'dining', icon: 'UtensilsCrossed', color: 'text-orange-600', bgColor: 'bg-orange-50' },
-];
+const rootCategories = ROOT_CATEGORY_TAXONOMY;
+const subcategories = SUBCATEGORY_TAXONOMY;
 
 const companies = mergeUniqueCompanies([
   {
@@ -227,6 +214,73 @@ const vendors = [
     city: 'Vancouver',
   },
 ];
+
+const UAT_BILLING_PRESETS = {
+  FREE: {
+    code: 'FREE',
+    name: 'Free',
+    planType: 'SUBSCRIPTION',
+    monthlyFee: '0.00',
+    pricePerLead: null,
+    includedLeadsPerMonth: 10,
+    overagePricePerLead: '5.00',
+    offerLimit: 50,
+    currency: 'CAD',
+    durationDays: 365,
+  },
+  GOLD: {
+    code: 'GOLD',
+    name: 'Gold',
+    planType: 'SUBSCRIPTION',
+    monthlyFee: '100.00',
+    pricePerLead: null,
+    includedLeadsPerMonth: 100,
+    overagePricePerLead: '3.00',
+    offerLimit: 100,
+    currency: 'CAD',
+    durationDays: 365,
+  },
+  PREMIUM: {
+    code: 'PREMIUM',
+    name: 'Premium',
+    planType: 'SUBSCRIPTION',
+    monthlyFee: '300.00',
+    pricePerLead: null,
+    includedLeadsPerMonth: 300,
+    overagePricePerLead: '2.00',
+    offerLimit: null,
+    currency: 'CAD',
+    durationDays: 365,
+  },
+  PAY_PER_LEAD: {
+    code: 'PAY_PER_LEAD',
+    name: 'Pay Per Lead',
+    planType: 'PAY_PER_LEAD',
+    monthlyFee: null,
+    pricePerLead: '12.50',
+    includedLeadsPerMonth: null,
+    overagePricePerLead: null,
+    offerLimit: 25,
+    currency: 'CAD',
+    durationDays: 365,
+  },
+} as const;
+
+const UAT_VENDOR_PLAN_BY_KEY: Record<string, keyof typeof UAT_BILLING_PRESETS> = {
+  rbc: 'GOLD',
+  telus: 'PREMIUM',
+  marriott: 'GOLD',
+  ford: 'GOLD',
+  adobe: 'PREMIUM',
+  equinox: 'FREE',
+};
+
+const daysFromNow = (days: number) => {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + days);
+  return date;
+};
 
 const employeeUsers = [
   { email: 'qa.amazon.employee@amazon.com', name: 'Amazon Vancouver Employee', companySlug: 'amazon', provinceCode: 'BC', cityName: 'Vancouver' },
@@ -674,56 +728,10 @@ async function upsertPlatformPolicies() {
 }
 
 async function upsertCategories() {
-  for (const category of rootCategories) {
-    await prisma.category.upsert({
-      where: { slug: category.slug },
-      update: {
-        name: category.name,
-        icon: category.icon,
-        color: category.color,
-        bgColor: category.bgColor,
-        parentId: null,
-      },
-      create: {
-        name: category.name,
-        slug: category.slug,
-        icon: category.icon,
-        color: category.color,
-        bgColor: category.bgColor,
-        parentId: null,
-      },
-    });
-  }
-
-  const parentCategories = await prisma.category.findMany({
-    where: { slug: { in: rootCategories.map((category) => category.slug) } },
-    select: { id: true, slug: true },
-  });
-  const parentCategoryBySlug = new Map(parentCategories.map((category) => [category.slug, category.id]));
-
-  for (const category of subcategories) {
-    const parentId = parentCategoryBySlug.get(category.parentSlug);
-    if (!parentId) continue;
-
-    await prisma.category.upsert({
-      where: { slug: category.slug },
-      update: {
-        name: category.name,
-        icon: category.icon,
-        color: category.color,
-        bgColor: category.bgColor,
-        parentId,
-      },
-      create: {
-        name: category.name,
-        slug: category.slug,
-        icon: category.icon,
-        color: category.color,
-        bgColor: category.bgColor,
-        parentId,
-      },
-    });
-  }
+  const categorySync = await upsertCategoryTaxonomy(prisma);
+  console.log(
+    `Normalized category taxonomy (${categorySync.rootsUpserted} roots, ${categorySync.subcategoriesUpserted} subcategories)`
+  );
 }
 
 async function upsertCompanies() {
@@ -806,6 +814,117 @@ async function upsertApprovedVendor(input: (typeof vendors)[number]) {
   });
 
   return vendor;
+}
+
+async function upsertVendorBillingSetup(
+  vendorId: string,
+  planId: string,
+  presetKey: keyof typeof UAT_BILLING_PRESETS
+) {
+  const preset = UAT_BILLING_PRESETS[presetKey];
+  const startsAt = daysFromNow(-30);
+  const endsAt = daysFromNow(preset.durationDays);
+  const billingCycleDay = 1;
+  const billingMode =
+    preset.planType === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : presetKey === 'FREE' ? 'FREE' : 'MONTHLY';
+  const associationStatus = presetKey === 'FREE' ? 'FREE' : 'ACTIVE';
+  const cycleStart = startsAt;
+  const cycleEnd = endsAt;
+
+  await prisma.vendorBilling.upsert({
+    where: { vendorId },
+    update: {
+      billingMode,
+      associationStatus: associationStatus as any,
+      statusReason: 'uat-seed-billing-plan',
+      lastValidatedAt: new Date(),
+      postTrialMode: billingMode,
+      trialEndsAt: null,
+      leadPriceCents: preset.pricePerLead ? Math.round(Number(preset.pricePerLead) * 100) : 0,
+      monthlyFeeCents: preset.monthlyFee ? Math.round(Number(preset.monthlyFee) * 100) : 0,
+      paymentMethod: 'MANUAL',
+      currency: preset.currency,
+      currencyCode: preset.currency,
+      billingCycleStartAt: cycleStart,
+      billingCycleEndAt: cycleEnd,
+      includedLeadsTotal: preset.includedLeadsPerMonth ?? 0,
+      includedLeadsUsed: 0,
+      walletBalance: '0.00',
+      billingDay: billingCycleDay,
+    } as any,
+    create: {
+      vendorId,
+      billingMode,
+      associationStatus: associationStatus as any,
+      statusReason: 'uat-seed-billing-plan',
+      lastValidatedAt: new Date(),
+      postTrialMode: billingMode,
+      trialEndsAt: null,
+      leadPriceCents: preset.pricePerLead ? Math.round(Number(preset.pricePerLead) * 100) : 0,
+      monthlyFeeCents: preset.monthlyFee ? Math.round(Number(preset.monthlyFee) * 100) : 0,
+      paymentMethod: 'MANUAL',
+      currency: preset.currency,
+      currencyCode: preset.currency,
+      billingCycleStartAt: cycleStart,
+      billingCycleEndAt: cycleEnd,
+      includedLeadsTotal: preset.includedLeadsPerMonth ?? 0,
+      includedLeadsUsed: 0,
+      walletBalance: '0.00',
+      billingDay: billingCycleDay,
+    } as any,
+  });
+
+  await (prisma as any).vendorBillingPlan.updateMany({
+    where: {
+      vendorId,
+      isActive: true,
+      id: { not: planId },
+    },
+    data: { isActive: false },
+  });
+
+  await (prisma as any).vendorBillingPlan.upsert({
+    where: { id: planId },
+    update: {
+      vendorId,
+      code: preset.code,
+      name: preset.name,
+      planType: preset.planType,
+      pricePerLead: preset.pricePerLead,
+      monthlyFee: preset.monthlyFee,
+      includedLeadsPerMonth: preset.includedLeadsPerMonth,
+      includedLeadsPerCycle: preset.includedLeadsPerMonth,
+      overagePricePerLead: preset.overagePricePerLead,
+      offerLimit: preset.offerLimit,
+      maxActiveOffers: preset.offerLimit,
+      overageEnabled: true,
+      billingCycleDay,
+      currency: preset.currency,
+      startsAt,
+      endsAt,
+      isActive: true,
+    },
+    create: {
+      id: planId,
+      vendorId,
+      code: preset.code,
+      name: preset.name,
+      planType: preset.planType,
+      pricePerLead: preset.pricePerLead,
+      monthlyFee: preset.monthlyFee,
+      includedLeadsPerMonth: preset.includedLeadsPerMonth,
+      includedLeadsPerCycle: preset.includedLeadsPerMonth,
+      overagePricePerLead: preset.overagePricePerLead,
+      offerLimit: preset.offerLimit,
+      maxActiveOffers: preset.offerLimit,
+      overageEnabled: true,
+      billingCycleDay,
+      currency: preset.currency,
+      startsAt,
+      endsAt,
+      isActive: true,
+    },
+  });
 }
 
 async function upsertVerifiedEmployeeUser(input: (typeof employeeUsers)[number], companyId: string) {
@@ -1019,8 +1138,11 @@ async function upsertOffer(
       usePlatformDefaultCancellationPolicy: false,
       vendorAttestationAcceptedAt: new Date(),
       vendorAttestationAcceptedIp: 'uat-seed-script',
+      offerState: 'APPROVED',
+      offerStatus: 'LIVE',
       complianceStatus: 'APPROVED',
       complianceNotes: null,
+      adminApprovedAt: new Date(),
     } as any,
     create: {
       id: offer.id,
@@ -1078,7 +1200,10 @@ async function upsertOffer(
       usePlatformDefaultCancellationPolicy: false,
       vendorAttestationAcceptedAt: new Date(),
       vendorAttestationAcceptedIp: 'uat-seed-script',
+      offerState: 'APPROVED',
+      offerStatus: 'LIVE',
       complianceStatus: 'APPROVED',
+      adminApprovedAt: new Date(),
     } as any,
   });
 }
@@ -1156,6 +1281,76 @@ async function upsertLead(
   });
 }
 
+const UAT_CATEGORY_LEAD_PRICING_ROWS: Array<{
+  categorySlug: string;
+  subcategorySlug?: string;
+  leadPrice: number;
+}> = [
+  { categorySlug: 'telecom', subcategorySlug: 'mobile-plans', leadPrice: 15 },
+  { categorySlug: 'telecom', subcategorySlug: 'broadband-internet', leadPrice: 10 },
+  { categorySlug: 'banking-finance', subcategorySlug: 'credit-cards', leadPrice: 20 },
+  { categorySlug: 'banking-finance', subcategorySlug: 'mortgages', leadPrice: 100 },
+  { categorySlug: 'dining', subcategorySlug: 'restaurants', leadPrice: 3 },
+  { categorySlug: 'wellness', subcategorySlug: 'fitness-memberships', leadPrice: 5 },
+  { categorySlug: 'healthcare-clinics', subcategorySlug: 'doctor-clinics', leadPrice: 20 },
+  { categorySlug: 'training-education', subcategorySlug: 'coding-bootcamps', leadPrice: 50 },
+];
+
+async function upsertCategoryLeadPricingUat() {
+  const slugs = [
+    ...new Set(
+      UAT_CATEGORY_LEAD_PRICING_ROWS.flatMap((row) =>
+        [row.categorySlug, row.subcategorySlug].filter(Boolean) as string[]
+      )
+    ),
+  ];
+  const categories = await prisma.category.findMany({
+    where: { slug: { in: slugs } },
+    select: { id: true, slug: true, parentId: true },
+  });
+  const bySlug = new Map(categories.map((row) => [row.slug, row]));
+
+  let seeded = 0;
+  for (const row of UAT_CATEGORY_LEAD_PRICING_ROWS) {
+    const category = bySlug.get(row.categorySlug);
+    const subcategory = row.subcategorySlug ? bySlug.get(row.subcategorySlug) : null;
+    if (!category || (row.subcategorySlug && !subcategory)) continue;
+    if (subcategory && String(subcategory.parentId || '') !== category.id) continue;
+
+    const existing = await (prisma as any).categoryLeadPricing.findFirst({
+      where: {
+        categoryId: category.id,
+        subcategoryId: subcategory?.id || null,
+      },
+      select: { id: true },
+    });
+
+    if (existing) {
+      await (prisma as any).categoryLeadPricing.update({
+        where: { id: existing.id },
+        data: {
+          leadPrice: row.leadPrice.toFixed(2),
+          billingType: 'PER_LEAD',
+          isActive: true,
+        },
+      });
+    } else {
+      await (prisma as any).categoryLeadPricing.create({
+        data: {
+          categoryId: category.id,
+          subcategoryId: subcategory?.id || null,
+          leadPrice: row.leadPrice.toFixed(2),
+          billingType: 'PER_LEAD',
+          isActive: true,
+        },
+      });
+    }
+    seeded += 1;
+  }
+
+  console.log('Upserted UAT category lead pricing rows:', seeded);
+}
+
 async function main() {
   if (isProduction && !seedConfirmed) {
     throw new Error(
@@ -1188,13 +1383,15 @@ async function main() {
   const vendorRecords = new Map<string, { id: string; website: string; companyName: string }>();
   for (const vendor of vendors) {
     const savedVendor = await upsertApprovedVendor(vendor);
+    const planPreset = UAT_VENDOR_PLAN_BY_KEY[vendor.key] || 'GOLD';
+    await upsertVendorBillingSetup(savedVendor.id, `uat-plan-${vendor.key}`, planPreset);
     vendorRecords.set(vendor.key, {
       id: savedVendor.id,
       website: vendor.website,
       companyName: vendor.companyName,
     });
   }
-  console.log('Upserted approved demo vendors');
+  console.log('Upserted approved demo vendors and billing plans');
 
   const userRecords = new Map<string, { id: string; email: string; provinceCode: string | null; cityName: string | null }>();
   for (const employeeUser of employeeUsers) {
@@ -1224,6 +1421,7 @@ async function main() {
     await upsertOffer(offer, vendor.id, vendor.website, vendor.companyName, companyId, categoryId);
   }
   console.log('Upserted approved demo offers');
+  await upsertCategoryLeadPricingUat();
 
   const offerRecords = await prisma.offer.findMany({
     where: { id: { in: offers.map((offer) => offer.id) } },
@@ -1238,7 +1436,30 @@ async function main() {
 
   await prisma.$executeRawUnsafe(`
     UPDATE "offers"
+    SET "offer_state" = CASE
+      WHEN "offer_status" = 'CANCELLED'::"OfferStatus" THEN 'CANCELLED'::"OfferState"
+      WHEN "compliance_status" = 'submitted' THEN 'SUBMITTED'::"OfferState"
+      WHEN "compliance_status" = 'rejected' THEN 'REJECTED'::"OfferState"
+      WHEN "compliance_status" = 'approved' THEN 'APPROVED'::"OfferState"
+      ELSE 'DRAFT'::"OfferState"
+    END
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    UPDATE "offers"
+    SET "active" = FALSE
+    WHERE "offer_state" <> 'APPROVED'::"OfferState"
+      AND "active" = TRUE
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    UPDATE "offers"
     SET "offer_status" = CASE
+      WHEN "offer_state" = 'CANCELLED'::"OfferState" THEN 'CANCELLED'::"OfferStatus"
+      WHEN "offer_state" = 'SUBMITTED'::"OfferState" THEN 'SUBMITTED'::"OfferStatus"
+      WHEN "offer_state" = 'REJECTED'::"OfferState" THEN 'REJECTED'::"OfferStatus"
+      WHEN "offer_state" = 'APPROVED'::"OfferState" AND "active" = TRUE THEN 'LIVE'::"OfferStatus"
+      WHEN "offer_state" = 'APPROVED'::"OfferState" AND "active" = FALSE THEN 'APPROVED'::"OfferStatus"
       WHEN "compliance_status" = 'submitted' THEN 'SUBMITTED'::"OfferStatus"
       WHEN "compliance_status" = 'rejected' THEN 'REJECTED'::"OfferStatus"
       WHEN "compliance_status" = 'approved' AND "active" = TRUE THEN 'LIVE'::"OfferStatus"

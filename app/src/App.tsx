@@ -25,6 +25,7 @@ import VendorOfferFormPage from './pages/vendor/VendorOfferFormPage';
 import VendorLeadsPage from './pages/vendor/VendorLeadsPage';
 import VendorLeadDetailPage from './pages/vendor/VendorLeadDetailPage';
 import VendorBillingPage from './pages/vendor/VendorBillingPage';
+import VendorProfilePage from './pages/vendor/VendorProfilePage';
 import VendorTermsPage from './pages/vendor/VendorTermsPage';
 import OfferPage from './pages/OfferPage';
 import OfferClaimPage from './pages/OfferClaimPage';
@@ -156,6 +157,7 @@ function App() {
                 >
                   <Route index element={<Navigate to="/vendor/dashboard" replace />} />
                   <Route path="dashboard" element={<VendorDashboardPage />} />
+                  <Route path="profile" element={<VendorProfilePage />} />
                   <Route path="offers" element={<VendorOffersPage />} />
                   <Route path="offers/new" element={<VendorOfferFormPage />} />
                   <Route path="offers/:offerId/edit" element={<VendorOfferFormPage />} />

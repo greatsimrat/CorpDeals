@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 import { WARM_COMPANY_CATALOG } from './company-warm-catalog';
+import { upsertCategoryTaxonomy } from './category-taxonomy';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
@@ -1128,33 +1129,41 @@ function getQaCompanyProfile(slug: string) {
 
 const BILLING_PLAN_PRESETS = {
   FREE: {
+    code: 'FREE',
+    name: 'Free',
     planType: 'SUBSCRIPTION',
     monthlyFee: '0.00',
     includedLeadsPerMonth: 10,
     overagePricePerLead: '5.00',
-    currency: 'USD',
-    offerLimit: 5,
+    currency: 'CAD',
+    offerLimit: 50,
     durationDays: 90,
   },
-  PAID: {
+  GOLD: {
+    code: 'GOLD',
+    name: 'Gold',
     planType: 'SUBSCRIPTION',
-    monthlyFee: '149.00',
-    includedLeadsPerMonth: 75,
+    monthlyFee: '100.00',
+    includedLeadsPerMonth: 100,
     overagePricePerLead: '3.00',
-    currency: 'USD',
-    offerLimit: 25,
-    durationDays: 365,
-  },
-  PREMIUM: {
-    planType: 'SUBSCRIPTION',
-    monthlyFee: '499.00',
-    includedLeadsPerMonth: 300,
-    overagePricePerLead: '2.00',
-    currency: 'USD',
+    currency: 'CAD',
     offerLimit: 100,
     durationDays: 365,
   },
+  PREMIUM: {
+    code: 'PREMIUM',
+    name: 'Premium',
+    planType: 'SUBSCRIPTION',
+    monthlyFee: '300.00',
+    includedLeadsPerMonth: 300,
+    overagePricePerLead: '2.00',
+    currency: 'CAD',
+    offerLimit: null,
+    durationDays: 365,
+  },
   PAY_PER_LEAD: {
+    code: 'PAY_PER_LEAD',
+    name: 'Pay Per Lead',
     planType: 'PAY_PER_LEAD',
     pricePerLead: '12.50',
     monthlyFee: null,
@@ -1188,28 +1197,51 @@ async function upsertVendorBillingSetup(
   const endsAt =
     options?.endsAt === undefined ? daysFromNow(preset.durationDays) : options.endsAt;
   const billingCycleDay = options?.billingCycleDay || 1;
+  const associationStatusToStore = presetKey === 'FREE' ? 'FREE' : 'ACTIVE';
+  const billingMode =
+    preset.planType === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : presetKey === 'FREE' ? 'FREE' : 'MONTHLY';
+  const cycleStart = startsAt;
+  const cycleEnd = endsAt;
 
   await prisma.vendorBilling.upsert({
     where: { vendorId },
     update: {
-      billingMode: preset.planType === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : 'MONTHLY',
-      postTrialMode: preset.planType === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : 'MONTHLY',
+      billingMode,
+      associationStatus: associationStatusToStore as any,
+      statusReason: 'seed-billing-plan',
+      lastValidatedAt: new Date(),
+      postTrialMode: billingMode === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : 'MONTHLY',
       trialEndsAt: null,
       leadPriceCents: preset.pricePerLead ? Math.round(Number(preset.pricePerLead) * 100) : 0,
       monthlyFeeCents: preset.monthlyFee ? Math.round(Number(preset.monthlyFee) * 100) : 0,
       paymentMethod: 'MANUAL',
       currency: preset.currency,
+      currencyCode: preset.currency,
+      billingCycleStartAt: cycleStart,
+      billingCycleEndAt: cycleEnd,
+      includedLeadsTotal: preset.includedLeadsPerMonth ?? 0,
+      includedLeadsUsed: 0,
+      walletBalance: '0.00',
       billingDay: billingCycleDay,
     },
     create: {
       vendorId,
-      billingMode: preset.planType === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : 'MONTHLY',
-      postTrialMode: preset.planType === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : 'MONTHLY',
+      billingMode,
+      associationStatus: associationStatusToStore as any,
+      statusReason: 'seed-billing-plan',
+      lastValidatedAt: new Date(),
+      postTrialMode: billingMode === 'PAY_PER_LEAD' ? 'PAY_PER_LEAD' : 'MONTHLY',
       trialEndsAt: null,
       leadPriceCents: preset.pricePerLead ? Math.round(Number(preset.pricePerLead) * 100) : 0,
       monthlyFeeCents: preset.monthlyFee ? Math.round(Number(preset.monthlyFee) * 100) : 0,
       paymentMethod: 'MANUAL',
       currency: preset.currency,
+      currencyCode: preset.currency,
+      billingCycleStartAt: cycleStart,
+      billingCycleEndAt: cycleEnd,
+      includedLeadsTotal: preset.includedLeadsPerMonth ?? 0,
+      includedLeadsUsed: 0,
+      walletBalance: '0.00',
       billingDay: billingCycleDay,
     },
   });
@@ -1227,12 +1259,17 @@ async function upsertVendorBillingSetup(
     where: { id: planId },
     update: {
       vendorId,
+      code: preset.code,
+      name: preset.name,
       planType: preset.planType,
       pricePerLead: preset.pricePerLead,
       monthlyFee: preset.monthlyFee,
       includedLeadsPerMonth: preset.includedLeadsPerMonth,
+      includedLeadsPerCycle: preset.includedLeadsPerMonth,
       overagePricePerLead: preset.overagePricePerLead,
       offerLimit: preset.offerLimit,
+      maxActiveOffers: preset.offerLimit,
+      overageEnabled: true,
       billingCycleDay,
       currency: preset.currency,
       startsAt,
@@ -1242,12 +1279,17 @@ async function upsertVendorBillingSetup(
     create: {
       id: planId,
       vendorId,
+      code: preset.code,
+      name: preset.name,
       planType: preset.planType,
       pricePerLead: preset.pricePerLead,
       monthlyFee: preset.monthlyFee,
       includedLeadsPerMonth: preset.includedLeadsPerMonth,
+      includedLeadsPerCycle: preset.includedLeadsPerMonth,
       overagePricePerLead: preset.overagePricePerLead,
       offerLimit: preset.offerLimit,
+      maxActiveOffers: preset.offerLimit,
+      overageEnabled: true,
       billingCycleDay,
       currency: preset.currency,
       startsAt,
@@ -1255,6 +1297,89 @@ async function upsertVendorBillingSetup(
       isActive: true,
     },
   });
+}
+
+const CATEGORY_LEAD_PRICING_ROWS: Array<{
+  categorySlug: string;
+  subcategorySlug?: string;
+  leadPrice: number;
+  billingType?: 'PER_LEAD' | 'PER_SALE';
+}> = [
+  { categorySlug: 'telecom', subcategorySlug: 'mobile-plans', leadPrice: 15 },
+  { categorySlug: 'telecom', subcategorySlug: 'broadband-internet', leadPrice: 10 },
+  { categorySlug: 'banking-finance', subcategorySlug: 'credit-cards', leadPrice: 20 },
+  { categorySlug: 'banking-finance', subcategorySlug: 'mortgages', leadPrice: 100 },
+  { categorySlug: 'dining', subcategorySlug: 'restaurants', leadPrice: 3 },
+  { categorySlug: 'wellness', subcategorySlug: 'fitness-memberships', leadPrice: 5 },
+  { categorySlug: 'healthcare-clinics', subcategorySlug: 'doctor-clinics', leadPrice: 20 },
+  { categorySlug: 'training-education', subcategorySlug: 'coding-bootcamps', leadPrice: 50 },
+];
+
+async function seedCategoryLeadPricing() {
+  const uniqueSlugs = [
+    ...new Set(
+      CATEGORY_LEAD_PRICING_ROWS.flatMap((row) =>
+        [row.categorySlug, row.subcategorySlug].filter(Boolean) as string[]
+      )
+    ),
+  ];
+  const categories = await prisma.category.findMany({
+    where: { slug: { in: uniqueSlugs } },
+    select: { id: true, slug: true, parentId: true },
+  });
+  const bySlug = new Map(categories.map((category) => [category.slug, category]));
+
+  let seeded = 0;
+  for (const row of CATEGORY_LEAD_PRICING_ROWS) {
+    const category = bySlug.get(row.categorySlug);
+    const subcategory = row.subcategorySlug ? bySlug.get(row.subcategorySlug) : null;
+
+    if (!category) {
+      console.warn(`Skipped lead pricing row: missing category slug ${row.categorySlug}`);
+      continue;
+    }
+    if (row.subcategorySlug && !subcategory) {
+      console.warn(`Skipped lead pricing row: missing subcategory slug ${row.subcategorySlug}`);
+      continue;
+    }
+    if (subcategory && String(subcategory.parentId || '') !== category.id) {
+      console.warn(
+        `Skipped lead pricing row: subcategory ${row.subcategorySlug} is not linked to ${row.categorySlug}`
+      );
+      continue;
+    }
+
+    const existing = await (prisma as any).categoryLeadPricing.findFirst({
+      where: {
+        categoryId: category.id,
+        subcategoryId: subcategory?.id || null,
+      },
+      select: { id: true },
+    });
+
+    if (existing) {
+      await (prisma as any).categoryLeadPricing.update({
+        where: { id: existing.id },
+        data: {
+          leadPrice: row.leadPrice.toFixed(2),
+          billingType: row.billingType || 'PER_LEAD',
+          isActive: true,
+        },
+      });
+    } else {
+      await (prisma as any).categoryLeadPricing.create({
+        data: {
+          categoryId: category.id,
+          subcategoryId: subcategory?.id || null,
+          leadPrice: row.leadPrice.toFixed(2),
+          billingType: row.billingType || 'PER_LEAD',
+          isActive: true,
+        },
+      });
+    }
+    seeded += 1;
+  }
+  console.log('Seeded category lead pricing rows:', seeded);
 }
 
 async function upsertApprovedVendorAccount(input: (typeof QA_VENDOR_DEFINITIONS)[number]) {
@@ -1635,129 +1760,10 @@ async function main() {
   });
   console.log('Created sales user:', sales.email);
 
-  // Create categories
-  const categories = [
-    { name: 'Banking & Finance', slug: 'banking', icon: 'Building2', color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
-    { name: 'Automotive', slug: 'automotive', icon: 'Car', color: 'text-blue-600', bgColor: 'bg-blue-50' },
-    { name: 'Telecom', slug: 'telecom', icon: 'Wifi', color: 'text-purple-600', bgColor: 'bg-purple-50' },
-    { name: 'Insurance', slug: 'insurance', icon: 'Shield', color: 'text-teal-600', bgColor: 'bg-teal-50' },
-    { name: 'Travel', slug: 'travel', icon: 'Plane', color: 'text-sky-600', bgColor: 'bg-sky-50' },
-    { name: 'Technology', slug: 'technology', icon: 'Laptop', color: 'text-indigo-600', bgColor: 'bg-indigo-50' },
-    { name: 'Wellness', slug: 'wellness', icon: 'Heart', color: 'text-rose-600', bgColor: 'bg-rose-50' },
-    { name: 'Retail', slug: 'retail', icon: 'ShoppingBag', color: 'text-amber-600', bgColor: 'bg-amber-50' },
-    { name: 'Dining', slug: 'dining', icon: 'UtensilsCrossed', color: 'text-orange-600', bgColor: 'bg-orange-50' },
-    { name: 'Entertainment', slug: 'entertainment', icon: 'Ticket', color: 'text-pink-600', bgColor: 'bg-pink-50' },
-  ];
-
-  for (const cat of categories) {
-    await prisma.category.upsert({
-      where: { slug: cat.slug },
-      update: { ...cat, parentId: null },
-      create: { ...cat, parentId: null },
-    });
-  }
-
-  const parentCategories = await prisma.category.findMany({
-    where: {
-      slug: {
-        in: ['banking', 'telecom', 'technology', 'travel', 'wellness'],
-      },
-    },
-    select: { id: true, slug: true },
-  });
-  const parentCategoryBySlug = new Map(parentCategories.map((category) => [category.slug, category.id]));
-
-  const subcategories = [
-    {
-      name: 'Personal Banking',
-      slug: 'personal-banking',
-      parentSlug: 'banking',
-      icon: 'Wallet',
-      color: 'text-emerald-600',
-      bgColor: 'bg-emerald-50',
-    },
-    {
-      name: 'Credit Cards',
-      slug: 'credit-cards',
-      parentSlug: 'banking',
-      icon: 'CreditCard',
-      color: 'text-emerald-600',
-      bgColor: 'bg-emerald-50',
-    },
-    {
-      name: 'Broadband & Internet',
-      slug: 'broadband-internet',
-      parentSlug: 'telecom',
-      icon: 'Cable',
-      color: 'text-purple-600',
-      bgColor: 'bg-purple-50',
-    },
-    {
-      name: 'Mobile Plans',
-      slug: 'mobile-plans',
-      parentSlug: 'telecom',
-      icon: 'Smartphone',
-      color: 'text-purple-600',
-      bgColor: 'bg-purple-50',
-    },
-    {
-      name: 'Software & Productivity',
-      slug: 'software-productivity',
-      parentSlug: 'technology',
-      icon: 'AppWindow',
-      color: 'text-indigo-600',
-      bgColor: 'bg-indigo-50',
-    },
-    {
-      name: 'Hotels & Stays',
-      slug: 'hotels-stays',
-      parentSlug: 'travel',
-      icon: 'Hotel',
-      color: 'text-sky-600',
-      bgColor: 'bg-sky-50',
-    },
-    {
-      name: 'Fitness Memberships',
-      slug: 'fitness-memberships',
-      parentSlug: 'wellness',
-      icon: 'Dumbbell',
-      color: 'text-rose-600',
-      bgColor: 'bg-rose-50',
-    },
-    {
-      name: 'Restaurants',
-      slug: 'restaurants',
-      parentSlug: 'dining',
-      icon: 'UtensilsCrossed',
-      color: 'text-orange-600',
-      bgColor: 'bg-orange-50',
-    },
-  ];
-
-  for (const category of subcategories) {
-    const parentId = parentCategoryBySlug.get(category.parentSlug);
-    if (!parentId) continue;
-
-    await prisma.category.upsert({
-      where: { slug: category.slug },
-      update: {
-        name: category.name,
-        icon: category.icon,
-        color: category.color,
-        bgColor: category.bgColor,
-        parentId,
-      },
-      create: {
-        name: category.name,
-        slug: category.slug,
-        icon: category.icon,
-        color: category.color,
-        bgColor: category.bgColor,
-        parentId,
-      },
-    });
-  }
-  console.log('Created categories');
+  const categorySync = await upsertCategoryTaxonomy(prisma);
+  console.log(
+    `Normalized category taxonomy (${categorySync.rootsUpserted} roots, ${categorySync.subcategoriesUpserted} subcategories)`
+  );
 
   await (prisma as any).platformPolicy.upsert({
     where: { id: 'policy-default-terms-template' },
@@ -2183,21 +2189,21 @@ async function main() {
   console.log('Created QA vendors:', QA_VENDOR_DEFINITIONS.length);
 
   await Promise.all([
-    upsertVendorBillingSetup(bmoVendor.id, 'seed-plan-bmo-paid', 'PAID'),
-    upsertVendorBillingSetup(kiaVendor.id, 'seed-plan-kia-paid', 'PAID'),
+    upsertVendorBillingSetup(bmoVendor.id, 'seed-plan-bmo-paid', 'GOLD'),
+    upsertVendorBillingSetup(kiaVendor.id, 'seed-plan-kia-paid', 'GOLD'),
     upsertVendorBillingSetup(telusVendor.id, 'seed-plan-telus-premium', 'PREMIUM'),
-    upsertVendorBillingSetup(chaseVendor.id, 'seed-plan-chase-paid', 'PAID'),
+    upsertVendorBillingSetup(chaseVendor.id, 'seed-plan-chase-paid', 'GOLD'),
     upsertVendorBillingSetup(appleVendor.id, 'seed-plan-apple-premium', 'PREMIUM'),
     upsertVendorBillingSetup(equinoxVendor.id, 'seed-plan-equinox-free', 'FREE'),
-    upsertVendorBillingSetup(bmwVendor.id, 'seed-plan-bmw-paid', 'PAID'),
+    upsertVendorBillingSetup(bmwVendor.id, 'seed-plan-bmw-paid', 'GOLD'),
     upsertVendorBillingSetup(adobeVendor.id, 'seed-plan-adobe-premium', 'PREMIUM'),
     upsertVendorBillingSetup(marriottVendor.id, 'seed-plan-marriott-premium', 'PREMIUM'),
-    upsertVendorBillingSetup(cactusVendor.id, 'seed-plan-cactus-paid', 'PAID'),
+    upsertVendorBillingSetup(cactusVendor.id, 'seed-plan-cactus-paid', 'GOLD'),
     ...Array.from(qaVendorRegistry.entries()).map(([key, vendor]) =>
       upsertVendorBillingSetup(
         vendor.id,
         `seed-plan-${key}`,
-        key === 'qa-technology' || key === 'qa-travel' ? 'PREMIUM' : 'PAID'
+        key === 'qa-technology' || key === 'qa-travel' ? 'PREMIUM' : 'GOLD'
       )
     ),
   ]);
@@ -3592,9 +3598,34 @@ async function main() {
     console.log('Seeded BMO city-specific enrolled leads for Amazon and Microsoft');
   }
 
+  await seedCategoryLeadPricing();
+
+  await prisma.$executeRawUnsafe(`
+    UPDATE "offers"
+    SET "offer_state" = CASE
+      WHEN "offer_status" = 'CANCELLED'::"OfferStatus" THEN 'CANCELLED'::"OfferState"
+      WHEN "compliance_status" = 'submitted' THEN 'SUBMITTED'::"OfferState"
+      WHEN "compliance_status" = 'rejected' THEN 'REJECTED'::"OfferState"
+      WHEN "compliance_status" = 'approved' THEN 'APPROVED'::"OfferState"
+      ELSE 'DRAFT'::"OfferState"
+    END
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    UPDATE "offers"
+    SET "active" = FALSE
+    WHERE "offer_state" <> 'APPROVED'::"OfferState"
+      AND "active" = TRUE
+  `);
+
   await prisma.$executeRawUnsafe(`
     UPDATE "offers"
     SET "offer_status" = CASE
+      WHEN "offer_state" = 'CANCELLED'::"OfferState" THEN 'CANCELLED'::"OfferStatus"
+      WHEN "offer_state" = 'SUBMITTED'::"OfferState" THEN 'SUBMITTED'::"OfferStatus"
+      WHEN "offer_state" = 'REJECTED'::"OfferState" THEN 'REJECTED'::"OfferStatus"
+      WHEN "offer_state" = 'APPROVED'::"OfferState" AND "active" = TRUE THEN 'LIVE'::"OfferStatus"
+      WHEN "offer_state" = 'APPROVED'::"OfferState" AND "active" = FALSE THEN 'APPROVED'::"OfferStatus"
       WHEN "compliance_status" = 'submitted' THEN 'SUBMITTED'::"OfferStatus"
       WHEN "compliance_status" = 'rejected' THEN 'REJECTED'::"OfferStatus"
       WHEN "compliance_status" = 'approved' AND "active" = TRUE THEN 'LIVE'::"OfferStatus"

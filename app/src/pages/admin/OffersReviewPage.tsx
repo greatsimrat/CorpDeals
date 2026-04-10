@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../../services/api';
+import { getBillingErrorMessage, getBillingReasonMessage } from '../../lib/billing-access';
 
 type OfferReviewRow = {
   id: string;
@@ -27,20 +29,48 @@ type OfferReviewRow = {
   };
 };
 
+type BillingBlockedOfferRow = {
+  offerId: string;
+  slug?: string | null;
+  title: string;
+  offerStatus: string;
+  active: boolean;
+  complianceStatus?: string | null;
+  complianceNotes?: string | null;
+  vendorId: string;
+  vendorName?: string | null;
+  company?: { id: string; name: string } | null;
+  blockingAccess?: {
+    reasonCode?: string;
+    message?: string;
+    planName?: string;
+  } | null;
+};
+
 export default function OffersReviewPage() {
   const [offers, setOffers] = useState<OfferReviewRow[]>([]);
+  const [billingBlockedOffers, setBillingBlockedOffers] = useState<BillingBlockedOfferRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [selectedOffer, setSelectedOffer] = useState<OfferReviewRow | null>(null);
   const [rejectionNotes, setRejectionNotes] = useState('');
+  const [billingOverride, setBillingOverride] = useState(false);
+  const [billingOverrideReason, setBillingOverrideReason] = useState('');
 
   const loadOffers = async () => {
     try {
       setIsLoading(true);
       setError('');
-      const data = await api.getAdminOffersReview({ status: 'SUBMITTED' });
+      const [data, blockedData] = await Promise.all([
+        api.getAdminOffersReview({ status: 'SUBMITTED' }),
+        api.getAdminBillingBlockedOffers({
+          limit: 250,
+          statuses: ['SUBMITTED', 'APPROVED', 'LIVE', 'PAUSED'],
+        }),
+      ]);
       setOffers(data as OfferReviewRow[]);
+      setBillingBlockedOffers((blockedData?.results || []) as BillingBlockedOfferRow[]);
     } catch (err: any) {
       setError(err.message || 'Failed to load offer review queue');
     } finally {
@@ -52,16 +82,41 @@ export default function OffersReviewPage() {
     loadOffers();
   }, []);
 
+  const blockedOfferById = useMemo(
+    () =>
+      Object.fromEntries(
+        billingBlockedOffers.map((offer) => [offer.offerId, offer])
+      ) as Record<string, BillingBlockedOfferRow>,
+    [billingBlockedOffers]
+  );
+
   const approveOffer = async (offerId: string) => {
+    if (billingOverride && billingOverrideReason.trim().length < 8) {
+      setError('Billing override reason must be at least 8 characters.');
+      return;
+    }
+
     try {
       setIsSaving(true);
       setError('');
-      await api.approveAdminOfferReview(offerId);
+      await api.approveAdminOfferReview(
+        offerId,
+        billingOverride
+          ? {
+              billingOverride: true,
+              billingOverrideReason: billingOverrideReason.trim(),
+            }
+          : undefined
+      );
       setSelectedOffer(null);
       setRejectionNotes('');
+      setBillingOverride(false);
+      setBillingOverrideReason('');
       await loadOffers();
     } catch (err: any) {
-      setError(err.message || 'Failed to approve offer');
+      const hint = String(err?.responseBody?.overrideHint || '').trim();
+      const base = getBillingErrorMessage(err, 'Failed to approve offer');
+      setError(hint ? `${base} ${hint}` : base);
     } finally {
       setIsSaving(false);
     }
@@ -78,9 +133,11 @@ export default function OffersReviewPage() {
       await api.rejectAdminOfferReview(offerId, rejectionNotes.trim());
       setSelectedOffer(null);
       setRejectionNotes('');
+      setBillingOverride(false);
+      setBillingOverrideReason('');
       await loadOffers();
     } catch (err: any) {
-      setError(err.message || 'Failed to reject offer');
+      setError(getBillingErrorMessage(err, 'Failed to reject offer'));
     } finally {
       setIsSaving(false);
     }
@@ -97,6 +154,51 @@ export default function OffersReviewPage() {
 
       {error ? (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">{error}</div>
+      ) : null}
+
+      {billingBlockedOffers.length > 0 ? (
+        <div className="overflow-x-auto rounded-xl border border-amber-200 bg-amber-50">
+          <div className="border-b border-amber-200 p-4">
+            <h2 className="text-lg font-semibold text-amber-900">Offers blocked by billing</h2>
+            <p className="mt-1 text-sm text-amber-800">
+              These offers cannot stay live until vendor billing eligibility is restored.
+            </p>
+          </div>
+          <table className="w-full min-w-[920px]">
+            <thead className="border-b border-amber-200 bg-amber-100/60">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-amber-900">Offer</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-amber-900">Vendor</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-amber-900">Reason</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-amber-900">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {billingBlockedOffers.slice(0, 10).map((offer) => (
+                <tr key={offer.offerId} className="border-b border-amber-200 last:border-0">
+                  <td className="px-4 py-3">
+                    <p className="font-medium text-slate-900">{offer.title}</p>
+                    <p className="text-xs text-slate-600">
+                      {offer.company?.name || 'Unknown company'} | {offer.offerStatus}
+                    </p>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-slate-700">{offer.vendorName || 'Unknown vendor'}</td>
+                  <td className="px-4 py-3 text-sm text-amber-900">
+                    {getBillingReasonMessage(offer.blockingAccess?.reasonCode, offer.blockingAccess?.message)}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Link
+                      to={`/admin/vendors/${offer.vendorId}/billing-plan`}
+                      className="rounded-md border border-amber-400 px-3 py-1.5 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+                    >
+                      Fix billing
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : null}
 
       {isLoading ? (
@@ -131,6 +233,11 @@ export default function OffersReviewPage() {
                   <td className="px-4 py-3">
                     <p className="font-medium text-slate-900">{offer.title}</p>
                     <p className="text-xs text-slate-500">ID: {offer.id}</p>
+                    {blockedOfferById[offer.id] ? (
+                      <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                        Billing blocked
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3 text-sm text-slate-700">
                     <p>{offer.vendor.companyName}</p>
@@ -148,6 +255,8 @@ export default function OffersReviewPage() {
                       onClick={() => {
                         setSelectedOffer(offer);
                         setRejectionNotes('');
+                        setBillingOverride(false);
+                        setBillingOverrideReason('');
                       }}
                       className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50"
                     >
@@ -191,6 +300,24 @@ export default function OffersReviewPage() {
             </div>
 
             <div className="mt-4 space-y-4">
+              {blockedOfferById[selectedOffer.id] ? (
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  <p className="font-semibold">Billing warning</p>
+                  <p className="mt-1">
+                    {getBillingReasonMessage(
+                      blockedOfferById[selectedOffer.id]?.blockingAccess?.reasonCode,
+                      blockedOfferById[selectedOffer.id]?.blockingAccess?.message
+                    )}
+                  </p>
+                  <Link
+                    to={`/admin/vendors/${selectedOffer.vendor.id}/billing-plan`}
+                    className="mt-2 inline-flex font-semibold underline"
+                  >
+                    Open vendor billing plan
+                  </Link>
+                </div>
+              ) : null}
+
               <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                 <p>
                   <strong>Attested at:</strong>{' '}
@@ -250,6 +377,33 @@ export default function OffersReviewPage() {
                   className="w-full rounded-md border border-slate-300 px-3 py-2"
                   placeholder="Explain what needs to be fixed before resubmission"
                 />
+              </div>
+
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                <label className="inline-flex items-start gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={billingOverride}
+                    onChange={(event) => setBillingOverride(event.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Allow billing override for this approval (admin only). Use this only when there is
+                    a justified exception.
+                  </span>
+                </label>
+                {billingOverride ? (
+                  <label className="mt-3 block text-sm font-medium text-slate-700">
+                    Override reason (required, 8+ chars)
+                    <textarea
+                      rows={3}
+                      value={billingOverrideReason}
+                      onChange={(event) => setBillingOverrideReason(event.target.value)}
+                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
+                      placeholder="Document why this offer is approved despite billing restrictions"
+                    />
+                  </label>
+                ) : null}
               </div>
             </div>
 

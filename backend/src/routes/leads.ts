@@ -9,7 +9,10 @@ import {
 import { getNormalizedUserLocation } from '../lib/offer-coverage';
 import { isUserVerifiedForCompany } from '../lib/verifications';
 import { sendVendorLeadNotificationEmail } from '../lib/mailer';
-import { recordLeadDeliveryBillingEvent } from '../lib/lead-billing';
+import {
+  processVendorLeadMonetization,
+  resolveOfferCategoryContext,
+} from '../lib/vendor-lead-monetization';
 
 const router = Router();
 
@@ -49,6 +52,16 @@ router.post('/', authenticateTokenOptional, async (req: Request, res: Response):
           title: true,
           companyId: true,
           vendorId: true,
+          categoryId: true,
+          active: true,
+          offerState: true,
+          complianceStatus: true,
+          category: {
+            select: {
+              id: true,
+              parentId: true,
+            },
+          },
           vendor: {
             select: {
               id: true,
@@ -78,6 +91,13 @@ router.post('/', authenticateTokenOptional, async (req: Request, res: Response):
 
     if (offer.companyId !== company.id) {
       res.status(400).json({ error: 'Company does not match offer' });
+      return;
+    }
+    if (
+      !offer.active ||
+      String((offer as any).offerState || offer.complianceStatus || '').toUpperCase() !== 'APPROVED'
+    ) {
+      res.status(404).json({ error: 'Offer not found' });
       return;
     }
 
@@ -137,9 +157,6 @@ router.post('/', authenticateTokenOptional, async (req: Request, res: Response):
       return;
     }
 
-    const trialDays = Number(process.env.VENDOR_TRIAL_DAYS || 30);
-    const defaultLeadPriceCents = Number(process.env.DEFAULT_LEAD_PRICE_CENTS || 0);
-    const now = new Date();
     const consentGiven = Boolean(req.body?.consent);
     const termsAccepted = Boolean(req.body?.termsAccepted);
     if (!consentGiven || !termsAccepted) {
@@ -163,7 +180,7 @@ router.post('/', authenticateTokenOptional, async (req: Request, res: Response):
       userCity: userLocation.cityName,
     };
 
-    const lead = await prisma.$transaction(async (tx) => {
+    const leadResult = await prisma.$transaction(async (tx) => {
       const createdLead = await tx.lead.create({
         data: {
           userId: req.user?.id,
@@ -189,56 +206,19 @@ router.post('/', authenticateTokenOptional, async (req: Request, res: Response):
         } as any,
       });
 
-      let billing = await tx.vendorBilling.findUnique({
-        where: { vendorId: offer.vendorId },
+      const categoryContext = resolveOfferCategoryContext({
+        categoryId: offer.categoryId,
+        category: offer.category,
       });
-
-      if (!billing) {
-        const trialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
-        billing = await tx.vendorBilling.create({
-          data: {
-            vendorId: offer.vendorId,
-            billingMode: 'TRIAL',
-            postTrialMode: 'PAY_PER_LEAD',
-            trialEndsAt,
-            leadPriceCents: defaultLeadPriceCents,
-          },
-        });
-      } else if (billing.billingMode === 'TRIAL' && !billing.trialEndsAt) {
-        const trialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
-        billing = await tx.vendorBilling.update({
-          where: { id: billing.id },
-          data: { trialEndsAt },
-        });
-      }
-
-      let effectiveMode = billing.billingMode;
-      if (effectiveMode === 'TRIAL') {
-        if (billing.trialEndsAt && billing.trialEndsAt <= now) {
-          const newMode = billing.postTrialMode || 'PAY_PER_LEAD';
-          billing = await tx.vendorBilling.update({
-            where: { id: billing.id },
-            data: { billingMode: newMode },
-          });
-          effectiveMode = newMode;
-        }
-      }
-
-      const isFree = effectiveMode === 'TRIAL' || effectiveMode === 'FREE';
-      const amountCents = isFree ? 0 : (billing.leadPriceCents ?? defaultLeadPriceCents);
-      const status = isFree ? 'WAIVED' : 'PENDING';
-      const reason = effectiveMode === 'TRIAL' ? 'TRIAL' : (effectiveMode === 'FREE' ? 'FREE' : null);
-
-      await tx.leadCharge.create({
-        data: {
-          leadId: createdLead.id,
-          vendorId: offer.vendorId,
-          amountCents,
-          currency: billing.currency || 'USD',
-          status,
-          reason: reason ?? undefined,
-          chargeableAt: createdLead.createdAt,
-        },
+      const monetization = await processVendorLeadMonetization(tx as any, {
+        leadId: createdLead.id,
+        vendorId: offer.vendorId,
+        offerId: offer.id,
+        userId: req.user?.id || null,
+        companyId: company.id,
+        categoryId: categoryContext.categoryId,
+        subcategoryId: categoryContext.subcategoryId,
+        leadType: 'FORM_SUBMISSION',
       });
 
       await tx.offer.update({
@@ -246,29 +226,40 @@ router.post('/', authenticateTokenOptional, async (req: Request, res: Response):
         data: { leadCount: { increment: 1 } },
       });
 
-      return createdLead;
+      return { lead: createdLead, monetization };
     });
+    const lead = leadResult.lead;
+    const monetization = leadResult.monetization;
 
-    // Notification failures should not fail lead submission.
-    const vendorNotification = await sendVendorLeadNotificationEmail({
-      vendorEmail: offer.vendor.email,
-      vendorCompanyName: offer.vendor.companyName,
-      companyName: company.name,
-      offerTitle: offer.title,
-      lead: {
-        id: lead.id,
-        firstName: lead.firstName,
-        lastName: lead.lastName,
-        email: lead.email,
-        phone: lead.phone,
-        message: lead.message,
-        createdAt: lead.createdAt,
-        consentAt: lead.consentAt,
-        consentIp: lead.consentIp,
-      },
-    });
+    const vendorNotification = monetization.canSharePII
+      ? await sendVendorLeadNotificationEmail({
+          vendorEmail: offer.vendor.email,
+          vendorCompanyName: offer.vendor.companyName,
+          companyName: company.name,
+          offerTitle: offer.title,
+          lead: {
+            id: lead.id,
+            firstName: lead.firstName,
+            lastName: lead.lastName,
+            email: lead.email,
+            phone: lead.phone,
+            message: lead.message,
+            createdAt: lead.createdAt,
+            consentAt: lead.consentAt,
+            consentIp: lead.consentIp,
+          },
+        })
+      : {
+          sent: false,
+          recipient: offer.vendor.email,
+          actualVendorEmail: offer.vendor.email,
+          overridden: false,
+          error: monetization.lockedReason
+            ? `Lead locked (${monetization.lockedReason})`
+            : 'Lead locked',
+        };
 
-    if (!vendorNotification.sent) {
+    if (!vendorNotification.sent && monetization.canSharePII) {
       console.error('Vendor lead notification email failed:', {
         leadId: lead.id,
         actualVendorEmail: vendorNotification.actualVendorEmail || offer.vendor.email,
@@ -280,7 +271,7 @@ router.post('/', authenticateTokenOptional, async (req: Request, res: Response):
         where: { id: lead.id },
         data: { status: 'FAILED' },
       });
-    } else {
+    } else if (monetization.canSharePII) {
       console.log('Vendor lead notification email sent:', {
         leadId: lead.id,
         actualVendorEmail: vendorNotification.actualVendorEmail,
@@ -291,10 +282,19 @@ router.post('/', authenticateTokenOptional, async (req: Request, res: Response):
         where: { id: lead.id },
         data: { status: 'SENT' },
       });
-      await recordLeadDeliveryBillingEvent(lead.id, offer.vendorId);
+    } else {
+      await prisma.lead.update({
+        where: { id: lead.id },
+        data: { status: 'NEW' },
+      });
     }
 
-    res.status(201).json(lead);
+    res.status(201).json({
+      ...lead,
+      visibility_status: monetization.visibilityStatus,
+      locked_reason: monetization.lockedReason,
+      lead_access: monetization.canSharePII ? 'VISIBLE' : 'LOCKED',
+    });
   } catch (error: any) {
     if (error?.code === 'P2002') {
       res.status(409).json({
