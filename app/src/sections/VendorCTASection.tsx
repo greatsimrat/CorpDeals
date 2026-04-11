@@ -57,8 +57,8 @@ const VendorCTASection = () => {
                   REACH VERIFIED EMPLOYEES
                 </h2>
                 <p className="font-inter text-white/70 text-lg mb-8">
-                  Partner with CorpDeals to promote your offers to employees at 
-                  12,000+ companies. Pay only for results.
+                  Partner with CorpDeals to promote offers to verified employee audiences and
+                  launch company-specific programs with a clear approval flow.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4">
                   <Link to="/become-partner" className="btn-primary flex items-center justify-center gap-2">
@@ -77,23 +77,23 @@ const VendorCTASection = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6">
                   <Users className="w-8 h-8 mb-4 text-corp-blue" />
-                  <span className="block font-montserrat font-bold text-3xl">12K+</span>
-                  <span className="font-inter text-white/60 text-sm">Companies</span>
+                  <span className="block font-montserrat font-bold text-2xl">Verified audiences</span>
+                  <span className="font-inter text-white/60 text-sm">Company-aligned employee access</span>
                 </div>
                 <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6">
                   <TrendingUp className="w-8 h-8 mb-4 text-green-400" />
-                  <span className="block font-montserrat font-bold text-3xl">18%</span>
-                  <span className="font-inter text-white/60 text-sm">Avg. Conversion</span>
+                  <span className="block font-montserrat font-bold text-2xl">Growth visibility</span>
+                  <span className="font-inter text-white/60 text-sm">See demand by category and company</span>
                 </div>
                 <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6">
                   <DollarSign className="w-8 h-8 mb-4 text-amber-400" />
-                  <span className="block font-montserrat font-bold text-3xl">$2.5K</span>
-                  <span className="font-inter text-white/60 text-sm">Avg. Deal Value</span>
+                  <span className="block font-montserrat font-bold text-2xl">Flexible billing</span>
+                  <span className="font-inter text-white/60 text-sm">Plans built for testing and scale</span>
                 </div>
                 <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6">
                   <Building2 className="w-8 h-8 mb-4 text-purple-400" />
-                  <span className="block font-montserrat font-bold text-3xl">500+</span>
-                  <span className="font-inter text-white/60 text-sm">Partners</span>
+                  <span className="block font-montserrat font-bold text-2xl">Fast onboarding</span>
+                  <span className="font-inter text-white/60 text-sm">Simple setup and launch workflow</span>
                 </div>
               </div>
             </div>

@@ -254,15 +254,15 @@ const SearchSection = () => {
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-corp-highlight rounded-full mb-4">
               <Sparkles className="w-4 h-4 text-corp-blue" />
               <span className="font-inter text-sm text-corp-blue font-medium">
-                Employee Discounts by Company
+                EPP + employee deals by company
               </span>
             </div>
             <h2 className="heading-2 text-corp-dark mb-4">
-              FIND YOUR COMPANY AND UNLOCK VERIFIED DEALS
+              FIND YOUR COMPANY AND ACCESS TRUSTED EPP DEALS
             </h2>
             <p className="body-text text-lg max-w-xl mx-auto">
-              Verify your work email once, and access the perks your company
-              is eligible for.
+              Verify your work email once and browse company-specific employee
+              offers across telecom, banking, travel, wellness, and more.
             </p>
           </div>
 

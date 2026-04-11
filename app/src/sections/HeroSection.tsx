@@ -25,8 +25,8 @@ const trustedCompanies = [
 
 const proofPoints = [
   'Verify your work email once',
-  'Unlock company-specific deals',
-  'Browse trusted offers without waiting for HR',
+  'Access trusted EPP and exclusive corporate offers',
+  'See deals matched to your company and location',
 ];
 
 const HeroSection = () => {
@@ -80,16 +80,17 @@ const HeroSection = () => {
           <div ref={contentRef} className="max-w-2xl">
             <div className="hero-copy inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white/90 px-4 py-2 text-sm font-medium text-blue-700 shadow-sm">
               <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              Verified employee discounts by company
+              Trusted Employee Purchase Program (EPP) access
             </div>
 
             <h1 className="hero-copy mt-6 font-montserrat text-4xl font-bold leading-[1.02] tracking-[-0.03em] text-slate-950 sm:text-5xl lg:text-6xl">
-              Unlock exclusive employee discounts through your company
+              Unlock exclusive Employee Purchase Program (EPP) deals through your company
             </h1>
 
             <p className="hero-copy mt-5 max-w-xl text-base leading-7 text-slate-600 sm:text-lg">
-              Search your employer, verify your work email once, and access trusted offers across
-              telecom, banking, travel, wellness, and more.
+              Search your employer, verify your work email once, and access trusted Employee
+              Purchase Program (EPP) and exclusive corporate offers across telecom, banking,
+              travel, wellness, and more.
             </p>
 
             <div className="hero-copy mt-8 flex flex-col items-start gap-3 sm:flex-row">
@@ -97,14 +98,30 @@ const HeroSection = () => {
                 href="#search"
                 className="inline-flex items-center gap-2 rounded-2xl bg-corp-blue px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:-translate-y-0.5 hover:bg-blue-700"
               >
-                Find my company deals
+                View my company deals
                 <ArrowRight className="h-4 w-4" />
               </a>
               <Link
                 to="/verify"
                 className="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white px-6 py-3.5 text-sm font-semibold text-slate-800 transition hover:border-slate-400 hover:bg-slate-50"
               >
-                Verify my work email
+                Verify work email
+              </Link>
+            </div>
+
+            <p className="hero-copy mt-4 text-sm text-slate-600">
+              Includes trusted EPP and exclusive employee offers from leading brands.
+            </p>
+
+            <div className="hero-copy mt-3 flex flex-wrap items-center gap-4 text-sm">
+              <a href="#how-it-works" className="font-medium text-corp-blue hover:underline">
+                How it works
+              </a>
+              <Link to="/for-vendors" className="font-medium text-corp-blue hover:underline">
+                For vendors
+              </Link>
+              <Link to="/pricing" className="font-medium text-corp-blue hover:underline">
+                Pricing
               </Link>
             </div>
 
@@ -126,7 +143,7 @@ const HeroSection = () => {
           <div ref={imageRef} className="relative">
             <div className="absolute -left-5 top-10 hidden rounded-2xl border border-white/80 bg-white/95 px-4 py-3 shadow-xl backdrop-blur md:block">
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">How it works</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">Search. Verify. Unlock.</p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">Search. Verify. Unlock EPP deals.</p>
             </div>
 
             <div className="overflow-hidden rounded-[2rem] border border-white/70 bg-white p-3 shadow-[0_32px_70px_-28px_rgba(15,23,42,0.38)]">
@@ -144,28 +161,28 @@ const HeroSection = () => {
               <div className="rounded-2xl bg-slate-50 px-4 py-4 text-left">
                 <div className="flex items-center gap-2 text-blue-700">
                   <Building2 className="h-4 w-4" />
-                  <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Companies</span>
+                  <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Access</span>
                 </div>
-                <p className="mt-2 text-2xl font-bold text-slate-950">12K+</p>
-                <p className="mt-1 text-xs leading-5 text-slate-500">Teams already represented in the network</p>
+                <p className="mt-2 text-xl font-bold text-slate-950">Company-specific</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">Deals matched to your employer profile</p>
               </div>
 
               <div className="rounded-2xl bg-slate-50 px-4 py-4 text-left">
                 <div className="flex items-center gap-2 text-violet-700">
                   <Users className="h-4 w-4" />
-                  <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Employees</span>
+                  <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Offer quality</span>
                 </div>
-                <p className="mt-2 text-2xl font-bold text-slate-950">5M+</p>
-                <p className="mt-1 text-xs leading-5 text-slate-500">Eligible employees exploring verified offers</p>
+                <p className="mt-2 text-xl font-bold text-slate-950">Trusted EPP + corporate</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">Verified employee-focused offer access</p>
               </div>
 
               <div className="rounded-2xl bg-slate-50 px-4 py-4 text-left">
                 <div className="flex items-center gap-2 text-emerald-700">
                   <TrendingUp className="h-4 w-4" />
-                  <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Average savings</span>
+                  <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Coverage</span>
                 </div>
-                <p className="mt-2 text-2xl font-bold text-slate-950">$2.5K</p>
-                <p className="mt-1 text-xs leading-5 text-slate-500">Typical annual savings across top categories</p>
+                <p className="mt-2 text-xl font-bold text-slate-950">Telecom to wellness</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">Key categories employees use most</p>
               </div>
             </div>
 
@@ -177,7 +194,7 @@ const HeroSection = () => {
           className="mt-12 border-t border-slate-200/80 pt-8 sm:mt-14 lg:mt-16"
         >
           <p className="text-left text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">
-            We are trusted by employees at
+            Employers in the CorpDeals search network include
           </p>
 
           <div className="logo-marquee mt-6">

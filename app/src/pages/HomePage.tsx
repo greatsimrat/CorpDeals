@@ -18,7 +18,7 @@ const homeStructuredData = [
     name: 'CorpDeals',
     url: 'https://corpdeals.io',
     description:
-      'CorpDeals helps verified employees unlock corporate discounts and employee-only perks from trusted brands.',
+      'CorpDeals helps verified employees access trusted Employee Purchase Program (EPP) and exclusive corporate offers from leading brands.',
     logo: 'https://corpdeals.io/CorpDeals-hero1.webp',
   },
   {
@@ -37,7 +37,7 @@ const homeStructuredData = [
     '@type': 'HowTo',
     name: 'How CorpDeals works',
     description:
-      'Search your company, verify your work email, and unlock employee-only deals.',
+      'Search your company, verify your work email, and unlock Employee Purchase Program (EPP) and employee deals.',
     totalTime: 'PT3M',
     step: [
       {
@@ -75,8 +75,8 @@ const HomePage = () => {
   return (
     <>
       <Seo
-        title="CorpDeals | Employee Perks & Corporate Discounts"
-        description="Search your company, verify your work email, and unlock employee-only corporate discounts across travel, finance, wellness, and more."
+        title="CorpDeals | Company EPP and Employee Deals in One Place"
+        description="Search your employer, verify your work email once, and access trusted Employee Purchase Program (EPP) and exclusive corporate offers across telecom, banking, travel, wellness, and more."
         keywords="employee perks, corporate discounts, employee-only deals, work email verification, company benefits platform, corporate benefits"
         path="/"
         image="/CorpDeals-hero1.webp"
