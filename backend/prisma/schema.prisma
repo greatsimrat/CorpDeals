@@ -15,6 +15,12 @@ enum UserRole {
   USER
 }
 
+enum RoleScopeType {
+  GLOBAL
+  COMPANY
+  VENDOR
+}
+
 enum VendorStatus {
   PENDING
   APPROVED
@@ -227,6 +233,10 @@ model User {
   activeCompany        Company?              @relation("ActiveCompany", fields: [activeCompanyId], references: [id])
   employeeVerifications EmployeeVerification[]
   companyVerifications UserCompanyVerification[]
+  roleAssignments      UserRoleAssignment[] @relation("UserRoleAssignments")
+  grantedRoleAssignments UserRoleAssignment[] @relation("RoleAssignmentsGrantedBy")
+  authChangesAsActor   AuthChangeLog[]       @relation("AuthChangeActor")
+  authChangesAsTarget  AuthChangeLog[]       @relation("AuthChangeTarget")
   offerClaims          OfferClaim[]
   leads                Lead[]                    @relation("UserLeads")
   vendorLeadEvents     VendorLeadEvent[]
@@ -265,6 +275,7 @@ model Vendor {
   vendorLeadEvents VendorLeadEvent[]
   walletTransactions VendorWalletTransaction[]
   leads         Lead[]         @relation("VendorLeads")
+  roleAssignments UserRoleAssignment[] @relation("VendorScopedRoleAssignments")
 
   @@map("vendors")
 }
@@ -313,11 +324,89 @@ model Company {
   activeUsers   User[]                @relation("ActiveCompany")
   employeeVerifications EmployeeVerification[]
   userVerifications     UserCompanyVerification[]
+  roleAssignments       UserRoleAssignment[] @relation("CompanyScopedRoleAssignments")
   redemptions           Redemption[]
   offerClicks           OfferClick[]
   vendorLeadEvents      VendorLeadEvent[]
 
   @@map("companies")
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  rolePermissions RolePermission[]
+
+  @@index([isActive])
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String   @id @default(uuid())
+  role         UserRole
+  permissionId String   @map("permission_id")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([role, permissionId], map: "role_permissions_role_permission_id_key")
+  @@index([role, isActive])
+  @@map("role_permissions")
+}
+
+model UserRoleAssignment {
+  id              String        @id @default(uuid())
+  userId          String        @map("user_id")
+  role            UserRole
+  scopeType       RoleScopeType @default(GLOBAL) @map("scope_type")
+  companyId       String?       @map("company_id")
+  vendorId        String?       @map("vendor_id")
+  isActive        Boolean       @default(true) @map("is_active")
+  startsAt        DateTime?     @map("starts_at")
+  endsAt          DateTime?     @map("ends_at")
+  grantedByUserId String?       @map("granted_by_user_id")
+  grantReason     String?       @map("grant_reason")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  user            User          @relation("UserRoleAssignments", fields: [userId], references: [id], onDelete: Cascade)
+  company         Company?      @relation("CompanyScopedRoleAssignments", fields: [companyId], references: [id], onDelete: SetNull)
+  vendor          Vendor?       @relation("VendorScopedRoleAssignments", fields: [vendorId], references: [id], onDelete: SetNull)
+  grantedByUser   User?         @relation("RoleAssignmentsGrantedBy", fields: [grantedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([userId, isActive])
+  @@index([role, isActive])
+  @@index([scopeType, companyId, isActive])
+  @@index([scopeType, vendorId, isActive])
+  @@index([grantedByUserId])
+  @@map("user_role_assignments")
+}
+
+model AuthChangeLog {
+  id           String   @id @default(uuid())
+  actorUserId  String?  @map("actor_user_id")
+  targetUserId String   @map("target_user_id")
+  action       String
+  oldValueJson Json?    @map("old_value_json")
+  newValueJson Json?    @map("new_value_json")
+  reason       String?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  actorUser    User?    @relation("AuthChangeActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  targetUser   User     @relation("AuthChangeTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+
+  @@index([targetUserId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([action, createdAt])
+  @@map("auth_change_log")
 }
 
 model CompanyRequest {
@@ -394,6 +483,7 @@ model Category {
   id          String    @id @default(uuid())
   name        String
   slug        String    @unique
+  active      Boolean   @default(true)
   icon        String?
   description String?
   color       String?
@@ -539,6 +629,7 @@ model Lead {
 model VendorBillingPlan {
   id                   String                @id @default(uuid())
   vendorId             String                @map("vendor_id")
+  planConfigId         String?               @map("plan_config_id")
   code                 String?               @map("code")
   name                 String?               @map("name")
   planType             VendorBillingPlanType @map("plan_type")
@@ -559,9 +650,36 @@ model VendorBillingPlan {
   updatedAt            DateTime              @updatedAt @map("updated_at")
 
   vendor               Vendor                @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  planConfig           BillingPlanConfig?    @relation(fields: [planConfigId], references: [id], onDelete: SetNull)
 
   @@index([vendorId, isActive])
+  @@index([planConfigId, isActive])
   @@map("vendor_billing_plans")
+}
+
+model BillingPlanConfig {
+  id                   String                @id @default(uuid())
+  code                 String                @unique
+  name                 String
+  description          String?
+  planType             VendorBillingPlanType @map("plan_type")
+  pricePerLead         Decimal?              @db.Decimal(10, 2) @map("price_per_lead")
+  monthlyFee           Decimal?              @db.Decimal(10, 2) @map("monthly_fee")
+  includedLeadsPerCycle Int?                 @map("included_leads_per_cycle")
+  overagePricePerLead  Decimal?              @db.Decimal(10, 2) @map("overage_price_per_lead")
+  maxActiveOffers      Int?                  @map("max_active_offers")
+  overageEnabled       Boolean               @default(true) @map("overage_enabled")
+  currencyCode         String                @default("CAD") @map("currency_code")
+  isSystemPreset       Boolean               @default(false) @map("is_system_preset")
+  isActive             Boolean               @default(true) @map("is_active")
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+
+  vendorBillingPlans   VendorBillingPlan[]
+  vendorBillings       VendorBilling[]
+
+  @@index([isActive, planType])
+  @@map("billing_plan_configs")
 }
 
 model Invoice {
@@ -630,6 +748,7 @@ model CategoryLeadPricing {
   leadPrice     Decimal                        @db.Decimal(10, 2) @map("lead_price")
   billingType   CategoryLeadPricingBillingType @default(PER_LEAD) @map("billing_type")
   isActive      Boolean                        @default(true) @map("is_active")
+  description   String?
   createdAt     DateTime                       @default(now()) @map("created_at")
   updatedAt     DateTime                       @updatedAt @map("updated_at")
 
@@ -699,6 +818,7 @@ model VendorWalletTransaction {
 model VendorBilling {
   id              String       @id @default(uuid())
   vendorId        String       @unique @map("vendor_id")
+  planConfigId    String?      @map("plan_config_id")
   billingMode     BillingMode  @default(TRIAL) @map("billing_mode")
   associationStatus VendorBillingAssociationStatus @default(INACTIVE) @map("association_status")
   statusReason    String?      @map("status_reason")
@@ -722,9 +842,11 @@ model VendorBilling {
   updatedAt       DateTime     @updatedAt @map("updated_at")
 
   vendor      Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  planConfig  BillingPlanConfig? @relation(fields: [planConfigId], references: [id], onDelete: SetNull)
   walletTransactions VendorWalletTransaction[]
 
   @@index([associationStatus])
+  @@index([planConfigId, associationStatus])
   @@map("vendor_billing")
 }
 

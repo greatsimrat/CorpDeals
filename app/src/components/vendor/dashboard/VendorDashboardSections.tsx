@@ -123,10 +123,13 @@ export function HiddenLeadsAlertCard(props: {
   hiddenCount: number;
   estimatedValueText: string;
   upgradeHref: string;
+  upgradeLabel?: string;
+  showUpgradeAction?: boolean;
   topUpHref: string;
   viewHref: string;
 }) {
   if (props.hiddenCount <= 0) return null;
+  const showUpgradeAction = props.showUpgradeAction !== false;
   return (
     <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm sm:p-5">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -142,10 +145,12 @@ export function HiddenLeadsAlertCard(props: {
             Upgrade your plan or top up your wallet to unlock them. Estimated value: {props.estimatedValueText}
           </p>
         </div>
-        <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3 md:w-auto">
-          <Link to={props.upgradeHref} className="inline-flex min-h-10 items-center justify-center rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800">
-            Upgrade Plan
-          </Link>
+        <div className={`grid w-full grid-cols-1 gap-2 ${showUpgradeAction ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} md:w-auto`}>
+          {showUpgradeAction ? (
+            <Link to={props.upgradeHref} className="inline-flex min-h-10 items-center justify-center rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800">
+              {props.upgradeLabel || 'Upgrade Plan'}
+            </Link>
+          ) : null}
           <Link to={props.topUpHref} className="inline-flex min-h-10 items-center justify-center rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100">
             Top Up Wallet
           </Link>
@@ -468,7 +473,7 @@ export function BillingWalletSection(props: {
                     </p>
                   </div>
                   <p className="text-xs text-slate-500">
-                    Balance after: ${tx.balanceAfter.toFixed(2)} • {new Date(tx.createdAt).toLocaleString()}
+                    Balance after: ${tx.balanceAfter.toFixed(2)} | {new Date(tx.createdAt).toLocaleString()}
                   </p>
                 </div>
               ))

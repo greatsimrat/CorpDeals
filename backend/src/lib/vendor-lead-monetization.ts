@@ -51,6 +51,9 @@ const resolveActivePlan = async (tx: TxClient, vendorId: string, now: Date) =>
       startsAt: { lte: now },
       OR: [{ endsAt: null }, { endsAt: { gte: now } }],
     },
+    include: {
+      planConfig: true,
+    },
     orderBy: [{ startsAt: 'desc' }, { updatedAt: 'desc' }],
   });
 
@@ -102,21 +105,25 @@ const upsertLegacyLeadCharge = async (
     priceApplied: number;
     visible: boolean;
     deductedFromIncludedLeads: number;
+    reason?: 'TRIAL' | 'FREE' | 'INVALID' | 'DUPLICATE' | 'MANUAL';
+    currency?: string;
   }
 ) => {
   const amountCents = Math.max(0, Math.round(input.priceApplied * 100));
   const status = input.visible && input.deductedFromIncludedLeads === 0 ? 'PENDING' : 'WAIVED';
   const reason =
-    input.visible && input.deductedFromIncludedLeads === 0
+    input.reason ||
+    (input.visible && input.deductedFromIncludedLeads === 0
       ? undefined
       : input.deductedFromIncludedLeads > 0
       ? 'FREE'
-      : 'INVALID';
+      : 'INVALID');
 
   await (tx as any).leadCharge.upsert({
     where: { leadId: input.leadId },
     update: {
       amountCents,
+      currency: (input.currency || 'CAD').toUpperCase(),
       status,
       reason,
     },
@@ -124,6 +131,7 @@ const upsertLegacyLeadCharge = async (
       leadId: input.leadId,
       vendorId: input.vendorId,
       amountCents,
+      currency: (input.currency || 'CAD').toUpperCase(),
       status,
       reason,
     },
@@ -183,14 +191,21 @@ export const processVendorLeadMonetization = async (
   let includedLeadsTotal = Number(billing.includedLeadsTotal || 0);
   let includedLeadsUsed = Number(billing.includedLeadsUsed || 0);
   let walletBalance = toMoney(toNumber(billing.walletBalance));
-  const overageEnabled = activePlan ? Boolean((activePlan as any).overageEnabled ?? true) : false;
+  const overageEnabled = activePlan
+    ? Boolean((activePlan as any)?.planConfig?.overageEnabled ?? (activePlan as any).overageEnabled ?? true)
+    : false;
   const planIncludedLeads = Number(
-    (activePlan as any)?.includedLeadsPerCycle ??
+    (activePlan as any)?.planConfig?.includedLeadsPerCycle ??
+      (activePlan as any)?.includedLeadsPerCycle ??
       (activePlan as any)?.includedLeadsPerMonth ??
       0
   );
   const currencyCode = String(
-    (billing as any).currencyCode || (billing as any).currency || (activePlan as any)?.currency || 'CAD'
+    (billing as any).currencyCode ||
+      (billing as any).currency ||
+      (activePlan as any)?.planConfig?.currencyCode ||
+      (activePlan as any)?.currency ||
+      'CAD'
   ).toUpperCase();
 
   const cycleStartAt = (billing as any).billingCycleStartAt ? new Date((billing as any).billingCycleStartAt) : null;
@@ -356,6 +371,7 @@ export const processVendorLeadMonetization = async (
     priceApplied,
     visible: visibilityStatus === 'VISIBLE',
     deductedFromIncludedLeads,
+    currency: currencyCode,
   });
 
   await upsertLegacyLeadBillingEvent(tx, {
@@ -375,6 +391,93 @@ export const processVendorLeadMonetization = async (
     includedLeadsUsed,
     walletBalance,
     canSharePII: visibilityStatus === 'VISIBLE',
+  };
+};
+
+export const processDuplicateLeadNoCharge = async (
+  tx: TxClient,
+  input: LeadMonetizationInput
+): Promise<LeadMonetizationResult> => {
+  const now = new Date();
+  const billing = await (tx as any).vendorBilling.findUnique({
+    where: { vendorId: input.vendorId },
+    select: {
+      includedLeadsTotal: true,
+      includedLeadsUsed: true,
+      walletBalance: true,
+      currencyCode: true,
+      currency: true,
+    },
+  });
+  const billingCurrency = String((billing as any)?.currencyCode || (billing as any)?.currency || 'CAD').toUpperCase();
+
+  await (tx as any).vendorLeadEvent.upsert({
+    where: { leadId: input.leadId },
+    update: {
+      leadType: input.leadType || 'FORM_SUBMISSION',
+      priceApplied: '0.00',
+      pricingSource: 'INCLUDED',
+      visibilityStatus: 'VISIBLE',
+      lockedReason: null,
+      deductedFromIncludedLeads: 0,
+      deductedFromWallet: '0.00',
+      unlockedAt: now,
+      status: 'DELIVERED',
+    },
+    create: {
+      leadType: input.leadType || 'FORM_SUBMISSION',
+      priceApplied: '0.00',
+      pricingSource: 'INCLUDED',
+      visibilityStatus: 'VISIBLE',
+      lockedReason: null,
+      deductedFromIncludedLeads: 0,
+      deductedFromWallet: '0.00',
+      unlockedAt: now,
+      status: 'DELIVERED',
+      lead: { connect: { id: input.leadId } },
+      vendor: { connect: { id: input.vendorId } },
+      offer: { connect: { id: input.offerId } },
+      company: { connect: { id: input.companyId } },
+      category: { connect: { id: input.categoryId } },
+      ...(input.userId ? { user: { connect: { id: input.userId } } } : {}),
+      ...(input.subcategoryId
+        ? { subcategory: { connect: { id: input.subcategoryId } } }
+        : {}),
+    },
+  });
+
+  await upsertLegacyLeadCharge(tx, {
+    leadId: input.leadId,
+    vendorId: input.vendorId,
+    priceApplied: 0,
+    visible: false,
+    deductedFromIncludedLeads: 0,
+    reason: 'DUPLICATE',
+    currency: billingCurrency,
+  });
+
+  await (tx as any).leadBillingEvent.upsert({
+    where: { leadId: input.leadId },
+    update: { billingStatus: 'VOID' },
+    create: {
+      leadId: input.leadId,
+      vendorId: input.vendorId,
+      billedAt: now,
+      billingStatus: 'VOID',
+    },
+  });
+
+  return {
+    visibilityStatus: 'VISIBLE',
+    lockedReason: null,
+    priceApplied: 0,
+    pricingSource: 'INCLUDED',
+    deductedFromIncludedLeads: 0,
+    deductedFromWallet: 0,
+    includedLeadsTotal: Number(billing?.includedLeadsTotal || 0),
+    includedLeadsUsed: Number(billing?.includedLeadsUsed || 0),
+    walletBalance: toMoney(toNumber(billing?.walletBalance || 0)),
+    canSharePII: true,
   };
 };
 

@@ -411,7 +411,7 @@ export default function VendorDashboardPage() {
 
   const summaryBarItems = useMemo(() => {
     const offerLimit =
-      billing?.offerLimit == null ? '∞' : String(billing?.offerLimit || 0);
+      billing?.offerLimit == null ? 'Unlimited' : String(billing?.offerLimit || 0);
     const offerUsage = `${billing?.managedOfferCount || 0} / ${offerLimit}`;
     const nearLimit =
       billing?.offerLimit != null &&
@@ -518,8 +518,17 @@ export default function VendorDashboardPage() {
   ]);
 
   const vendorStatus = String(profile?.status || user?.vendor?.status || 'APPROVED').toUpperCase();
-  const secondaryActionLabel =
-    hiddenLeadCount > 0 || walletBalance <= 0 ? 'Top Up Wallet' : 'Upgrade Plan';
+  const isFreePlan = String(billing?.planDisplayName || '')
+    .trim()
+    .toUpperCase()
+    .includes('FREE');
+  const secondaryActionLabel = isFreePlan
+    ? hiddenLeadCount > 0
+      ? 'Switch to Gold'
+      : 'Manage Billing'
+    : hiddenLeadCount > 0 || walletBalance <= 0
+    ? 'Top Up Wallet'
+    : 'Upgrade Plan';
 
   if (isLoading) {
     return (
@@ -557,6 +566,8 @@ export default function VendorDashboardPage() {
         hiddenCount={hiddenLeadCount}
         estimatedValueText={estimatedHiddenLeadValue}
         upgradeHref="/vendor/billing"
+        upgradeLabel={isFreePlan ? 'Switch to Gold' : 'Upgrade Plan'}
+        showUpgradeAction={isFreePlan ? hiddenLeadCount > 0 : true}
         topUpHref="/vendor/billing"
         viewHref="#hidden-leads"
       />

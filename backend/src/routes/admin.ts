@@ -14,6 +14,14 @@ import {
   toBillingAccessDeniedResponse,
 } from '../lib/vendor-billing-access';
 import { enforceLiveOfferBillingEligibility } from '../lib/vendor-offer-enforcement';
+import { ensureBillingPlanConfig } from '../lib/billing-plan-config';
+import { upsertGlobalRoleAssignment } from '../lib/rbac';
+import { buildCountedOfferWhere } from '../lib/offer-counting';
+import {
+  BILLING_GST_RATE,
+  calculateBillingPreviewTotals,
+  resolveLeadUsageForCycle,
+} from '../lib/billing-preview';
 
 const router = Router();
 
@@ -63,20 +71,23 @@ const ADMIN_SUBSCRIPTION_PRESETS = {
     overagePricePerLead: 5,
     currency: 'CAD',
     offerLimit: 50,
+    description: 'Starter plan for vendors testing CorpDeals.',
   },
   GOLD: {
     monthlyFee: 100,
-    includedLeadsPerMonth: 100,
+    includedLeadsPerMonth: 20,
     overagePricePerLead: 3,
     currency: 'CAD',
     offerLimit: 100,
+    description: 'Growth plan for vendors actively scaling deal coverage.',
   },
   PREMIUM: {
-    monthlyFee: 300,
-    includedLeadsPerMonth: 300,
+    monthlyFee: 250,
+    includedLeadsPerMonth: 50,
     overagePricePerLead: 2,
     currency: 'CAD',
-    offerLimit: null,
+    offerLimit: 250,
+    description: 'High-volume plan for vendors with broad active catalogs.',
   },
 } as const;
 
@@ -124,10 +135,45 @@ const normalizeInvoiceStatus = (value: unknown) => {
   return null;
 };
 
+type AdminPlanCode = keyof typeof ADMIN_SUBSCRIPTION_PRESETS;
+
+const ADMIN_PLAN_CODE_ORDER: AdminPlanCode[] = ['FREE', 'GOLD', 'PREMIUM'];
+
+const getPlanDisplayDescription = (code: AdminPlanCode) => ADMIN_SUBSCRIPTION_PRESETS[code].description;
+
+const normalizePlanCode = (value: unknown): AdminPlanCode | null => {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (normalized === 'GROWTH') return 'GOLD';
+  if (normalized === 'PRO') return 'PREMIUM';
+  if (ADMIN_PLAN_CODE_ORDER.includes(normalized as AdminPlanCode)) {
+    return normalized as AdminPlanCode;
+  }
+  return null;
+};
+
+const ensureAdminDefaultPlans = async (tx: any) => {
+  for (const code of ADMIN_PLAN_CODE_ORDER) {
+    const preset = ADMIN_SUBSCRIPTION_PRESETS[code];
+    await ensureBillingPlanConfig(tx, {
+      code,
+      name: code === 'FREE' ? 'Free' : code === 'GOLD' ? 'Gold' : 'Premium',
+      description: preset.description,
+      planType: 'SUBSCRIPTION',
+      monthlyFee: preset.monthlyFee,
+      includedLeadsPerCycle: preset.includedLeadsPerMonth,
+      overagePricePerLead: preset.overagePricePerLead,
+      maxActiveOffers: preset.offerLimit,
+      overageEnabled: true,
+      currencyCode: preset.currency,
+      isSystemPreset: true,
+    });
+  }
+};
+
 const countActiveApprovedOffers = async () => {
   try {
     return await prisma.offer.count({
-      where: { active: true, offerState: 'APPROVED' } as any,
+      where: buildCountedOfferWhere({}) as any,
     });
   } catch (error: any) {
     const message = String(error?.message || '');
@@ -143,6 +189,455 @@ const countActiveApprovedOffers = async () => {
 
 // All admin routes require authentication and admin role
 router.use(authenticateToken, requireAdmin);
+
+router.get('/plans', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    await ensureAdminDefaultPlans(prisma);
+
+    const [planRows, activePlanCounts] = await Promise.all([
+      (prisma as any).billingPlanConfig.findMany({
+        where: {
+          planType: 'SUBSCRIPTION',
+          code: { in: ADMIN_PLAN_CODE_ORDER },
+        },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      (prisma as any).vendorBillingPlan.groupBy({
+        by: ['planConfigId'],
+        where: {
+          isActive: true,
+          planConfigId: { not: null },
+        },
+        _count: { planConfigId: true },
+      }),
+    ]);
+
+    const vendorCountByPlanConfigId = new Map<string, number>();
+    for (const row of activePlanCounts as Array<{ planConfigId: string; _count: { planConfigId: number } }>) {
+      if (!row.planConfigId) continue;
+      vendorCountByPlanConfigId.set(row.planConfigId, Number(row._count?.planConfigId || 0));
+    }
+
+    const rowsByCode = new Map<string, any>();
+    for (const row of planRows as any[]) {
+      rowsByCode.set(String(row.code || '').toUpperCase(), row);
+    }
+
+    const orderedPlans = ADMIN_PLAN_CODE_ORDER.map((code) => {
+      const row = rowsByCode.get(code);
+      const preset = ADMIN_SUBSCRIPTION_PRESETS[code];
+      if (!row) {
+        return {
+          code,
+          name: code === 'FREE' ? 'Free' : code === 'GOLD' ? 'Gold' : 'Premium',
+          description: preset.description,
+          monthlyPrice: preset.monthlyFee,
+          maxActiveOffers: preset.offerLimit,
+          includedFreeLeadsPerMonth: preset.includedLeadsPerMonth,
+          status: 'ACTIVE',
+          updatedAt: null,
+          activeVendorCount: 0,
+        };
+      }
+      return {
+        id: row.id,
+        code,
+        name: row.name,
+        description: row.description || getPlanDisplayDescription(code),
+        monthlyPrice: asNumber(row.monthlyFee),
+        maxActiveOffers:
+          row.maxActiveOffers === null || row.maxActiveOffers === undefined
+            ? null
+            : Number(row.maxActiveOffers),
+        includedFreeLeadsPerMonth:
+          row.includedLeadsPerCycle === null || row.includedLeadsPerCycle === undefined
+            ? 0
+            : Number(row.includedLeadsPerCycle),
+        status: row.isActive ? 'ACTIVE' : 'INACTIVE',
+        updatedAt: row.updatedAt,
+        activeVendorCount: vendorCountByPlanConfigId.get(String(row.id)) || 0,
+      };
+    });
+
+    res.json(orderedPlans);
+  } catch (error) {
+    console.error('GET /api/admin/plans error:', error);
+    res.status(500).json({ error: 'Failed to load plan configurations' });
+  }
+});
+
+router.put('/plans/:code', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const planCode = normalizePlanCode(req.params.code);
+    if (!planCode) {
+      res.status(400).json({ error: 'Plan code must be FREE, GOLD, or PREMIUM' });
+      return;
+    }
+
+    const nameInput = String(req.body?.name || '').trim();
+    const name = nameInput || (planCode === 'FREE' ? 'Free' : planCode === 'GOLD' ? 'Gold' : 'Premium');
+    const descriptionInput = req.body?.description;
+    const description =
+      descriptionInput === undefined || descriptionInput === null
+        ? getPlanDisplayDescription(planCode)
+        : String(descriptionInput).trim();
+    const monthlyPrice = Number(req.body?.monthlyPrice ?? req.body?.monthly_price);
+    const maxActiveOffersRaw = req.body?.maxActiveOffers ?? req.body?.max_active_offers;
+    const includedLeadsRaw =
+      req.body?.includedFreeLeadsPerMonth ??
+      req.body?.includedLeadsPerMonth ??
+      req.body?.included_leads_per_month;
+    const statusRaw = String(req.body?.status || '').trim().toUpperCase();
+    const isActive = statusRaw ? statusRaw === 'ACTIVE' : true;
+
+    if (!Number.isFinite(monthlyPrice) || monthlyPrice < 0) {
+      res.status(400).json({ error: 'monthlyPrice must be a non-negative number' });
+      return;
+    }
+    const maxActiveOffers =
+      maxActiveOffersRaw === null || maxActiveOffersRaw === undefined || String(maxActiveOffersRaw).trim() === ''
+        ? null
+        : Number(maxActiveOffersRaw);
+    if (maxActiveOffers !== null && (!Number.isInteger(maxActiveOffers) || maxActiveOffers < 0)) {
+      res.status(400).json({ error: 'maxActiveOffers must be a non-negative integer or null' });
+      return;
+    }
+    const includedLeads = Number(includedLeadsRaw);
+    if (!Number.isInteger(includedLeads) || includedLeads < 0) {
+      res.status(400).json({ error: 'includedFreeLeadsPerMonth must be a non-negative integer' });
+      return;
+    }
+
+    const saved = await prisma.$transaction(async (tx) => {
+      const planConfig = await ensureBillingPlanConfig(tx, {
+        code: planCode,
+        name,
+        description,
+        planType: 'SUBSCRIPTION',
+        monthlyFee: monthlyPrice,
+        includedLeadsPerCycle: includedLeads,
+        overagePricePerLead: ADMIN_SUBSCRIPTION_PRESETS[planCode].overagePricePerLead,
+        maxActiveOffers,
+        overageEnabled: true,
+        currencyCode: 'CAD',
+        isSystemPreset: true,
+      });
+
+      return (tx as any).billingPlanConfig.update({
+        where: { id: planConfig.id },
+        data: {
+          name,
+          description,
+          monthlyFee: monthlyPrice.toFixed(2),
+          includedLeadsPerCycle: includedLeads,
+          maxActiveOffers,
+          isActive,
+        },
+      });
+    });
+
+    res.json({
+      id: saved.id,
+      code: saved.code,
+      name: saved.name,
+      description: saved.description || getPlanDisplayDescription(planCode),
+      monthlyPrice: asNumber(saved.monthlyFee),
+      maxActiveOffers: saved.maxActiveOffers,
+      includedFreeLeadsPerMonth: Number(saved.includedLeadsPerCycle || 0),
+      status: saved.isActive ? 'ACTIVE' : 'INACTIVE',
+      updatedAt: saved.updatedAt,
+    });
+  } catch (error) {
+    console.error('PUT /api/admin/plans/:code error:', error);
+    res.status(500).json({ error: 'Failed to update plan configuration' });
+  }
+});
+
+router.get('/billing-preview', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const vendorId = normalizeOptionalQueryValue(req.query.vendorId ?? req.query.vendor_id);
+    const search = normalizeOptionalQueryValue(req.query.search);
+    const now = new Date();
+    const defaultCycleStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+    const defaultCycleEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0));
+
+    const vendorWhere: any = {
+      ...(vendorId ? { id: vendorId } : {}),
+      ...(search
+        ? {
+            OR: [
+              { companyName: { contains: search, mode: 'insensitive' } },
+              { email: { contains: search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
+    const vendors = await prisma.vendor.findMany({
+      where: vendorWhere,
+      include: {
+        billing: {
+          include: {
+            planConfig: true,
+          },
+        } as any,
+        billingPlans: {
+          where: {
+            isActive: true,
+            startsAt: { lte: now },
+            OR: [{ endsAt: null }, { endsAt: { gte: now } }],
+          },
+          include: {
+            planConfig: true,
+          },
+          orderBy: [{ startsAt: 'desc' }, { updatedAt: 'desc' }],
+          take: 1,
+        } as any,
+      } as any,
+      orderBy: { companyName: 'asc' },
+    });
+
+    const vendorIds = vendors.map((vendor) => vendor.id);
+    const activeOfferCountByVendorId = new Map<string, number>();
+
+    if (vendorIds.length > 0) {
+      try {
+        const activeOfferRows = await prisma.offer.groupBy({
+          by: ['vendorId'],
+          where: {
+            ...(buildCountedOfferWhere({}) as any),
+            vendorId: { in: vendorIds },
+          } as any,
+          _count: { _all: true },
+        });
+        for (const row of activeOfferRows as Array<{ vendorId: string; _count: { _all: number } }>) {
+          activeOfferCountByVendorId.set(row.vendorId, Number(row._count?._all || 0));
+        }
+      } catch {
+        const fallbackRows = await prisma.offer.groupBy({
+          by: ['vendorId'],
+          where: {
+            vendorId: { in: vendorIds },
+            active: true,
+          },
+          _count: { _all: true },
+        });
+        for (const row of fallbackRows as Array<{ vendorId: string; _count: { _all: number } }>) {
+          activeOfferCountByVendorId.set(row.vendorId, Number(row._count?._all || 0));
+        }
+      }
+    }
+
+    const pricingRows = await (prisma as any).categoryLeadPricing.findMany({
+      where: { isActive: true },
+      select: {
+        categoryId: true,
+        subcategoryId: true,
+        leadPrice: true,
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    const subcategoryPricing = new Map<string, number>();
+    const categoryPricing = new Map<string, number>();
+    for (const row of pricingRows as Array<{ categoryId: string; subcategoryId: string | null; leadPrice: unknown }>) {
+      const price = Math.max(0, asNumber(row.leadPrice));
+      if (row.subcategoryId) {
+        const key = `${row.categoryId}::${row.subcategoryId}`;
+        if (!subcategoryPricing.has(key)) subcategoryPricing.set(key, price);
+      } else if (!categoryPricing.has(row.categoryId)) {
+        categoryPricing.set(row.categoryId, price);
+      }
+    }
+
+    const vendorRows = [];
+    for (const vendor of vendors as any[]) {
+      const activePlan = (vendor.billingPlans || [])[0] || null;
+      const planConfig = activePlan?.planConfig || vendor.billing?.planConfig || null;
+      const monthlySubscriptionAmount = Math.max(
+        0,
+        asNumber(activePlan?.monthlyFee ?? planConfig?.monthlyFee ?? (vendor.billing?.monthlyFeeCents || 0) / 100)
+      );
+      const includedFreeLeads = Math.max(
+        0,
+        Number(
+          activePlan?.includedLeadsPerCycle ??
+            activePlan?.includedLeadsPerMonth ??
+            planConfig?.includedLeadsPerCycle ??
+            vendor.billing?.includedLeadsTotal ??
+            0
+        )
+      );
+      const planName =
+        String(planConfig?.name || '').trim() ||
+        (monthlySubscriptionAmount <= 0
+          ? 'Free'
+          : monthlySubscriptionAmount >= 250
+          ? 'Premium'
+          : monthlySubscriptionAmount >= 100
+          ? 'Gold'
+          : 'Subscription');
+      const planCode =
+        normalizePlanCode(planConfig?.code) ||
+        (monthlySubscriptionAmount <= 0
+          ? 'FREE'
+          : monthlySubscriptionAmount >= 250
+          ? 'PREMIUM'
+          : 'GOLD');
+
+      const cycleStart = vendor.billing?.billingCycleStartAt
+        ? new Date(vendor.billing.billingCycleStartAt)
+        : defaultCycleStart;
+      const cycleEnd = vendor.billing?.billingCycleEndAt
+        ? new Date(vendor.billing.billingCycleEndAt)
+        : defaultCycleEnd;
+      const validCycleStart = Number.isNaN(cycleStart.getTime()) ? defaultCycleStart : cycleStart;
+      const validCycleEnd = Number.isNaN(cycleEnd.getTime()) ? defaultCycleEnd : cycleEnd;
+      const lookbackStart = new Date(validCycleStart);
+      lookbackStart.setDate(lookbackStart.getDate() - 30);
+
+      const leads = await prisma.lead.findMany({
+        where: {
+          vendorId: vendor.id,
+          createdAt: {
+            gte: lookbackStart,
+            lt: validCycleEnd,
+          },
+          offer: {
+            active: true,
+            offerState: 'APPROVED',
+          } as any,
+        },
+        select: {
+          id: true,
+          createdAt: true,
+          userId: true,
+          email: true,
+          offerId: true,
+          offer: {
+            select: {
+              categoryId: true,
+              category: {
+                select: {
+                  id: true,
+                  parentId: true,
+                },
+              },
+            },
+          },
+          vendorLeadEvent: {
+            select: {
+              priceApplied: true,
+            },
+          },
+        } as any,
+        orderBy: { createdAt: 'asc' },
+      });
+
+      const lastSeenByLeadKey = new Map<string, Date>();
+      const uniqueBillableLeadPrices: number[] = [];
+
+      for (const lead of leads as any[]) {
+        const employeeKeySource = String(lead.userId || lead.email || '').trim().toLowerCase();
+        if (!employeeKeySource) continue;
+        const dedupeKey = `${lead.offerId}::${employeeKeySource}`;
+        const createdAt = new Date(lead.createdAt);
+        const previous = lastSeenByLeadKey.get(dedupeKey);
+        if (previous) {
+          const daysSinceLast = (createdAt.getTime() - previous.getTime()) / (24 * 60 * 60 * 1000);
+          if (daysSinceLast < 30) {
+            continue;
+          }
+        }
+        lastSeenByLeadKey.set(dedupeKey, createdAt);
+        if (createdAt < validCycleStart) {
+          continue;
+        }
+
+        const directEventPrice = asNumber(lead.vendorLeadEvent?.priceApplied);
+        let resolvedPrice = directEventPrice;
+        if (resolvedPrice <= 0) {
+          const offerCategory = lead.offer?.category;
+          const categoryId = offerCategory?.parentId || lead.offer?.categoryId;
+          const subcategoryId = offerCategory?.parentId ? offerCategory.id : null;
+          const subcategoryKey = subcategoryId ? `${categoryId}::${subcategoryId}` : '';
+          resolvedPrice =
+            (subcategoryKey ? subcategoryPricing.get(subcategoryKey) : undefined) ||
+            (categoryId ? categoryPricing.get(categoryId) : undefined) ||
+            0;
+        }
+        uniqueBillableLeadPrices.push(Math.max(0, resolvedPrice));
+      }
+
+      const uniqueValidLeadCount = uniqueBillableLeadPrices.length;
+      const { freeLeadsUsed, paidLeadCount } = resolveLeadUsageForCycle({
+        uniqueValidLeadCount,
+        includedFreeLeads,
+      });
+      const paidLeadCharges = uniqueBillableLeadPrices
+        .slice(freeLeadsUsed)
+        .reduce((sum, value) => sum + value, 0);
+      const billingTotals = calculateBillingPreviewTotals({
+        monthlySubscriptionAmount,
+        paidLeadCharges,
+      });
+
+      vendorRows.push({
+        vendorId: vendor.id,
+        vendorName: vendor.companyName,
+        vendorEmail: vendor.email,
+        currentPlan: planName,
+        currentPlanCode: planCode,
+        monthlySubscriptionAmount: billingTotals.monthlySubscriptionAmount,
+        activeOfferCount: activeOfferCountByVendorId.get(vendor.id) || 0,
+        includedFreeLeads,
+        freeLeadsUsed,
+        paidLeadCount,
+        paidLeadCharges: billingTotals.paidLeadCharges,
+        gstPercent: BILLING_GST_RATE * 100,
+        gstAmount: billingTotals.gstAmount,
+        estimatedTotal: billingTotals.estimatedTotal,
+        cycleStartAt: validCycleStart,
+        cycleEndAt: validCycleEnd,
+      });
+    }
+
+    const totals = vendorRows.reduce(
+      (acc, row) => {
+        acc.vendors += 1;
+        acc.monthlySubscriptions += row.monthlySubscriptionAmount;
+        acc.paidLeadCharges += row.paidLeadCharges;
+        acc.gst += row.gstAmount;
+        acc.estimatedTotal += row.estimatedTotal;
+        acc.paidLeads += row.paidLeadCount;
+        return acc;
+      },
+      {
+        vendors: 0,
+        monthlySubscriptions: 0,
+        paidLeadCharges: 0,
+        gst: 0,
+        estimatedTotal: 0,
+        paidLeads: 0,
+      }
+    );
+
+    res.json({
+      gstPercent: BILLING_GST_RATE * 100,
+      rows: vendorRows,
+      totals: {
+        vendors: totals.vendors,
+        paidLeads: totals.paidLeads,
+        monthlySubscriptions: Math.round(totals.monthlySubscriptions * 100) / 100,
+        paidLeadCharges: Math.round(totals.paidLeadCharges * 100) / 100,
+        gst: Math.round(totals.gst * 100) / 100,
+        estimatedTotal: Math.round(totals.estimatedTotal * 100) / 100,
+      },
+    });
+  } catch (error) {
+    console.error('GET /api/admin/billing-preview error:', error);
+    res.status(500).json({ error: 'Failed to load billing preview' });
+  }
+});
 
 // Dashboard stats
 router.get('/stats', async (req: Request, res: Response): Promise<void> => {
@@ -822,15 +1317,50 @@ router.patch('/users/:id/role', async (req: Request, res: Response): Promise<voi
 
     const role = normalizeRole(requestedRole);
 
-    const user = await prisma.user.update({
+    const existingUser = await prisma.user.findUnique({
       where: { id },
-      data: { role },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-      },
+      select: { id: true, email: true, name: true, role: true },
+    });
+    if (!existingUser) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    const actorUserId = req.user?.id || null;
+
+    const user = await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id },
+        data: { role },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+        },
+      });
+
+      await upsertGlobalRoleAssignment(tx as any, {
+        userId: id,
+        role,
+        scopeType: 'GLOBAL',
+        grantedByUserId: actorUserId,
+        grantReason: 'admin-role-update',
+      });
+
+      await (tx as any).authChangeLog.create({
+        data: {
+          id: `auth-change-role-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+          actorUserId,
+          targetUserId: id,
+          action: 'USER_ROLE_UPDATED',
+          oldValueJson: { role: existingUser.role },
+          newValueJson: { role },
+          reason: 'admin-role-update',
+        },
+      });
+
+      return updated;
     });
 
     res.json(user);
@@ -1189,7 +1719,20 @@ router.put('/vendors/:id/billing-plan', async (req: Request, res: Response): Pro
         getSubscriptionPresetByMonthlyFee(monthlyFeeFromRequest);
       if (!resolvedTier) {
         res.status(400).json({
-          error: 'subscription_tier must be one of FREE, GOLD, PREMIUM (or monthly_fee must match 0, 100, 300)',
+          error: 'subscription_tier must be one of FREE, GOLD, PREMIUM (or monthly_fee must match 0, 100, 250)',
+        });
+        return;
+      }
+
+      const existingPlanConfig = await (prisma as any).billingPlanConfig.findUnique({
+        where: { code: resolvedTier },
+        select: { id: true, isActive: true },
+      });
+      if (existingPlanConfig && !existingPlanConfig.isActive) {
+        res.status(409).json({
+          error: 'PLAN_CONFIG_INACTIVE',
+          message: `${resolvedTier} plan is inactive and cannot be assigned`,
+          code: resolvedTier,
         });
         return;
       }
@@ -1213,6 +1756,56 @@ router.put('/vendors/:id/billing-plan', async (req: Request, res: Response): Pro
     }
 
     const created = await prisma.$transaction(async (tx) => {
+      const derivedCode =
+        planTypeRaw === 'PAY_PER_LEAD'
+          ? 'PAY_PER_LEAD'
+          : normalizedMonthlyFee !== null && normalizedMonthlyFee <= 0
+          ? 'FREE'
+          : normalizedMonthlyFee !== null && normalizedMonthlyFee >= 250
+          ? 'PREMIUM'
+          : normalizedMonthlyFee !== null && normalizedMonthlyFee >= 100
+          ? 'GOLD'
+          : null;
+      if (derivedCode) {
+        const existingPlanConfig = await (tx as any).billingPlanConfig.findUnique({
+          where: { code: derivedCode },
+          select: { id: true, isActive: true },
+        });
+        if (existingPlanConfig && !existingPlanConfig.isActive) {
+          throw new Error(`PLAN_CONFIG_INACTIVE:${derivedCode}`);
+        }
+      }
+      const planConfig = await ensureBillingPlanConfig(tx, {
+        code: derivedCode,
+        name:
+          derivedCode === 'FREE'
+            ? 'Free'
+            : derivedCode === 'GOLD'
+            ? 'Gold'
+            : derivedCode === 'PREMIUM'
+            ? 'Premium'
+            : derivedCode === 'PAY_PER_LEAD'
+            ? 'Pay Per Lead'
+            : 'Custom Plan',
+        description:
+          derivedCode === 'FREE'
+            ? ADMIN_SUBSCRIPTION_PRESETS.FREE.description
+            : derivedCode === 'GOLD'
+            ? ADMIN_SUBSCRIPTION_PRESETS.GOLD.description
+            : derivedCode === 'PREMIUM'
+            ? ADMIN_SUBSCRIPTION_PRESETS.PREMIUM.description
+            : null,
+        planType: planTypeRaw as 'PAY_PER_LEAD' | 'SUBSCRIPTION',
+        pricePerLead: normalizedPricePerLead,
+        monthlyFee: normalizedMonthlyFee,
+        includedLeadsPerCycle: normalizedIncluded,
+        overagePricePerLead: normalizedOverage,
+        maxActiveOffers: normalizedOfferLimit,
+        overageEnabled: true,
+        currencyCode: normalizedCurrency,
+        isSystemPreset: Boolean(derivedCode && ['FREE', 'GOLD', 'PREMIUM', 'PAY_PER_LEAD'].includes(derivedCode)),
+      });
+
       await (tx as any).vendorBillingPlan.updateMany({
         where: { vendorId, isActive: true },
         data: { isActive: false },
@@ -1221,6 +1814,7 @@ router.put('/vendors/:id/billing-plan', async (req: Request, res: Response): Pro
       const createdPlan = await (tx as any).vendorBillingPlan.create({
         data: {
           vendorId,
+          planConfigId: planConfig.id,
           planType: planTypeRaw,
           pricePerLead: normalizedPricePerLead === null ? null : toMoney(normalizedPricePerLead),
           monthlyFee: normalizedMonthlyFee === null ? null : toMoney(normalizedMonthlyFee),
@@ -1258,6 +1852,7 @@ router.put('/vendors/:id/billing-plan', async (req: Request, res: Response): Pro
             normalizedMonthlyFee === null ? 0 : Math.max(0, Math.round(normalizedMonthlyFee * 100)),
           paymentMethod: 'MANUAL',
           currency: normalizedCurrency,
+          planConfigId: planConfig.id,
           billingDay: billingCycleDay,
           associationStatus: associationStatus as any,
           statusReason: 'admin-billing-plan-update',
@@ -1274,6 +1869,7 @@ router.put('/vendors/:id/billing-plan', async (req: Request, res: Response): Pro
             normalizedMonthlyFee === null ? 0 : Math.max(0, Math.round(normalizedMonthlyFee * 100)),
           paymentMethod: 'MANUAL',
           currency: normalizedCurrency,
+          planConfigId: planConfig.id,
           billingDay: billingCycleDay,
           associationStatus: associationStatus as any,
           statusReason: 'admin-billing-plan-update',
@@ -1285,7 +1881,17 @@ router.put('/vendors/:id/billing-plan', async (req: Request, res: Response): Pro
     });
 
     res.json(created);
-  } catch (error) {
+  } catch (error: any) {
+    const message = String(error?.message || '');
+    if (message.startsWith('PLAN_CONFIG_INACTIVE:')) {
+      const planCode = message.split(':')[1] || 'UNKNOWN';
+      res.status(409).json({
+        error: 'PLAN_CONFIG_INACTIVE',
+        message: `${planCode} plan is inactive and cannot be assigned`,
+        code: planCode,
+      });
+      return;
+    }
     console.error('PUT /api/admin/vendors/:id/billing-plan error:', error);
     res.status(500).json({ error: 'Failed to save vendor billing plan' });
   }
@@ -1523,9 +2129,18 @@ router.put('/pricing/category-leads', async (req: Request, res: Response): Promi
       .trim()
       .toUpperCase();
     const isActive = req.body?.isActive === undefined ? true : isTruthy(req.body?.isActive);
+    const descriptionRaw = req.body?.description;
+    const description =
+      descriptionRaw === undefined || descriptionRaw === null
+        ? null
+        : String(descriptionRaw).trim() || null;
 
     if (!categoryId) {
       res.status(400).json({ error: 'categoryId is required' });
+      return;
+    }
+    if (!subcategoryId) {
+      res.status(400).json({ error: 'subcategoryId is required' });
       return;
     }
     if (!Number.isFinite(leadPrice) || leadPrice < 0) {
@@ -1539,26 +2154,34 @@ router.put('/pricing/category-leads', async (req: Request, res: Response): Promi
 
     const category = await prisma.category.findUnique({
       where: { id: categoryId },
-      select: { id: true, name: true },
+      select: { id: true, name: true, active: true, parentId: true },
     });
     if (!category) {
       res.status(404).json({ error: 'Category not found' });
       return;
     }
+    if (category.parentId) {
+      res.status(400).json({ error: 'categoryId must reference a parent category' });
+      return;
+    }
 
-    if (subcategoryId) {
-      const subcategory = await prisma.category.findUnique({
-        where: { id: subcategoryId },
-        select: { id: true, parentId: true, name: true },
+    const subcategory = await prisma.category.findUnique({
+      where: { id: subcategoryId },
+      select: { id: true, parentId: true, name: true, active: true },
+    });
+    if (!subcategory) {
+      res.status(404).json({ error: 'Subcategory not found' });
+      return;
+    }
+    if (String(subcategory.parentId || '') !== categoryId) {
+      res.status(400).json({ error: 'Subcategory does not belong to category' });
+      return;
+    }
+    if (isActive && (!category.active || !subcategory.active)) {
+      res.status(400).json({
+        error: 'Active pricing rows require active category and active subcategory',
       });
-      if (!subcategory) {
-        res.status(404).json({ error: 'Subcategory not found' });
-        return;
-      }
-      if (String(subcategory.parentId || '') !== categoryId) {
-        res.status(400).json({ error: 'Subcategory does not belong to category' });
-        return;
-      }
+      return;
     }
 
     const existing = await (prisma as any).categoryLeadPricing.findFirst({
@@ -1576,6 +2199,7 @@ router.put('/pricing/category-leads', async (req: Request, res: Response): Promi
             leadPrice: leadPrice.toFixed(2),
             billingType,
             isActive,
+            description,
           },
           include: {
             category: { select: { id: true, name: true, slug: true } },
@@ -1589,6 +2213,7 @@ router.put('/pricing/category-leads', async (req: Request, res: Response): Promi
             leadPrice: leadPrice.toFixed(2),
             billingType,
             isActive,
+            description,
           },
           include: {
             category: { select: { id: true, name: true, slug: true } },

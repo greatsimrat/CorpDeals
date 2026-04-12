@@ -6,6 +6,9 @@ import {
   SUBCATEGORY_TAXONOMY,
   upsertCategoryTaxonomy,
 } from './category-taxonomy';
+import { ensureBillingPlanConfig } from '../src/lib/billing-plan-config';
+import { APP_ROLES, normalizeRole } from '../src/lib/roles';
+import { upsertGlobalRoleAssignment } from '../src/lib/rbac';
 
 const prisma = new PrismaClient();
 
@@ -13,6 +16,84 @@ const mergeUniqueCompanies = <T extends { slug: string }>(preferred: T[], additi
   const seen = new Set(preferred.map((company) => company.slug));
   return preferred.concat(additions.filter((company) => !seen.has(company.slug)));
 };
+
+const RBAC_PERMISSION_SEED = [
+  { id: 'perm-admin-full-access', code: 'admin.full_access', name: 'Admin Full Access' },
+  { id: 'perm-users-role-manage', code: 'users.role.manage', name: 'Manage User Roles' },
+  { id: 'perm-vendors-approval-manage', code: 'vendors.approval.manage', name: 'Manage Vendor Approval' },
+  { id: 'perm-offers-approval-manage', code: 'offers.approval.manage', name: 'Manage Offer Approval' },
+  { id: 'perm-companies-requests-manage', code: 'companies.requests.manage', name: 'Manage Company Requests' },
+  { id: 'perm-finance-billing-manage', code: 'finance.billing.manage', name: 'Manage Billing' },
+  { id: 'perm-finance-invoices-manage', code: 'finance.invoices.manage', name: 'Manage Invoices' },
+  { id: 'perm-sales-pipeline-manage', code: 'sales.pipeline.manage', name: 'Manage Sales Pipeline' },
+  { id: 'perm-vendor-portal-access', code: 'vendor.portal.access', name: 'Vendor Portal Access' },
+  { id: 'perm-employee-portal-access', code: 'employee.portal.access', name: 'Employee Portal Access' },
+] as const;
+
+const RBAC_ROLE_PERMISSION_SEED: Record<(typeof APP_ROLES)[number], string[]> = {
+  ADMIN: RBAC_PERMISSION_SEED.map((permission) => permission.code),
+  FINANCE: ['finance.billing.manage', 'finance.invoices.manage'],
+  SALES: ['sales.pipeline.manage', 'companies.requests.manage'],
+  VENDOR: ['vendor.portal.access'],
+  USER: ['employee.portal.access'],
+};
+
+async function seedRbacDefaults() {
+  const permissionByCode = new Map<string, string>();
+  for (const permission of RBAC_PERMISSION_SEED) {
+    const saved = await (prisma as any).permission.upsert({
+      where: { code: permission.code },
+      update: {
+        name: permission.name,
+        isActive: true,
+      },
+      create: {
+        id: permission.id,
+        code: permission.code,
+        name: permission.name,
+        description: permission.name,
+        isActive: true,
+      },
+      select: { id: true, code: true },
+    });
+    permissionByCode.set(saved.code, saved.id);
+  }
+
+  for (const role of APP_ROLES) {
+    const codes = RBAC_ROLE_PERMISSION_SEED[role] || [];
+    for (const code of codes) {
+      const permissionId = permissionByCode.get(code);
+      if (!permissionId) continue;
+      const updated = await (prisma as any).rolePermission.updateMany({
+        where: { role, permissionId },
+        data: { isActive: true },
+      });
+      if (updated.count === 0) {
+        await (prisma as any).rolePermission.create({
+          data: {
+            id: `roleperm-${role.toLowerCase()}-${permissionId.slice(-12)}`,
+            role,
+            permissionId,
+            isActive: true,
+          },
+        });
+      }
+    }
+  }
+
+  const users = await prisma.user.findMany({
+    select: { id: true, role: true, createdAt: true },
+  });
+  for (const user of users) {
+    await upsertGlobalRoleAssignment(prisma as any, {
+      userId: user.id,
+      role: normalizeRole(user.role),
+      scopeType: 'GLOBAL',
+      startsAt: user.createdAt,
+      grantReason: 'seed-role-sync',
+    });
+  }
+}
 
 const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
 const seedConfirmed = (process.env.CONFIRM_UAT_SEED || '').toLowerCase() === 'yes';
@@ -234,7 +315,7 @@ const UAT_BILLING_PRESETS = {
     planType: 'SUBSCRIPTION',
     monthlyFee: '100.00',
     pricePerLead: null,
-    includedLeadsPerMonth: 100,
+    includedLeadsPerMonth: 20,
     overagePricePerLead: '3.00',
     offerLimit: 100,
     currency: 'CAD',
@@ -244,11 +325,11 @@ const UAT_BILLING_PRESETS = {
     code: 'PREMIUM',
     name: 'Premium',
     planType: 'SUBSCRIPTION',
-    monthlyFee: '300.00',
+    monthlyFee: '250.00',
     pricePerLead: null,
-    includedLeadsPerMonth: 300,
+    includedLeadsPerMonth: 50,
     overagePricePerLead: '2.00',
-    offerLimit: null,
+    offerLimit: 250,
     currency: 'CAD',
     durationDays: 365,
   },
@@ -830,10 +911,32 @@ async function upsertVendorBillingSetup(
   const associationStatus = presetKey === 'FREE' ? 'FREE' : 'ACTIVE';
   const cycleStart = startsAt;
   const cycleEnd = endsAt;
+  const planConfig = await ensureBillingPlanConfig(prisma as any, {
+    code: preset.code,
+    name: preset.name,
+    description:
+      preset.code === 'FREE'
+        ? 'Starter plan for vendors testing CorpDeals.'
+        : preset.code === 'GOLD'
+        ? 'Growth plan for vendors actively scaling deal coverage.'
+        : preset.code === 'PREMIUM'
+        ? 'High-volume plan for vendors with broad active catalogs.'
+        : null,
+    planType: preset.planType,
+    pricePerLead: preset.pricePerLead ?? null,
+    monthlyFee: preset.monthlyFee ?? null,
+    includedLeadsPerCycle: preset.includedLeadsPerMonth ?? null,
+    overagePricePerLead: preset.overagePricePerLead ?? null,
+    maxActiveOffers: preset.offerLimit,
+    overageEnabled: true,
+    currencyCode: preset.currency,
+    isSystemPreset: ['FREE', 'GOLD', 'PREMIUM', 'PAY_PER_LEAD'].includes(preset.code),
+  });
 
   await prisma.vendorBilling.upsert({
     where: { vendorId },
     update: {
+      planConfigId: planConfig.id,
       billingMode,
       associationStatus: associationStatus as any,
       statusReason: 'uat-seed-billing-plan',
@@ -854,6 +957,7 @@ async function upsertVendorBillingSetup(
     } as any,
     create: {
       vendorId,
+      planConfigId: planConfig.id,
       billingMode,
       associationStatus: associationStatus as any,
       statusReason: 'uat-seed-billing-plan',
@@ -887,6 +991,7 @@ async function upsertVendorBillingSetup(
     where: { id: planId },
     update: {
       vendorId,
+      planConfigId: planConfig.id,
       code: preset.code,
       name: preset.name,
       planType: preset.planType,
@@ -907,6 +1012,7 @@ async function upsertVendorBillingSetup(
     create: {
       id: planId,
       vendorId,
+      planConfigId: planConfig.id,
       code: preset.code,
       name: preset.name,
       planType: preset.planType,
@@ -1467,6 +1573,9 @@ async function main() {
       ELSE 'DRAFT'::"OfferStatus"
     END
   `);
+
+  await seedRbacDefaults();
+  console.log('Seeded RBAC permissions, role mappings, and role assignments');
 
   console.log('Seeded UAT demo data successfully.');
   console.log('Role accounts:');

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { authenticateToken, requireAdmin } from '../middleware/auth';
 import { getActiveVendorBillingRelationFilter, syncExpiredVendorPlans } from '../lib/vendor-billing';
+import { getCategoryDeleteSafety, slugifyCategoryName } from '../lib/category-management';
 
 const router = Router();
 
@@ -11,20 +12,26 @@ const firstString = (value: unknown): string | undefined => {
   return undefined;
 };
 
+const isTruthy = (value: unknown) =>
+  value === true || value === 'true' || value === '1' || value === 1;
+
 // Get all categories (public)
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const categories = await prisma.category.findMany({
+      where: { active: true } as any,
       include: {
         parent: {
           select: { id: true, name: true, slug: true, icon: true },
         },
         children: {
+          where: { active: true } as any,
           select: {
             id: true,
             name: true,
             slug: true,
             icon: true,
+            active: true,
             _count: { select: { offers: true } },
           },
           orderBy: { name: 'asc' },
@@ -41,6 +48,35 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+// Admin categories management tree (admin only)
+router.get(
+  '/manage/tree',
+  authenticateToken,
+  requireAdmin,
+  async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const categories = await prisma.category.findMany({
+        where: { parentId: null } as any,
+        include: {
+          _count: { select: { children: true, offers: true } },
+          children: {
+            include: {
+              _count: { select: { offers: true } },
+            },
+            orderBy: { name: 'asc' },
+          },
+        },
+        orderBy: { name: 'asc' },
+      });
+
+      res.json(categories);
+    } catch (error) {
+      console.error('Get admin categories tree error:', error);
+      res.status(500).json({ error: 'Failed to get admin categories tree' });
+    }
+  }
+);
+
 // Get category by ID or slug (public)
 router.get('/:idOrSlug', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -54,6 +90,7 @@ router.get('/:idOrSlug', async (req: Request, res: Response): Promise<void> => {
 
     const category = await prisma.category.findFirst({
       where: {
+        active: true,
         OR: [
           { id: idOrSlug },
           { slug: idOrSlug },
@@ -64,6 +101,7 @@ router.get('/:idOrSlug', async (req: Request, res: Response): Promise<void> => {
           select: { id: true, name: true, slug: true, icon: true },
         },
         children: {
+          where: { active: true } as any,
           select: {
             id: true,
             name: true,
@@ -119,19 +157,51 @@ router.get('/:idOrSlug', async (req: Request, res: Response): Promise<void> => {
 router.post('/', authenticateToken, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const { name, slug, icon, description, color, bgColor, image, parentId } = req.body;
+    const active = req.body?.active === undefined ? true : isTruthy(req.body?.active);
 
-    const finalSlug = slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const trimmedName = String(name || '').trim();
+    if (!trimmedName) {
+      res.status(400).json({ error: 'Category name is required' });
+      return;
+    }
+
+    const finalSlug = slugifyCategoryName(String(slug || '').trim() || trimmedName);
+    if (!finalSlug) {
+      res.status(400).json({ error: 'Category slug is required' });
+      return;
+    }
+
+    let normalizedParentId: string | null = null;
+    let parentCategoryActive = true;
+    if (parentId !== undefined && parentId !== null && String(parentId).trim() !== '') {
+      normalizedParentId = String(parentId).trim();
+      const parent = await prisma.category.findUnique({
+        where: { id: normalizedParentId },
+        select: { id: true, active: true },
+      });
+      if (!parent) {
+        res.status(400).json({ error: 'Parent category not found' });
+        return;
+      }
+      parentCategoryActive = Boolean(parent.active);
+    }
+
+    if (active && normalizedParentId && !parentCategoryActive) {
+      res.status(400).json({ error: 'Cannot activate subcategory under an inactive parent category' });
+      return;
+    }
 
     const category = await prisma.category.create({
       data: {
-        name,
+        name: trimmedName,
         slug: finalSlug,
         icon,
         description,
         color,
         bgColor,
         image,
-        parentId: parentId || null,
+        parentId: normalizedParentId,
+        active,
       },
     });
 
@@ -156,17 +226,51 @@ router.patch('/:id', authenticateToken, requireAdmin, async (req: Request, res: 
     }
 
     const { name, slug, icon, description, color, bgColor, image, parentId } = req.body;
+    const activeRaw = req.body?.active;
+
+    let parentCategoryActive = true;
+    if (parentId !== undefined && parentId !== null && String(parentId).trim() !== '') {
+      const normalizedParentId = String(parentId).trim();
+      if (normalizedParentId === id) {
+        res.status(400).json({ error: 'Category cannot be its own parent' });
+        return;
+      }
+      const parent = await prisma.category.findUnique({
+        where: { id: normalizedParentId },
+        select: { id: true, active: true },
+      });
+      if (!parent) {
+        res.status(400).json({ error: 'Parent category not found' });
+        return;
+      }
+      parentCategoryActive = Boolean(parent.active);
+    }
+
+    const nextActive =
+      activeRaw === undefined
+        ? undefined
+        : isTruthy(activeRaw);
+    const requestedParentId =
+      parentId === undefined || parentId === null || String(parentId).trim() === ''
+        ? null
+        : String(parentId).trim();
+
+    if (nextActive === true && requestedParentId && !parentCategoryActive) {
+      res.status(400).json({ error: 'Cannot activate subcategory under an inactive parent category' });
+      return;
+    }
 
     const category = await prisma.category.update({
       where: { id },
       data: {
         name,
-        slug,
+        slug: slug ? slugifyCategoryName(String(slug)) : slug,
         icon,
         description,
         color,
         bgColor,
         image,
+        ...(activeRaw === undefined ? {} : { active: nextActive }),
         parentId: parentId === undefined ? undefined : parentId || null,
       },
     });
@@ -188,6 +292,44 @@ router.delete('/:id', authenticateToken, requireAdmin, async (req: Request, res:
     const id = firstString(req.params.id);
     if (!id) {
       res.status(400).json({ error: 'Invalid category id' });
+      return;
+    }
+
+    const category = await prisma.category.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: {
+            children: true,
+            offers: true,
+            vendorLeadEventsAsCategory: true,
+            vendorLeadEventsAsSubcategory: true,
+          },
+        },
+      },
+    });
+    if (!category) {
+      res.status(404).json({ error: 'Category not found' });
+      return;
+    }
+
+    const isSubcategory = Boolean(category.parentId);
+    const leadEventCount = isSubcategory
+      ? Number((category as any)._count?.vendorLeadEventsAsSubcategory || 0)
+      : Number((category as any)._count?.vendorLeadEventsAsCategory || 0);
+    const safety = getCategoryDeleteSafety({
+      isSubcategory,
+      childCount: Number((category as any)._count?.children || 0),
+      offerCount: Number((category as any)._count?.offers || 0),
+      leadEventCount,
+    });
+
+    if (!safety.canDelete) {
+      res.status(409).json({
+        error: safety.message,
+        code: safety.code,
+        recommendation: 'Deactivate this category instead of deleting it.',
+      });
       return;
     }
 

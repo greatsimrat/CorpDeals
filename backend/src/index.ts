@@ -19,6 +19,7 @@ const leadRoutes = require('./routes/leads').default;
 const employeeVerificationRoutes = require('./routes/employee-verifications').default;
 const financeRoutes = require('./routes/finance').default;
 const salesRoutes = require('./routes/sales').default;
+const { handleStripeWebhook } = require('./routes/payments');
 const { sendTestEmail } = require('./lib/mailer');
 const devRoutes = require('./routes/dev').default;
 const myApplicationsRoutes = require('./routes/my-applications').default;
@@ -81,6 +82,16 @@ app.use(cors({
   },
   credentials: true,
 }));
+
+// Stripe webhook must read raw body for signature verification.
+app.post(
+  '/api/payments/stripe/webhook',
+  express.raw({ type: 'application/json' }),
+  (req, res) => {
+    handleStripeWebhook(req, res);
+  }
+);
+
 app.use(express.json());
 
 // Health check

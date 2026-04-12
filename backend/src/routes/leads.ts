@@ -10,9 +10,11 @@ import { getNormalizedUserLocation } from '../lib/offer-coverage';
 import { isUserVerifiedForCompany } from '../lib/verifications';
 import { sendVendorLeadNotificationEmail } from '../lib/mailer';
 import {
+  processDuplicateLeadNoCharge,
   processVendorLeadMonetization,
   resolveOfferCategoryContext,
 } from '../lib/vendor-lead-monetization';
+import { getLeadDuplicateWindowStart } from '../lib/lead-dedup';
 
 const router = Router();
 
@@ -142,20 +144,20 @@ router.post('/', authenticateTokenOptional, async (req: Request, res: Response):
     }
 
     const duplicateWhere = req.user?.id
-      ? { userId: req.user.id, offerId: offer.id }
-      : { offerId: offer.id, email: normalizedEmail };
+      ? {
+          userId: req.user.id,
+          offerId: offer.id,
+          createdAt: { gte: getLeadDuplicateWindowStart() },
+        }
+      : {
+          offerId: offer.id,
+          email: normalizedEmail,
+          createdAt: { gte: getLeadDuplicateWindowStart() },
+        };
     const existingLead = await prisma.lead.findFirst({
       where: duplicateWhere as any,
       select: { id: true, createdAt: true },
     });
-    if (existingLead) {
-      res.status(409).json({
-        error: 'DUPLICATE_LEAD',
-        message: 'You have already applied for this offer.',
-        existing_lead_id: existingLead.id,
-      });
-      return;
-    }
 
     const consentGiven = Boolean(req.body?.consent);
     const termsAccepted = Boolean(req.body?.termsAccepted);
@@ -210,16 +212,27 @@ router.post('/', authenticateTokenOptional, async (req: Request, res: Response):
         categoryId: offer.categoryId,
         category: offer.category,
       });
-      const monetization = await processVendorLeadMonetization(tx as any, {
-        leadId: createdLead.id,
-        vendorId: offer.vendorId,
-        offerId: offer.id,
-        userId: req.user?.id || null,
-        companyId: company.id,
-        categoryId: categoryContext.categoryId,
-        subcategoryId: categoryContext.subcategoryId,
-        leadType: 'FORM_SUBMISSION',
-      });
+      const monetization = existingLead
+        ? await processDuplicateLeadNoCharge(tx as any, {
+            leadId: createdLead.id,
+            vendorId: offer.vendorId,
+            offerId: offer.id,
+            userId: req.user?.id || null,
+            companyId: company.id,
+            categoryId: categoryContext.categoryId,
+            subcategoryId: categoryContext.subcategoryId,
+            leadType: 'FORM_SUBMISSION',
+          })
+        : await processVendorLeadMonetization(tx as any, {
+            leadId: createdLead.id,
+            vendorId: offer.vendorId,
+            offerId: offer.id,
+            userId: req.user?.id || null,
+            companyId: company.id,
+            categoryId: categoryContext.categoryId,
+            subcategoryId: categoryContext.subcategoryId,
+            leadType: 'FORM_SUBMISSION',
+          });
 
       await tx.offer.update({
         where: { id: offerId },
@@ -291,6 +304,8 @@ router.post('/', authenticateTokenOptional, async (req: Request, res: Response):
 
     res.status(201).json({
       ...lead,
+      is_duplicate: Boolean(existingLead),
+      duplicate_of_lead_id: existingLead?.id || null,
       visibility_status: monetization.visibilityStatus,
       locked_reason: monetization.lockedReason,
       lead_access: monetization.canSharePII ? 'VISIBLE' : 'LOCKED',

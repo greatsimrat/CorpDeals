@@ -47,6 +47,10 @@ import OffersReviewPage from './pages/admin/OffersReviewPage';
 import AdminVendorBillingPlanPage from './pages/admin/AdminVendorBillingPlanPage';
 import AdminInvoicesPage from './pages/admin/AdminInvoicesPage';
 import AdminInvoiceDetailPage from './pages/admin/AdminInvoiceDetailPage';
+import AdminPlansPage from './pages/admin/AdminPlansPage';
+import AdminPricingPage from './pages/admin/AdminPricingPage';
+import AdminBillingPreviewPage from './pages/admin/AdminBillingPreviewPage';
+import AdminCategoriesPage from './pages/admin/AdminCategoriesPage';
 import FinanceLayout from './pages/finance/FinanceLayout';
 import FinanceDashboard from './pages/finance/FinanceDashboard';
 import SalesLayout from './pages/sales/SalesLayout';
@@ -180,9 +184,12 @@ function App() {
                   <Route path="offers" element={<AdminOffersPage />} />
                   <Route path="offers-review" element={<OffersReviewPage />} />
                   <Route path="leads" element={<AdminLeadsPage />} />
+                  <Route path="plans" element={<AdminPlansPage />} />
+                  <Route path="pricing" element={<AdminPricingPage />} />
+                  <Route path="billing-preview" element={<AdminBillingPreviewPage />} />
                   <Route path="invoices" element={<AdminInvoicesPage />} />
                   <Route path="invoices/:invoiceId" element={<AdminInvoiceDetailPage />} />
-                  <Route path="categories" element={<AdminOffersPage />} />
+                  <Route path="categories" element={<AdminCategoriesPage />} />
                   <Route path="users" element={<UsersPage />} />
                 </Route>
 

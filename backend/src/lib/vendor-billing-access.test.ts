@@ -64,6 +64,53 @@ test('offer limit reached blocks create', () => {
   assert.equal(result.reasonCode, 'VENDOR_PLAN_LIMIT_REACHED');
 });
 
+test('free plan threshold 49/50 allows one more counted offer', () => {
+  const state = baseState();
+  state.offerLimit = 50;
+  state.managedOfferCount = 49;
+  state.remainingOfferSlots = 1;
+
+  const result = evaluateVendorBillingAccessFromState(state, 'CREATE_OFFER');
+  assert.equal(result.allowed, true);
+  assert.equal(result.reasonCode, 'OK');
+});
+
+test('free plan threshold 50/50 blocks next counted offer', () => {
+  const state = baseState();
+  state.offerLimit = 50;
+  state.managedOfferCount = 50;
+  state.remainingOfferSlots = 0;
+  state.createOfferMessage = 'Plan limit reached.';
+
+  const result = evaluateVendorBillingAccessFromState(state, 'CREATE_OFFER');
+  assert.equal(result.allowed, false);
+  assert.equal(result.reasonCode, 'VENDOR_PLAN_LIMIT_REACHED');
+});
+
+test('gold plan threshold 99/100 allows one more counted offer', () => {
+  const state = baseState();
+  state.planDisplayName = 'Gold';
+  state.offerLimit = 100;
+  state.managedOfferCount = 99;
+  state.remainingOfferSlots = 1;
+
+  const result = evaluateVendorBillingAccessFromState(state, 'CREATE_OFFER');
+  assert.equal(result.allowed, true);
+});
+
+test('gold plan threshold 100/100 blocks additional counted offer', () => {
+  const state = baseState();
+  state.planDisplayName = 'Gold';
+  state.offerLimit = 100;
+  state.managedOfferCount = 100;
+  state.remainingOfferSlots = 0;
+  state.createOfferMessage = 'Plan limit reached.';
+
+  const result = evaluateVendorBillingAccessFromState(state, 'PUBLISH_OFFER');
+  assert.equal(result.allowed, false);
+  assert.equal(result.reasonCode, 'VENDOR_PLAN_LIMIT_REACHED');
+});
+
 test('non-compliant vendor cannot submit or publish', () => {
   const state = baseState();
   state.hasAllowedAssociationStatus = false;

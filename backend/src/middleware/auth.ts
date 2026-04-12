@@ -3,6 +3,12 @@ import jwt from 'jsonwebtoken';
 import prisma from '../lib/prisma';
 import type { AppRole } from '../lib/roles';
 import { normalizeRole } from '../lib/roles';
+import {
+  hasAnyRole,
+  resolveEffectiveRoleSnapshot,
+  resolveRolePermissions,
+  resolveScopedRoleAssignments,
+} from '../lib/rbac';
 
 interface JwtPayload {
   userId: string;
@@ -14,6 +20,8 @@ export interface AuthenticatedRequestUser {
   id: string;
   email: string;
   role: AppRole;
+  roles: AppRole[];
+  permissionCodes: string[];
   vendorId: string | null;
   activeCompanyId: string | null;
   employeeCompanyId: string | null;
@@ -66,10 +74,16 @@ const hydrateRequestUser = async (userId: string) => {
 
   if (!user) return null;
 
+  const assignments = await resolveScopedRoleAssignments(prisma, userId);
+  const snapshot = resolveEffectiveRoleSnapshot(user.role, assignments);
+  const permissionCodes = await resolveRolePermissions(prisma, snapshot.roles);
+
   return {
     id: user.id,
     email: user.email,
-    role: normalizeRole(user.role),
+    role: snapshot.primaryRole || normalizeRole(user.role),
+    roles: snapshot.roles,
+    permissionCodes,
     vendorId: user.vendorId ?? user.vendor?.id ?? null,
     activeCompanyId: user.activeCompanyId,
     employeeCompanyId: user.employeeCompanyId,
@@ -149,7 +163,7 @@ export const requireAnyRole =
       return;
     }
 
-    if (!roles.includes(req.user.role)) {
+    if (!hasAnyRole(req.user.roles || [req.user.role], roles)) {
       sendForbidden(res, `${roles.join(' or ')} access required`);
       return;
     }

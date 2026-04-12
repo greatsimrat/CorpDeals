@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import api from '../../services/api';
 
 type BillingPayload = {
@@ -8,6 +8,9 @@ type BillingPayload = {
     postTrialMode?: string | null;
     trialEndsAt?: string | null;
     currency?: string;
+    paymentMethod?: 'MANUAL' | 'STRIPE';
+    statusReason?: string | null;
+    stripeSubscriptionId?: string | null;
   } | null;
   activePlan: any | null;
   latestPlan?: any | null;
@@ -27,6 +30,13 @@ type BillingPayload = {
   includedLeadsTotal?: number;
   includedLeadsUsed?: number;
   walletTransactions?: any[];
+  stripeSubscription?: {
+    provider: 'STRIPE' | 'MOCK';
+    subscriptionId: string;
+    status: string;
+    cancelAtPeriodEnd: boolean;
+    currentPeriodEnd: string | null;
+  } | null;
   invoices: any[];
 };
 
@@ -55,9 +65,9 @@ const BILLING_PLAN_OPTIONS: Record<
   },
   PREMIUM: {
     label: 'Premium',
-    monthlyFee: 300,
-    offerLimit: null,
-    description: 'Unlimited active offers for high-scale catalogs.',
+    monthlyFee: 250,
+    offerLimit: 250,
+    description: 'For high-volume vendors that need broader active coverage.',
   },
 };
 
@@ -117,11 +127,14 @@ export default function VendorBillingPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isExportingId, setIsExportingId] = useState<string | null>(null);
   const [isUpdatingPlan, setIsUpdatingPlan] = useState(false);
+  const [isStartingCheckout, setIsStartingCheckout] = useState(false);
+  const [isCancellingRecurring, setIsCancellingRecurring] = useState(false);
   const [selectedPlanTier, setSelectedPlanTier] = useState<BillingPlanTier>('FREE');
   const [planSuccess, setPlanSuccess] = useState('');
   const [topUpAmount, setTopUpAmount] = useState('100');
   const [isToppingUp, setIsToppingUp] = useState(false);
   const [error, setError] = useState('');
+  const processedCheckoutSessionRef = useRef<string | null>(null);
 
   const loadBilling = async () => {
     try {
@@ -139,6 +152,36 @@ export default function VendorBillingPage() {
 
   useEffect(() => {
     loadBilling();
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const checkoutState = String(params.get('checkout') || '').trim().toLowerCase();
+    const sessionId = String(params.get('session_id') || '').trim();
+
+    if (checkoutState === 'cancel') {
+      setPlanSuccess('Payment cancelled. Your current plan remains unchanged.');
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
+    }
+
+    if (checkoutState === 'success' && sessionId && processedCheckoutSessionRef.current !== sessionId) {
+      processedCheckoutSessionRef.current = sessionId;
+      (async () => {
+        try {
+          setIsStartingCheckout(true);
+          setError('');
+          await api.confirmVendorBillingCheckoutSession(sessionId);
+          await loadBilling();
+          setPlanSuccess('Gold plan activated with recurring monthly billing.');
+        } catch (err: any) {
+          setError(err.message || 'Payment was completed, but confirmation failed. Please refresh.');
+        } finally {
+          setIsStartingCheckout(false);
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      })();
+    }
   }, []);
 
   const exportInvoiceCsv = async (invoiceId: string) => {
@@ -176,6 +219,41 @@ export default function VendorBillingPage() {
     }
   };
 
+  const startGoldCheckout = async () => {
+    try {
+      setIsStartingCheckout(true);
+      setError('');
+      setPlanSuccess('');
+      const response = await api.createVendorBillingCheckoutSession({ planTier: 'GOLD' });
+      if (!response?.checkoutUrl) {
+        throw new Error('Checkout URL was not returned');
+      }
+      window.location.href = response.checkoutUrl;
+    } catch (err: any) {
+      setError(err.message || 'Failed to start payment checkout');
+      setIsStartingCheckout(false);
+    }
+  };
+
+  const cancelRecurringBilling = async () => {
+    try {
+      setIsCancellingRecurring(true);
+      setError('');
+      setPlanSuccess('');
+      const result = await api.cancelVendorRecurringSubscription();
+      await loadBilling();
+      setPlanSuccess(
+        result.cancellationScheduled
+          ? 'Recurring Gold subscription will cancel at period end.'
+          : result.message || 'Subscription updated.'
+      );
+    } catch (err: any) {
+      setError(err.message || 'Failed to cancel recurring subscription');
+    } finally {
+      setIsCancellingRecurring(false);
+    }
+  };
+
   const topUpWallet = async () => {
     const amount = Number(topUpAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -205,6 +283,19 @@ export default function VendorBillingPage() {
   const billingProfile = data?.billingProfile;
   const planCurrency = latestPlan?.currency || plan?.currency || 'CAD';
   const currentPlanTier = inferBillingPlanTier(data);
+  const hiddenLeadCount = Number(data?.hiddenLeadCount || 0);
+  const isRecurringGold =
+    currentPlanTier === 'GOLD' &&
+    (billingProfile?.paymentMethod === 'STRIPE' || Boolean(billingProfile?.stripeSubscriptionId));
+  const cancellationScheduled =
+    Boolean(data?.stripeSubscription?.cancelAtPeriodEnd) ||
+    String(billingProfile?.statusReason || '').toLowerCase().includes('cancel-at-period-end');
+  const showUpgradeActionsOnFree =
+    hiddenLeadCount > 0 || data?.canCreateOffer === false || data?.canPublishOffer === false;
+  const canShowPlanSwitchButton =
+    selectedPlanTier !== currentPlanTier &&
+    (currentPlanTier !== 'FREE' || showUpgradeActionsOnFree);
+  const requiresPaymentFlow = selectedPlanTier === 'GOLD' && selectedPlanTier !== currentPlanTier;
 
   return (
     <div className="space-y-6">
@@ -259,16 +350,30 @@ export default function VendorBillingPage() {
           })}
         </div>
 
-        <div className="mt-5 flex justify-end">
-          <button
-            type="button"
-            onClick={updatePlan}
-            disabled={isUpdatingPlan}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-          >
-            {isUpdatingPlan ? 'Updating plan...' : `Switch to ${BILLING_PLAN_OPTIONS[selectedPlanTier].label}`}
-          </button>
-        </div>
+        {canShowPlanSwitchButton ? (
+          <div className="mt-5 flex justify-end">
+            <button
+              type="button"
+              onClick={requiresPaymentFlow ? startGoldCheckout : updatePlan}
+              disabled={isUpdatingPlan || isStartingCheckout}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            >
+              {requiresPaymentFlow
+                ? isStartingCheckout
+                  ? 'Redirecting to payment...'
+                  : 'Continue to secure payment'
+                : isUpdatingPlan
+                ? 'Updating plan...'
+                : `Switch to ${BILLING_PLAN_OPTIONS[selectedPlanTier].label}`}
+            </button>
+          </div>
+        ) : (
+          <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+            {selectedPlanTier === currentPlanTier
+              ? `You are already on ${BILLING_PLAN_OPTIONS[currentPlanTier].label}.`
+              : 'Upgrade actions appear when your current plan hits usage limits.'}
+          </div>
+        )}
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-6">
@@ -283,6 +388,34 @@ export default function VendorBillingPage() {
             {planStatusLabel(data?.planStatus)}
           </span>
         </div>
+
+        {isRecurringGold ? (
+          <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50 p-4">
+            <p className="text-sm font-semibold text-indigo-900">Recurring billing enabled</p>
+            <p className="mt-1 text-sm text-indigo-800">
+              Gold renews every month until cancelled.
+              {data?.stripeSubscription?.currentPeriodEnd
+                ? ` Current period ends on ${new Date(
+                    data.stripeSubscription.currentPeriodEnd
+                  ).toLocaleDateString()}.`
+                : ''}
+            </p>
+            {cancellationScheduled ? (
+              <p className="mt-2 text-xs font-medium text-amber-700">
+                Cancellation is already scheduled at period end.
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={cancelRecurringBilling}
+                disabled={isCancellingRecurring}
+                className="mt-3 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+              >
+                {isCancellingRecurring ? 'Scheduling cancellation...' : 'Cancel Gold renewal'}
+              </button>
+            )}
+          </div>
+        ) : null}
 
         {!latestPlan && !billingProfile ? (
           <p className="mt-4 text-sm text-slate-600">

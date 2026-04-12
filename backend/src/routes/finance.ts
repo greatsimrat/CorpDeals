@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { LeadChargeStatus } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { authenticateToken, requireAdminOrFinance } from '../middleware/auth';
+import { ensureBillingPlanConfig } from '../lib/billing-plan-config';
 
 const router = Router();
 
@@ -49,13 +50,13 @@ const SUBSCRIPTION_PRESETS = {
   },
   GOLD: {
     monthlyFee: 100,
-    includedLeadsPerMonth: 100,
+    includedLeadsPerMonth: 20,
     overagePricePerLead: 3,
     currency: 'CAD',
   },
   PREMIUM: {
-    monthlyFee: 300,
-    includedLeadsPerMonth: 300,
+    monthlyFee: 250,
+    includedLeadsPerMonth: 50,
     overagePricePerLead: 2,
     currency: 'CAD',
   },
@@ -394,6 +395,11 @@ router.patch('/vendors/:id/billing', async (req: Request, res: Response): Promis
       stripeCustomerId,
       stripeSubscriptionId,
       associationStatus,
+      includedLeadsTotal,
+      includedLeadsUsed,
+      walletBalance,
+      billingCycleStartAt,
+      billingCycleEndAt,
     } = req.body;
     const subscriptionTier = req.body?.subscriptionTier ?? req.body?.subscription_tier;
 
@@ -448,7 +454,7 @@ router.patch('/vendors/:id/billing', async (req: Request, res: Response): Promis
           getSubscriptionPresetByMonthlyFee(requestedMonthlyFee);
         if (!resolvedTier) {
           res.status(400).json({
-            error: 'subscriptionTier must be FREE, GOLD, or PREMIUM (or monthlyFee must match 0, 100, or 300)',
+            error: 'subscriptionTier must be FREE, GOLD, or PREMIUM (or monthlyFee must match 0, 100, or 250)',
           });
           return;
         }
@@ -481,6 +487,57 @@ router.patch('/vendors/:id/billing', async (req: Request, res: Response): Promis
       }
 
       const result = await prisma.$transaction(async (tx) => {
+        const derivedCode =
+          normalizedPlanType === 'PAY_PER_LEAD'
+            ? 'PAY_PER_LEAD'
+            : parsedMonthlyFee !== null && parsedMonthlyFee <= 0
+            ? 'FREE'
+            : parsedMonthlyFee !== null && parsedMonthlyFee >= 250
+            ? 'PREMIUM'
+            : parsedMonthlyFee !== null && parsedMonthlyFee >= 100
+            ? 'GOLD'
+            : null;
+        const derivedOfferLimit =
+          normalizedPlanType === 'PAY_PER_LEAD'
+            ? 25
+            : derivedCode === 'FREE'
+            ? 50
+            : derivedCode === 'GOLD'
+            ? 100
+            : derivedCode === 'PREMIUM'
+            ? 250
+            : null;
+        const planConfig = await ensureBillingPlanConfig(tx, {
+          code: derivedCode,
+          name:
+            derivedCode === 'FREE'
+              ? 'Free'
+              : derivedCode === 'GOLD'
+              ? 'Gold'
+              : derivedCode === 'PREMIUM'
+              ? 'Premium'
+              : derivedCode === 'PAY_PER_LEAD'
+              ? 'Pay Per Lead'
+              : 'Custom Plan',
+          description:
+            derivedCode === 'FREE'
+              ? 'Starter plan for vendors testing CorpDeals.'
+              : derivedCode === 'GOLD'
+              ? 'Growth plan for vendors actively scaling deal coverage.'
+              : derivedCode === 'PREMIUM'
+              ? 'High-volume plan for vendors with broad active catalogs.'
+              : null,
+          planType: normalizedPlanType as 'PAY_PER_LEAD' | 'SUBSCRIPTION',
+          pricePerLead: parsedPricePerLead,
+          monthlyFee: parsedMonthlyFee,
+          includedLeadsPerCycle: parsedIncludedLeadsPerMonth,
+          overagePricePerLead: parsedOveragePricePerLead,
+          maxActiveOffers: derivedOfferLimit,
+          overageEnabled: true,
+          currencyCode: normalizedCurrency,
+          isSystemPreset: Boolean(derivedCode && ['FREE', 'GOLD', 'PREMIUM', 'PAY_PER_LEAD'].includes(derivedCode)),
+        });
+
         await (tx as any).vendorBillingPlan.updateMany({
           where: { vendorId, isActive: true },
           data: { isActive: false },
@@ -489,11 +546,27 @@ router.patch('/vendors/:id/billing', async (req: Request, res: Response): Promis
         const activePlan = await (tx as any).vendorBillingPlan.create({
           data: {
             vendorId,
+            planConfigId: planConfig.id,
+            code: derivedCode,
+            name:
+              derivedCode === 'FREE'
+                ? 'Free'
+                : derivedCode === 'GOLD'
+                ? 'Gold'
+                : derivedCode === 'PREMIUM'
+                ? 'Premium'
+                : derivedCode === 'PAY_PER_LEAD'
+                ? 'Pay Per Lead'
+                : 'Custom Plan',
             planType: normalizedPlanType,
             pricePerLead: parsedPricePerLead,
             monthlyFee: parsedMonthlyFee,
             includedLeadsPerMonth: parsedIncludedLeadsPerMonth,
+            includedLeadsPerCycle: parsedIncludedLeadsPerMonth,
             overagePricePerLead: parsedOveragePricePerLead,
+            offerLimit: derivedOfferLimit,
+            maxActiveOffers: derivedOfferLimit,
+            overageEnabled: true,
             billingCycleDay: parsedBillingCycleDay,
             currency: normalizedCurrency,
             isActive: true,
@@ -519,6 +592,8 @@ router.patch('/vendors/:id/billing', async (req: Request, res: Response): Promis
             leadPriceCents: parsedPricePerLead !== null ? toCents(parsedPricePerLead) : 0,
             monthlyFeeCents: parsedMonthlyFee !== null ? toCents(parsedMonthlyFee) : 0,
             currency: normalizedCurrency,
+            currencyCode: normalizedCurrency,
+            planConfigId: planConfig.id,
             billingDay: parsedBillingCycleDay,
             associationStatus: associationStatusToStore as any,
             statusReason: 'finance-plan-update',
@@ -533,6 +608,8 @@ router.patch('/vendors/:id/billing', async (req: Request, res: Response): Promis
             monthlyFeeCents: parsedMonthlyFee !== null ? toCents(parsedMonthlyFee) : 0,
             paymentMethod: 'MANUAL',
             currency: normalizedCurrency,
+            currencyCode: normalizedCurrency,
+            planConfigId: planConfig.id,
             billingDay: parsedBillingCycleDay,
             associationStatus: associationStatusToStore as any,
             statusReason: 'finance-plan-update',
@@ -586,6 +663,73 @@ router.patch('/vendors/:id/billing', async (req: Request, res: Response): Promis
       return;
     }
 
+    const parsedIncludedLeadsTotal =
+      includedLeadsTotal === undefined || includedLeadsTotal === null || String(includedLeadsTotal).trim() === ''
+        ? undefined
+        : Number(includedLeadsTotal);
+    const parsedIncludedLeadsUsed =
+      includedLeadsUsed === undefined || includedLeadsUsed === null || String(includedLeadsUsed).trim() === ''
+        ? undefined
+        : Number(includedLeadsUsed);
+    const parsedWalletBalance =
+      walletBalance === undefined || walletBalance === null || String(walletBalance).trim() === ''
+        ? undefined
+        : Number(walletBalance);
+    const parsedBillingCycleStartAt =
+      billingCycleStartAt === undefined || billingCycleStartAt === null || String(billingCycleStartAt).trim() === ''
+        ? undefined
+        : new Date(String(billingCycleStartAt));
+    const parsedBillingCycleEndAt =
+      billingCycleEndAt === undefined || billingCycleEndAt === null || String(billingCycleEndAt).trim() === ''
+        ? undefined
+        : new Date(String(billingCycleEndAt));
+
+    if (
+      parsedIncludedLeadsTotal !== undefined &&
+      (!Number.isInteger(parsedIncludedLeadsTotal) || parsedIncludedLeadsTotal < 0)
+    ) {
+      res.status(400).json({ error: 'includedLeadsTotal must be a non-negative integer' });
+      return;
+    }
+    if (
+      parsedIncludedLeadsUsed !== undefined &&
+      (!Number.isInteger(parsedIncludedLeadsUsed) || parsedIncludedLeadsUsed < 0)
+    ) {
+      res.status(400).json({ error: 'includedLeadsUsed must be a non-negative integer' });
+      return;
+    }
+    if (
+      parsedIncludedLeadsTotal !== undefined &&
+      parsedIncludedLeadsUsed !== undefined &&
+      parsedIncludedLeadsUsed > parsedIncludedLeadsTotal
+    ) {
+      res.status(400).json({ error: 'includedLeadsUsed cannot be greater than includedLeadsTotal' });
+      return;
+    }
+    if (
+      parsedWalletBalance !== undefined &&
+      (!Number.isFinite(parsedWalletBalance) || parsedWalletBalance < 0)
+    ) {
+      res.status(400).json({ error: 'walletBalance must be a non-negative number' });
+      return;
+    }
+    if (parsedBillingCycleStartAt !== undefined && Number.isNaN(parsedBillingCycleStartAt.getTime())) {
+      res.status(400).json({ error: 'billingCycleStartAt must be a valid date' });
+      return;
+    }
+    if (parsedBillingCycleEndAt !== undefined && Number.isNaN(parsedBillingCycleEndAt.getTime())) {
+      res.status(400).json({ error: 'billingCycleEndAt must be a valid date' });
+      return;
+    }
+    if (
+      parsedBillingCycleStartAt !== undefined &&
+      parsedBillingCycleEndAt !== undefined &&
+      parsedBillingCycleEndAt <= parsedBillingCycleStartAt
+    ) {
+      res.status(400).json({ error: 'billingCycleEndAt must be after billingCycleStartAt' });
+      return;
+    }
+
     const data: any = {};
     if (billingMode) data.billingMode = billingMode;
     if (postTrialMode !== undefined) data.postTrialMode = postTrialMode;
@@ -602,6 +746,11 @@ router.patch('/vendors/:id/billing', async (req: Request, res: Response): Promis
     if (normalizedAssociationStatus !== undefined) data.associationStatus = normalizedAssociationStatus;
     if (normalizedAssociationStatus !== undefined) data.statusReason = 'finance-status-update';
     if (normalizedAssociationStatus !== undefined) data.lastValidatedAt = new Date();
+    if (parsedIncludedLeadsTotal !== undefined) data.includedLeadsTotal = parsedIncludedLeadsTotal;
+    if (parsedIncludedLeadsUsed !== undefined) data.includedLeadsUsed = parsedIncludedLeadsUsed;
+    if (parsedWalletBalance !== undefined) data.walletBalance = parsedWalletBalance.toFixed(2);
+    if (parsedBillingCycleStartAt !== undefined) data.billingCycleStartAt = parsedBillingCycleStartAt;
+    if (parsedBillingCycleEndAt !== undefined) data.billingCycleEndAt = parsedBillingCycleEndAt;
 
     const trialDays = Number(process.env.VENDOR_TRIAL_DAYS || 30);
     const defaultTrialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
