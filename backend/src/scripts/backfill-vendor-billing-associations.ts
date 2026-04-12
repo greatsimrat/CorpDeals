@@ -3,6 +3,7 @@ import {
   ALLOWED_VENDOR_BILLING_ASSOCIATION_STATUSES,
   type AllowedVendorBillingAssociationStatus,
 } from '../lib/vendor-billing';
+import { ensureBillingPlanConfig } from '../lib/billing-plan-config';
 
 type BillingPlanRecord = {
   id: string;
@@ -244,6 +245,49 @@ async function main() {
 
       if (!effectivePlan) return;
 
+      const derivedCode =
+        String((effectivePlan as any).code || '').trim().toUpperCase() ||
+        (effectivePlan.planType === 'PAY_PER_LEAD'
+          ? 'PAY_PER_LEAD'
+          : toNumber(effectivePlan.monthlyFee, 0) <= 0
+          ? 'FREE'
+          : toNumber(effectivePlan.monthlyFee, 0) >= 250
+          ? 'PREMIUM'
+          : toNumber(effectivePlan.monthlyFee, 0) >= 100
+          ? 'GOLD'
+          : '');
+      const planConfig = await ensureBillingPlanConfig(tx, {
+        code: derivedCode || null,
+        name: String((effectivePlan as any).name || '').trim() || null,
+        description:
+          derivedCode === 'FREE'
+            ? 'Starter plan for vendors testing CorpDeals.'
+            : derivedCode === 'GOLD'
+            ? 'Growth plan for vendors actively scaling deal coverage.'
+            : derivedCode === 'PREMIUM'
+            ? 'High-volume plan for vendors with broad active catalogs.'
+            : null,
+        planType: effectivePlan.planType,
+        pricePerLead: (effectivePlan as any).pricePerLead ?? null,
+        monthlyFee: (effectivePlan as any).monthlyFee ?? null,
+        includedLeadsPerCycle:
+          (effectivePlan as any).includedLeadsPerCycle ??
+          (effectivePlan as any).includedLeadsPerMonth ??
+          null,
+        overagePricePerLead: (effectivePlan as any).overagePricePerLead ?? null,
+        maxActiveOffers: (effectivePlan as any).maxActiveOffers ?? effectivePlan.offerLimit,
+        overageEnabled: (effectivePlan as any).overageEnabled ?? true,
+        currencyCode: effectivePlan.currency || DEFAULT_PLAN_CURRENCY,
+        isSystemPreset: ['FREE', 'GOLD', 'PREMIUM', 'PAY_PER_LEAD'].includes(derivedCode),
+      });
+
+      if ((effectivePlan as any).planConfigId !== planConfig.id) {
+        await (tx as any).vendorBillingPlan.update({
+          where: { id: effectivePlan.id },
+          data: { planConfigId: planConfig.id },
+        });
+      }
+
       const billingMode = deriveBillingMode(effectivePlan);
       const associationStatusToStore = deriveAssociationStatus(effectivePlan, vendor.billing);
       const leadPriceCents =
@@ -266,6 +310,7 @@ async function main() {
             monthlyFeeCents,
             paymentMethod: vendor.billing.paymentMethod || 'MANUAL',
             currency: effectivePlan.currency || vendor.billing.currency || DEFAULT_PLAN_CURRENCY,
+            planConfigId: planConfig.id,
             billingDay: effectivePlan.billingCycleDay || vendor.billing.billingDay || 1,
             associationStatus: associationStatusToStore,
             statusReason: BACKFILL_REASON,
@@ -284,6 +329,7 @@ async function main() {
             monthlyFeeCents,
             paymentMethod: 'MANUAL',
             currency: effectivePlan.currency || DEFAULT_PLAN_CURRENCY,
+            planConfigId: planConfig.id,
             billingDay: effectivePlan.billingCycleDay || 1,
             associationStatus: associationStatusToStore,
             statusReason: BACKFILL_REASON,

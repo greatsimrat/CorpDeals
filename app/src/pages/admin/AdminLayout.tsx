@@ -14,21 +14,35 @@ import {
   ChevronRight,
   UserCircle,
   Wallet,
+  Layers,
+  Calculator,
+  Shapes,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 
-const navItems = [
-  { path: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-  { path: '/admin/vendor-requests', label: 'Vendor Requests', icon: FileCheck },
-  { path: '/admin/vendors', label: 'Vendors', icon: Users },
-  { path: '/admin/companies', label: 'Companies', icon: Building2 },
-  { path: '/admin/offers', label: 'Offers', icon: Percent, exact: true },
-  { path: '/admin/offers-review', label: 'Offers Review', icon: FileCheck, exact: true },
-  { path: '/admin/leads', label: 'Leads', icon: ListChecks },
-  { path: '/admin/invoices', label: 'Invoices', icon: Wallet },
-  { path: '/admin/categories', label: 'Categories', icon: Tag },
-  { path: '/admin/users', label: 'Users', icon: UserCircle },
-  { path: '/finance', label: 'Finance', icon: Wallet },
+type NavRole = 'ADMIN' | 'FINANCE' | 'SALES';
+
+const navItems: Array<{
+  path: string;
+  label: string;
+  icon: any;
+  exact?: boolean;
+  roles?: NavRole[];
+}> = [
+  { path: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true, roles: ['ADMIN'] },
+  { path: '/admin/vendor-requests', label: 'Vendor Requests', icon: FileCheck, roles: ['ADMIN'] },
+  { path: '/admin/vendors', label: 'Vendors', icon: Users, roles: ['ADMIN'] },
+  { path: '/admin/companies', label: 'Companies', icon: Building2, roles: ['ADMIN'] },
+  { path: '/admin/offers', label: 'Offers', icon: Percent, exact: true, roles: ['ADMIN'] },
+  { path: '/admin/offers-review', label: 'Offers Review', icon: FileCheck, exact: true, roles: ['ADMIN'] },
+  { path: '/admin/leads', label: 'Leads', icon: ListChecks, roles: ['ADMIN'] },
+  { path: '/admin/categories', label: 'Categories', icon: Shapes, roles: ['ADMIN'] },
+  { path: '/admin/plans', label: 'Plans', icon: Layers, roles: ['ADMIN'] },
+  { path: '/admin/pricing', label: 'Pricing', icon: Tag, exact: true, roles: ['ADMIN'] },
+  { path: '/admin/billing-preview', label: 'Billing Preview', icon: Calculator, exact: true, roles: ['ADMIN'] },
+  { path: '/admin/invoices', label: 'Invoices', icon: Wallet, roles: ['ADMIN'] },
+  { path: '/admin/users', label: 'Users', icon: UserCircle, roles: ['ADMIN'] },
+  { path: '/finance', label: 'Finance', icon: Wallet, roles: ['ADMIN', 'FINANCE'] },
 ];
 
 export default function AdminLayout() {
@@ -36,6 +50,7 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const currentRole = String(user?.role || '').toUpperCase() as NavRole;
 
   const handleLogout = () => {
     logout();
@@ -46,6 +61,11 @@ export default function AdminLayout() {
     if (exact) return location.pathname === path;
     return location.pathname.startsWith(path);
   };
+
+  const visibleNavItems = navItems.filter((item) => {
+    if (!item.roles || item.roles.length === 0) return true;
+    return item.roles.includes(currentRole);
+  });
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -81,7 +101,7 @@ export default function AdminLayout() {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.path, item.exact);
             return (
@@ -146,7 +166,7 @@ export default function AdminLayout() {
                   <>
                     <ChevronRight className="w-4 h-4 text-slate-400" />
                     <span className="text-slate-900 font-medium">
-                      {navItems.find(item => isActive(item.path, item.exact))?.label || 'Page'}
+                      {visibleNavItems.find(item => isActive(item.path, item.exact))?.label || 'Page'}
                     </span>
                   </>
                 )}

@@ -7,8 +7,8 @@ const STATUS_OPTIONS = ['NEW', 'CONTACTED', 'QUALIFIED', 'CONVERTED', 'CLOSED'] 
 type VendorLead = {
   id: string;
   status: string;
-  firstName: string;
-  lastName: string;
+  firstName?: string | null;
+  lastName?: string | null;
   email?: string | null;
   phone?: string | null;
   vendorNotes?: string | null;
@@ -16,6 +16,7 @@ type VendorLead = {
   visibilityStatus?: 'VISIBLE' | 'LOCKED';
   lockedReason?: 'PLAN_LIMIT' | 'NO_BALANCE' | null;
   leadAccess?: 'VISIBLE' | 'LOCKED';
+  contactVisible?: boolean;
   company: { id: string; name: string; slug: string };
   offer: {
     id: string;
@@ -106,6 +107,14 @@ export default function VendorLeadsPage() {
   };
 
   const hasLeads = useMemo(() => leads.length > 0, [leads]);
+  const lockedLeadCount = useMemo(
+    () =>
+      leads.filter(
+        (lead) =>
+          String(lead.visibilityStatus || lead.leadAccess || '').toUpperCase() === 'LOCKED'
+      ).length,
+    [leads]
+  );
 
   return (
     <div className="space-y-4">
@@ -173,31 +182,53 @@ export default function VendorLeadsPage() {
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">{error}</div>
       ) : null}
 
+      {lockedLeadCount > 0 ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <p className="text-sm font-semibold text-amber-900">
+            {lockedLeadCount} lead{lockedLeadCount === 1 ? '' : 's'} are locked on your free plan.
+          </p>
+          <p className="mt-1 text-sm text-amber-800">
+            Leads are still captured, but name, email, and phone stay hidden until billing is upgraded.
+          </p>
+          <Link
+            to="/vendor/billing"
+            className="mt-3 inline-flex min-h-10 items-center justify-center rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+          >
+            Switch to Gold
+          </Link>
+        </div>
+      ) : null}
+
       {isLoading ? (
         <div className="rounded-xl border border-slate-200 bg-white p-6">Loading leads...</div>
       ) : (
         <div className="space-y-3">
           {hasLeads ? (
-            leads.map((lead) => (
-              <div key={lead.id} className="rounded-xl border border-slate-200 bg-white p-4">
+            leads.map((lead) => {
+              const isLocked =
+                String(lead.visibilityStatus || lead.leadAccess || '').toUpperCase() === 'LOCKED';
+
+              return (
+                <div key={lead.id} className="rounded-xl border border-slate-200 bg-white p-4">
                 <div className="flex flex-col justify-between gap-2 md:flex-row">
                   <div>
                     <p className="font-medium text-slate-900">
-                      {lead.firstName} {lead.lastName}
+                      {isLocked ? 'Contact hidden until billing upgrade' : `${lead.firstName || ''} ${lead.lastName || ''}`.trim()}
                     </p>
-                    {lead.visibilityStatus === 'LOCKED' ? (
+                    {isLocked ? (
                       <p className="mt-1 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
                         Locked lead
                       </p>
                     ) : null}
                     <p className="text-sm text-slate-600">
-                      {lead.email || 'Hidden until billing unlock'}
-                      {lead.phone ? ` | ${lead.phone}` : ''}
+                      {isLocked
+                        ? 'Name, email, and phone are hidden until billing unlock.'
+                        : `${lead.email || 'No email'}${lead.phone ? ` | ${lead.phone}` : ''}`}
                     </p>
                     <p className="text-sm text-slate-600">
                       {lead.company.name} | {lead.offer.title}
                     </p>
-                    {lead.visibilityStatus === 'LOCKED' ? (
+                    {isLocked ? (
                       <p className="text-xs text-amber-700">
                         Unlock this lead by topping up wallet or increasing plan capacity.
                       </p>
@@ -219,7 +250,7 @@ export default function VendorLeadsPage() {
                     Status
                     <select
                       value={editing[lead.id]?.status || 'NEW'}
-                      disabled={lead.visibilityStatus === 'LOCKED'}
+                      disabled={isLocked}
                       onChange={(e) =>
                         setEditing((prev) => ({
                           ...prev,
@@ -255,7 +286,7 @@ export default function VendorLeadsPage() {
                 <div className="mt-3">
                   <button
                     onClick={() => saveLead(lead.id)}
-                    disabled={lead.visibilityStatus === 'LOCKED'}
+                    disabled={isLocked}
                     className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                   >
                     Save Lead Update
@@ -267,8 +298,9 @@ export default function VendorLeadsPage() {
                     View Full Lead
                   </button>
                 </div>
-              </div>
-            ))
+                </div>
+              );
+            })
           ) : (
             <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
               No leads found for the selected filters.

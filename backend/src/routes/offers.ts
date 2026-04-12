@@ -20,9 +20,11 @@ import {
 import { getActiveVendorBillingRelationFilter, syncExpiredVendorPlans } from '../lib/vendor-billing';
 import { getVendorBillingAccess, toBillingAccessDeniedResponse } from '../lib/vendor-billing-access';
 import {
+  processDuplicateLeadNoCharge,
   processVendorLeadMonetization,
   resolveOfferCategoryContext,
 } from '../lib/vendor-lead-monetization';
+import { getLeadDuplicateWindowStart } from '../lib/lead-dedup';
 
 const router = Router();
 type JsonObject = Record<string, any>;
@@ -308,17 +310,10 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
     where: {
       userId: user.id,
       offerId: offer.id,
+      createdAt: { gte: getLeadDuplicateWindowStart() },
     },
     select: { id: true, createdAt: true },
   });
-  if (duplicateLead) {
-    res.status(409).json({
-      error: 'DUPLICATE_LEAD',
-      message: 'You have already applied for this offer.',
-      existing_lead_id: duplicateLead.id,
-    });
-    return;
-  }
 
   const leadResult = await prisma.$transaction(async (tx) => {
     const createdLead = await tx.lead.create({
@@ -350,16 +345,27 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
       categoryId: offer.categoryId,
       category: offer.category,
     });
-    const monetization = await processVendorLeadMonetization(tx as any, {
-      leadId: createdLead.id,
-      vendorId: offer.vendorId,
-      offerId: offer.id,
-      userId: user.id,
-      companyId: offer.companyId,
-      categoryId: categoryContext.categoryId,
-      subcategoryId: categoryContext.subcategoryId,
-      leadType: 'FORM_SUBMISSION',
-    });
+    const monetization = duplicateLead
+      ? await processDuplicateLeadNoCharge(tx as any, {
+          leadId: createdLead.id,
+          vendorId: offer.vendorId,
+          offerId: offer.id,
+          userId: user.id,
+          companyId: offer.companyId,
+          categoryId: categoryContext.categoryId,
+          subcategoryId: categoryContext.subcategoryId,
+          leadType: 'FORM_SUBMISSION',
+        })
+      : await processVendorLeadMonetization(tx as any, {
+          leadId: createdLead.id,
+          vendorId: offer.vendorId,
+          offerId: offer.id,
+          userId: user.id,
+          companyId: offer.companyId,
+          categoryId: categoryContext.categoryId,
+          subcategoryId: categoryContext.subcategoryId,
+          leadType: 'FORM_SUBMISSION',
+        });
 
     await tx.offer.update({
       where: { id: offer.id },
@@ -442,6 +448,8 @@ const createLeadFromOfferApply = async (req: Request, res: Response): Promise<vo
   res.json({
     ok: true,
     lead_id: lead.id,
+    is_duplicate: Boolean(duplicateLead),
+    duplicate_of_lead_id: duplicateLead?.id || null,
     visibility_status: monetization.visibilityStatus,
     locked_reason: monetization.lockedReason,
     message: monetization.canSharePII
@@ -825,11 +833,48 @@ router.post('/', authenticateToken, requireVendor, async (req: Request, res: Res
       return;
     }
 
+    const [company, category] = await Promise.all([
+      prisma.company.findUnique({
+        where: { id: String(companyId || '').trim() },
+        select: { id: true },
+      }),
+      prisma.category.findUnique({
+        where: { id: String(categoryId || '').trim() },
+        select: { id: true, active: true, parentId: true },
+      } as any),
+    ]);
+
+    if (!company) {
+      res.status(404).json({ error: 'Company not found' });
+      return;
+    }
+
+    if (!category) {
+      res.status(404).json({ error: 'Category not found' });
+      return;
+    }
+
+    if (!category.active) {
+      res.status(400).json({ error: 'Selected category/subcategory is inactive' });
+      return;
+    }
+
+    if (category.parentId) {
+      const parentCategory = await prisma.category.findUnique({
+        where: { id: category.parentId },
+        select: { id: true, active: true },
+      });
+      if (!parentCategory || !parentCategory.active) {
+        res.status(400).json({ error: 'Parent category is inactive for selected subcategory' });
+        return;
+      }
+    }
+
     const offer = await prisma.offer.create({
       data: {
         vendorId,
-        companyId,
-        categoryId,
+        companyId: company.id,
+        categoryId: category.id,
         title,
         description,
         productName,
@@ -989,6 +1034,42 @@ router.patch('/:id', authenticateToken, requireVendor, async (req: Request, res:
           return;
         }
         parsedExpiryDate = parsed;
+      }
+    }
+
+    if (typeof companyId === 'string' && companyId.trim()) {
+      const company = await prisma.company.findUnique({
+        where: { id: companyId.trim() },
+        select: { id: true },
+      });
+      if (!company) {
+        res.status(404).json({ error: 'Company not found' });
+        return;
+      }
+    }
+
+    if (typeof categoryId === 'string' && categoryId.trim()) {
+      const category = await prisma.category.findUnique({
+        where: { id: categoryId.trim() },
+        select: { id: true, active: true, parentId: true },
+      } as any);
+      if (!category) {
+        res.status(404).json({ error: 'Category not found' });
+        return;
+      }
+      if (!category.active) {
+        res.status(400).json({ error: 'Selected category/subcategory is inactive' });
+        return;
+      }
+      if (category.parentId) {
+        const parentCategory = await prisma.category.findUnique({
+          where: { id: category.parentId },
+          select: { id: true, active: true },
+        });
+        if (!parentCategory || !parentCategory.active) {
+          res.status(400).json({ error: 'Parent category is inactive for selected subcategory' });
+          return;
+        }
       }
     }
 

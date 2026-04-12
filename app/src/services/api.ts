@@ -352,6 +352,13 @@ class ApiService {
       includedLeadsTotal?: number;
       includedLeadsUsed?: number;
       walletTransactions?: any[];
+      stripeSubscription?: {
+        provider: 'STRIPE' | 'MOCK';
+        subscriptionId: string;
+        status: string;
+        cancelAtPeriodEnd: boolean;
+        currentPeriodEnd: string | null;
+      } | null;
       invoices: any[];
     }>('/vendor/billing');
   }
@@ -379,6 +386,61 @@ class ApiService {
     }>('/vendor/billing/plan', {
       method: 'PUT',
       body: data,
+    });
+  }
+
+  async createVendorBillingCheckoutSession(data: {
+    planTier: 'GOLD';
+    billingCycleDay?: number;
+  }) {
+    return this.request<{
+      message: string;
+      planTier: 'GOLD';
+      provider: 'STRIPE' | 'MOCK';
+      sessionId: string;
+      checkoutUrl: string;
+    }>('/vendor/billing/checkout-session', {
+      method: 'POST',
+      body: data,
+    });
+  }
+
+  async confirmVendorBillingCheckoutSession(sessionId: string) {
+    return this.request<{
+      message: string;
+      planTier: 'GOLD';
+      subscription: {
+        provider: 'STRIPE' | 'MOCK';
+        id: string;
+        status: string;
+        cancelAtPeriodEnd: boolean;
+        currentPeriodEnd: string | null;
+      };
+      billingProfile?: any;
+      activePlan: any | null;
+      latestPlan?: any | null;
+      planStatus?: 'ACTIVE' | 'EXPIRED' | 'SCHEDULED' | 'INACTIVE' | 'NONE';
+      planDisplayName?: string;
+    }>('/vendor/billing/checkout/confirm', {
+      method: 'POST',
+      body: { sessionId },
+    });
+  }
+
+  async cancelVendorRecurringSubscription() {
+    return this.request<{
+      message: string;
+      cancellationScheduled: boolean;
+      subscription: {
+        provider: 'STRIPE' | 'MOCK';
+        id: string;
+        status: string;
+        cancelAtPeriodEnd: boolean;
+        currentPeriodEnd: string | null;
+      };
+      billingProfile?: any;
+    }>('/vendor/billing/subscription/cancel', {
+      method: 'POST',
     });
   }
 
@@ -600,8 +662,13 @@ class ApiService {
   }
 
   // Categories
-  async getCategories() {
-    return this.request<any[]>('/categories');
+  async getCategories(params?: { includeInactive?: boolean }) {
+    const query = this.buildQuery(params as Record<string, unknown> | undefined);
+    return this.request<any[]>(`/categories${query}`);
+  }
+
+  async getAdminCategoryManagementTree() {
+    return this.request<any[]>('/categories/manage/tree');
   }
 
   async getCategory(idOrSlug: string) {
@@ -812,6 +879,43 @@ class ApiService {
     return this.request<any>('/admin/stats');
   }
 
+  async getAdminPlanConfigs() {
+    return this.request<any[]>('/admin/plans');
+  }
+
+  async updateAdminPlanConfig(
+    code: 'FREE' | 'GOLD' | 'PREMIUM',
+    data: {
+      name?: string;
+      description?: string | null;
+      monthlyPrice: number;
+      maxActiveOffers: number | null;
+      includedFreeLeadsPerMonth: number;
+      status: 'ACTIVE' | 'INACTIVE';
+    }
+  ) {
+    return this.request<any>(`/admin/plans/${encodeURIComponent(code)}`, {
+      method: 'PUT',
+      body: data,
+    });
+  }
+
+  async getAdminBillingPreview(params?: { vendorId?: string; search?: string }) {
+    const query = this.buildQuery(params as Record<string, unknown> | undefined);
+    return this.request<{
+      gstPercent: number;
+      rows: any[];
+      totals: {
+        vendors: number;
+        paidLeads: number;
+        monthlySubscriptions: number;
+        paidLeadCharges: number;
+        gst: number;
+        estimatedTotal: number;
+      };
+    }>(`/admin/billing-preview${query}`);
+  }
+
   async getVendorRequests(params?: { status?: string }) {
     const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
     return this.request<any[]>(`/admin/vendor-requests${query}`);
@@ -886,6 +990,7 @@ class ApiService {
     leadPrice: number;
     billingType?: 'PER_LEAD' | 'PER_SALE';
     isActive?: boolean;
+    description?: string;
   }) {
     return this.request<any>('/admin/pricing/category-leads', {
       method: 'PUT',

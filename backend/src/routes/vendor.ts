@@ -23,6 +23,17 @@ import {
 } from '../lib/offer-details';
 import { getVendorBillingState } from '../lib/vendor-billing';
 import { getVendorBillingAccess, toBillingAccessDeniedResponse } from '../lib/vendor-billing-access';
+import {
+  applyVendorSubscriptionPlan,
+  resolveVendorSubscriptionPlanTier,
+} from '../lib/vendor-subscription-plan';
+import {
+  cancelRecurringGoldSubscription,
+  confirmGoldCheckoutSession,
+  createGoldCheckoutSession,
+  getRecurringSubscriptionSnapshot,
+  mapStripeStatusToAssociation,
+} from '../lib/recurring-billing';
 
 const router = Router();
 
@@ -70,49 +81,6 @@ const normalizeText = (value: unknown) => {
 
 const isTruthy = (value: unknown) =>
   value === true || value === 'true' || value === '1' || value === 1;
-
-const VENDOR_BILLING_PLAN_PRESETS = {
-  FREE: {
-    monthlyFee: 0,
-    includedLeadsPerMonth: 10,
-    overagePricePerLead: 5,
-    currency: 'CAD',
-    offerLimit: 50 as number | null,
-    billingMode: 'FREE' as const,
-    associationStatus: 'FREE' as const,
-  },
-  GOLD: {
-    monthlyFee: 100,
-    includedLeadsPerMonth: 100,
-    overagePricePerLead: 3,
-    currency: 'CAD',
-    offerLimit: 100 as number | null,
-    billingMode: 'MONTHLY' as const,
-    associationStatus: 'ACTIVE' as const,
-  },
-  PREMIUM: {
-    monthlyFee: 300,
-    includedLeadsPerMonth: 300,
-    overagePricePerLead: 2,
-    currency: 'CAD',
-    offerLimit: null as number | null,
-    billingMode: 'MONTHLY' as const,
-    associationStatus: 'ACTIVE' as const,
-  },
-} as const;
-
-type VendorBillingPlanTier = keyof typeof VENDOR_BILLING_PLAN_PRESETS;
-
-const resolveVendorBillingPlanTier = (value: unknown): VendorBillingPlanTier | null => {
-  const normalized = String(value || '').trim().toUpperCase();
-  if (!normalized) return null;
-  if (normalized === 'GROWTH') return 'GOLD';
-  if (normalized === 'PRO') return 'PREMIUM';
-  if (Object.prototype.hasOwnProperty.call(VENDOR_BILLING_PLAN_PRESETS, normalized)) {
-    return normalized as VendorBillingPlanTier;
-  }
-  return null;
-};
 
 const extractRequestIp = (req: Request) => {
   const forwarded = req.headers['x-forwarded-for'];
@@ -269,13 +237,14 @@ const serializeVendorLeadForResponse = (lead: any) => {
       visibilityStatus: 'VISIBLE',
       lockedReason: null,
       leadAccess: 'VISIBLE',
+      contactVisible: true,
     };
   }
 
   return {
     ...lead,
-    firstName: 'Locked',
-    lastName: 'Lead',
+    firstName: null,
+    lastName: null,
     email: null,
     phone: null,
     message: null,
@@ -284,6 +253,7 @@ const serializeVendorLeadForResponse = (lead: any) => {
     visibilityStatus: 'LOCKED',
     lockedReason,
     leadAccess: 'LOCKED',
+    contactVisible: false,
   };
 };
 
@@ -959,6 +929,9 @@ router.get('/billing', authenticateToken, requireVendorOnly, async (req: Request
         take: 30,
       }),
     ]);
+    const stripeSubscription = billingState.billingProfile?.stripeSubscriptionId
+      ? await getRecurringSubscriptionSnapshot(String(billingState.billingProfile.stripeSubscriptionId))
+      : null;
 
     res.json({
       vendor: {
@@ -985,6 +958,7 @@ router.get('/billing', authenticateToken, requireVendorOnly, async (req: Request
       includedLeadsTotal: billingState.billingProfile?.includedLeadsTotal ?? 0,
       includedLeadsUsed: billingState.billingProfile?.includedLeadsUsed ?? 0,
       walletTransactions,
+      stripeSubscription,
       invoices,
     });
   } catch (error) {
@@ -1003,7 +977,7 @@ router.put('/billing/plan', authenticateToken, requireVendorOnly, async (req: Re
       return;
     }
 
-    const requestedTier = resolveVendorBillingPlanTier(
+    const requestedTier = resolveVendorSubscriptionPlanTier(
       req.body?.planTier ?? req.body?.subscriptionTier ?? req.body?.tier
     );
     if (!requestedTier) {
@@ -1025,77 +999,22 @@ router.put('/billing/plan', authenticateToken, requireVendorOnly, async (req: Re
       return;
     }
 
-    const preset = VENDOR_BILLING_PLAN_PRESETS[requestedTier];
-    const now = new Date();
+    if (requestedTier === 'GOLD') {
+      res.status(402).json({
+        error: 'PAYMENT_REQUIRED',
+        detail: 'Gold plan requires recurring payment setup. Start checkout first.',
+        code: 'GOLD_REQUIRES_CHECKOUT',
+      });
+      return;
+    }
 
     await prisma.$transaction(async (tx) => {
-      await (tx as any).vendorBillingPlan.updateMany({
-        where: { vendorId: vendor.id, isActive: true },
-        data: { isActive: false },
-      });
-
-      await (tx as any).vendorBillingPlan.create({
-        data: {
-          vendorId: vendor.id,
-          code: requestedTier,
-          name: requestedTier === 'FREE' ? 'Free' : requestedTier === 'GOLD' ? 'Gold' : 'Premium',
-          planType: 'SUBSCRIPTION',
-          pricePerLead: null,
-          monthlyFee: preset.monthlyFee.toFixed(2),
-          includedLeadsPerMonth: preset.includedLeadsPerMonth,
-          includedLeadsPerCycle: preset.includedLeadsPerMonth,
-          overagePricePerLead: preset.overagePricePerLead.toFixed(2),
-          offerLimit: preset.offerLimit,
-          maxActiveOffers: preset.offerLimit,
-          overageEnabled: true,
-          billingCycleDay,
-          currency: preset.currency,
-          startsAt: now,
-          endsAt: null,
-          isActive: true,
-        },
-      });
-
-      await tx.vendorBilling.upsert({
-        where: { vendorId: vendor.id },
-        update: {
-          billingMode: preset.billingMode,
-          postTrialMode: preset.billingMode === 'FREE' ? 'FREE' : 'MONTHLY',
-          trialEndsAt: null,
-          leadPriceCents: 0,
-          monthlyFeeCents: Math.max(0, Math.round(preset.monthlyFee * 100)),
-          paymentMethod: 'MANUAL',
-          currency: preset.currency,
-          currencyCode: preset.currency,
-          billingCycleStartAt: now,
-          billingCycleEndAt: null,
-          includedLeadsTotal: preset.includedLeadsPerMonth,
-          includedLeadsUsed: 0,
-          billingDay: billingCycleDay,
-          associationStatus: preset.associationStatus as any,
-          statusReason: 'vendor-self-service-plan-update',
-          lastValidatedAt: now,
-        } as any,
-        create: {
-          vendorId: vendor.id,
-          billingMode: preset.billingMode,
-          postTrialMode: preset.billingMode === 'FREE' ? 'FREE' : 'MONTHLY',
-          trialEndsAt: null,
-          leadPriceCents: 0,
-          monthlyFeeCents: Math.max(0, Math.round(preset.monthlyFee * 100)),
-          paymentMethod: 'MANUAL',
-          currency: preset.currency,
-          currencyCode: preset.currency,
-          billingCycleStartAt: now,
-          billingCycleEndAt: null,
-          includedLeadsTotal: preset.includedLeadsPerMonth,
-          includedLeadsUsed: 0,
-          walletBalance: '0.00',
-          billingDay: billingCycleDay,
-          associationStatus: preset.associationStatus as any,
-          statusReason: 'vendor-self-service-plan-update',
-          lastValidatedAt: now,
-        } as any,
+      await applyVendorSubscriptionPlan(tx, {
+        vendorId: vendor.id,
+        planTier: requestedTier,
+        billingCycleDay,
+        paymentMethod: 'MANUAL',
+        statusReason: 'vendor-self-service-plan-update',
       });
     });
 
@@ -1118,10 +1037,227 @@ router.put('/billing/plan', authenticateToken, requireVendorOnly, async (req: Re
       publishOfferMessage: billingState.publishOfferMessage,
     });
   } catch (error) {
+    if (String((error as any)?.message || '').startsWith('PLAN_CONFIG_INACTIVE:')) {
+      res.status(409).json({ error: 'Selected billing plan is inactive and cannot be assigned' });
+      return;
+    }
     console.error('PUT /api/vendor/billing/plan error:', error);
     res.status(500).json({ error: 'Failed to update billing plan' });
   }
 });
+
+router.post(
+  '/billing/checkout-session',
+  authenticateToken,
+  requireVendorOnly,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const vendor = await requireVendorUser(req, res);
+      if (!vendor) return;
+
+      if (vendor.status !== 'APPROVED') {
+        res.status(403).json({ error: 'Only approved vendors can upgrade billing plans' });
+        return;
+      }
+
+      const requestedTier = resolveVendorSubscriptionPlanTier(
+        req.body?.planTier ?? req.body?.subscriptionTier ?? req.body?.tier
+      );
+      if (requestedTier !== 'GOLD') {
+        res.status(400).json({ error: 'Only GOLD checkout is supported for recurring billing' });
+        return;
+      }
+
+      const billing = await prisma.vendorBilling.findUnique({
+        where: { vendorId: vendor.id },
+        select: {
+          stripeCustomerId: true,
+          billingDay: true,
+        },
+      });
+
+      const checkout = await createGoldCheckoutSession({
+        vendorId: vendor.id,
+        vendorName: vendor.companyName,
+        vendorEmail: vendor.email,
+        stripeCustomerId: billing?.stripeCustomerId || null,
+      });
+
+      await prisma.vendorBilling.upsert({
+        where: { vendorId: vendor.id },
+        update: {
+          paymentMethod: 'STRIPE',
+          associationStatus: 'INCOMPLETE',
+          statusReason: 'stripe-checkout-started',
+          lastValidatedAt: new Date(),
+          billingDay: billing?.billingDay || 1,
+          ...(checkout.stripeCustomerId ? { stripeCustomerId: checkout.stripeCustomerId } : {}),
+        } as any,
+        create: {
+          vendorId: vendor.id,
+          billingMode: 'MONTHLY',
+          postTrialMode: 'MONTHLY',
+          trialEndsAt: null,
+          leadPriceCents: 0,
+          monthlyFeeCents: 10000,
+          paymentMethod: 'STRIPE',
+          currency: 'CAD',
+          currencyCode: 'CAD',
+          includedLeadsTotal: 100,
+          includedLeadsUsed: 0,
+          walletBalance: '0.00',
+          billingDay: billing?.billingDay || 1,
+          associationStatus: 'INCOMPLETE',
+          statusReason: 'stripe-checkout-started',
+          lastValidatedAt: new Date(),
+          ...(checkout.stripeCustomerId ? { stripeCustomerId: checkout.stripeCustomerId } : {}),
+        } as any,
+      });
+
+      res.status(201).json({
+        message: 'Checkout session created',
+        planTier: 'GOLD',
+        provider: checkout.provider,
+        sessionId: checkout.sessionId,
+        checkoutUrl: checkout.checkoutUrl,
+      });
+    } catch (error) {
+      console.error('POST /api/vendor/billing/checkout-session error:', error);
+      res.status(500).json({ error: 'Failed to start billing checkout' });
+    }
+  }
+);
+
+router.post(
+  '/billing/checkout/confirm',
+  authenticateToken,
+  requireVendorOnly,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const vendor = await requireVendorUser(req, res);
+      if (!vendor) return;
+
+      const sessionId = String(req.body?.sessionId || req.body?.session_id || '').trim();
+      if (!sessionId) {
+        res.status(400).json({ error: 'sessionId is required' });
+        return;
+      }
+
+      const existingBilling = await prisma.vendorBilling.findUnique({
+        where: { vendorId: vendor.id },
+        select: {
+          stripeCustomerId: true,
+          billingDay: true,
+        },
+      });
+
+      const snapshot = await confirmGoldCheckoutSession({
+        sessionId,
+        vendorId: vendor.id,
+        fallbackCustomerId: existingBilling?.stripeCustomerId || null,
+      });
+      const mappedAssociation = mapStripeStatusToAssociation(snapshot.status);
+
+      await prisma.$transaction(async (tx) => {
+        await applyVendorSubscriptionPlan(tx, {
+          vendorId: vendor.id,
+          planTier: 'GOLD',
+          billingCycleDay: existingBilling?.billingDay || 1,
+          paymentMethod: 'STRIPE',
+          associationStatus: mappedAssociation as any,
+          statusReason: snapshot.cancelAtPeriodEnd
+            ? 'stripe-cancel-at-period-end'
+            : 'stripe-checkout-confirmed',
+          stripeCustomerId: snapshot.customerId || existingBilling?.stripeCustomerId || null,
+          stripeSubscriptionId: snapshot.subscriptionId,
+          cycleStartAt: new Date(),
+          cycleEndAt: snapshot.currentPeriodEnd,
+        });
+      });
+
+      const billingState = await getVendorBillingState(vendor.id);
+      res.json({
+        message: 'Gold subscription activated',
+        planTier: 'GOLD',
+        subscription: {
+          provider: snapshot.provider,
+          id: snapshot.subscriptionId,
+          status: snapshot.status,
+          cancelAtPeriodEnd: snapshot.cancelAtPeriodEnd,
+          currentPeriodEnd: snapshot.currentPeriodEnd,
+        },
+        billingProfile: billingState.billingProfile,
+        activePlan: billingState.activePlan,
+        latestPlan: billingState.latestPlan,
+        planStatus: billingState.planStatus,
+        planDisplayName: billingState.planDisplayName,
+      });
+    } catch (error: any) {
+      console.error('POST /api/vendor/billing/checkout/confirm error:', error);
+      res.status(400).json({
+        error: error?.message || 'Failed to confirm billing checkout',
+      });
+    }
+  }
+);
+
+router.post(
+  '/billing/subscription/cancel',
+  authenticateToken,
+  requireVendorOnly,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const vendor = await requireVendorUser(req, res);
+      if (!vendor) return;
+
+      const billing = await prisma.vendorBilling.findUnique({
+        where: { vendorId: vendor.id },
+      });
+      if (!billing || !billing.stripeSubscriptionId) {
+        res.status(400).json({ error: 'No recurring subscription found for this vendor' });
+        return;
+      }
+
+      const snapshot = await cancelRecurringGoldSubscription({
+        subscriptionId: String(billing.stripeSubscriptionId),
+      });
+      const mappedAssociation = mapStripeStatusToAssociation(snapshot.status);
+
+      await prisma.vendorBilling.update({
+        where: { vendorId: vendor.id },
+        data: {
+          associationStatus: mappedAssociation as any,
+          statusReason: snapshot.cancelAtPeriodEnd
+            ? 'stripe-cancel-at-period-end'
+            : 'stripe-subscription-updated',
+          billingCycleEndAt: snapshot.currentPeriodEnd,
+          lastValidatedAt: new Date(),
+        } as any,
+      });
+
+      const billingState = await getVendorBillingState(vendor.id);
+      res.json({
+        message: snapshot.cancelAtPeriodEnd
+          ? 'Subscription cancellation scheduled at period end'
+          : 'Subscription updated',
+        cancellationScheduled: snapshot.cancelAtPeriodEnd,
+        subscription: {
+          provider: snapshot.provider,
+          id: snapshot.subscriptionId,
+          status: snapshot.status,
+          cancelAtPeriodEnd: snapshot.cancelAtPeriodEnd,
+          currentPeriodEnd: snapshot.currentPeriodEnd,
+        },
+        billingProfile: billingState.billingProfile,
+      });
+    } catch (error: any) {
+      console.error('POST /api/vendor/billing/subscription/cancel error:', error);
+      res.status(400).json({
+        error: error?.message || 'Failed to cancel recurring subscription',
+      });
+    }
+  }
+);
 
 router.get('/billing/wallet', authenticateToken, requireVendorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -1340,6 +1476,7 @@ router.post('/offers', authenticateToken, requireVendorOnly, async (req: Request
     }
 
     const companyId = String(req.body?.companyId || req.body?.company_id || '').trim();
+    const categoryId = String(req.body?.categoryId || req.body?.category_id || '').trim();
     const title = String(req.body?.title || '').trim();
     const description = String(req.body?.description || '').trim();
     const productName = String(req.body?.productName || req.body?.product_name || '').trim() || null;
@@ -1375,10 +1512,10 @@ router.post('/offers', authenticateToken, requireVendorOnly, async (req: Request
     });
     const expiryDate = expiryDateRaw ? parseDateInput(expiryDateRaw) : null;
 
-    if (!companyId || !title || !description) {
+    if (!companyId || !categoryId || !title || !description) {
       res.status(400).json({
         error: 'Missing required fields',
-        detail: 'companyId, title, and description are required',
+        detail: 'companyId, categoryId, title, and description are required',
       });
       return;
     }
@@ -1397,17 +1534,33 @@ router.post('/offers', authenticateToken, requireVendorOnly, async (req: Request
 
     const [company, category] = await Promise.all([
       prisma.company.findUnique({ where: { id: companyId }, select: { id: true } }),
-      prisma.category.upsert({
-        where: { slug: 'general' },
-        update: { name: 'General' },
-        create: { slug: 'general', name: 'General' },
-        select: { id: true },
-      }),
+      prisma.category.findUnique({
+        where: { id: categoryId },
+        select: { id: true, active: true, parentId: true },
+      } as any),
     ]);
 
     if (!company) {
       res.status(404).json({ error: 'Company not found' });
       return;
+    }
+    if (!category) {
+      res.status(404).json({ error: 'Category not found' });
+      return;
+    }
+    if (!category.active) {
+      res.status(400).json({ error: 'Selected category/subcategory is inactive' });
+      return;
+    }
+    if (category.parentId) {
+      const parentCategory = await prisma.category.findUnique({
+        where: { id: category.parentId },
+        select: { id: true, active: true },
+      });
+      if (!parentCategory || !parentCategory.active) {
+        res.status(400).json({ error: 'Parent category is inactive for selected subcategory' });
+        return;
+      }
     }
 
     const created = await prisma.offer.create({
@@ -1542,6 +1695,29 @@ router.post(
       if (!targetCompany) {
         res.status(404).json({ error: 'Target company not found' });
         return;
+      }
+
+      const activeCategory = await prisma.category.findUnique({
+        where: { id: existing.categoryId },
+        select: { id: true, active: true, parentId: true },
+      } as any);
+      if (!activeCategory) {
+        res.status(404).json({ error: 'Offer category not found' });
+        return;
+      }
+      if (!activeCategory.active) {
+        res.status(400).json({ error: 'Offer category is inactive and cannot be used for replication' });
+        return;
+      }
+      if (activeCategory.parentId) {
+        const parentCategory = await prisma.category.findUnique({
+          where: { id: activeCategory.parentId },
+          select: { id: true, active: true },
+        });
+        if (!parentCategory || !parentCategory.active) {
+          res.status(400).json({ error: 'Parent category is inactive for offer category' });
+          return;
+        }
       }
 
       const replicatedTitle = buildReplicatedOfferTitle(

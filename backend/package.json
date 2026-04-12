@@ -17,10 +17,12 @@
     "db:seed:uat": "tsx prisma/seed-uat.ts",
     "db:categories:audit": "tsx prisma/category-taxonomy-audit.ts",
     "db:billing:backfill": "tsx src/scripts/backfill-vendor-billing-associations.ts",
+    "db:rbac:backfill": "tsx src/scripts/backfill-user-role-assignments.ts",
     "db:billing:audit-offers": "tsx src/scripts/audit-offer-billing-compliance.ts",
     "db:billing:revalidate-live-offers": "tsx src/scripts/revalidate-live-offers-billing.ts",
     "db:offers:sync-state": "tsx src/scripts/sync-offer-state-live-status.ts",
-    "test:billing": "tsx --test src/lib/vendor-billing-access.test.ts src/lib/vendor-offer-enforcement.test.ts",
+    "test:billing": "tsx --test src/lib/vendor-billing-access.test.ts src/lib/vendor-offer-enforcement.test.ts src/lib/offer-counting.test.ts src/lib/billing-preview.test.ts src/lib/lead-dedup.test.ts src/lib/vendor-subscription-plan.test.ts",
+    "test:categories": "tsx --test src/lib/category-management.test.ts src/middleware/auth-role-guards.test.ts",
     "db:prepare:uat": "bash scripts/prepare-uat-demo.sh",
     "db:studio": "prisma studio"
   },
@@ -34,6 +36,7 @@
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "nodemailer": "^8.0.1",
+    "stripe": "^17.7.0",
     "zod": "^3.25.64"
   },
   "devDependencies": {

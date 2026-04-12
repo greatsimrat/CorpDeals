@@ -33,13 +33,13 @@ const SUBSCRIPTION_TIERS: Record<
   GOLD: {
     label: 'Gold',
     monthlyFee: 100,
-    includedLeadsPerMonth: 100,
+    includedLeadsPerMonth: 20,
     overagePricePerLead: 3,
   },
   PREMIUM: {
     label: 'Premium',
-    monthlyFee: 300,
-    includedLeadsPerMonth: 300,
+    monthlyFee: 250,
+    includedLeadsPerMonth: 50,
     overagePricePerLead: 2,
   },
 };
@@ -220,7 +220,7 @@ export default function AdminVendorBillingPlanPage() {
                 >
                   <option value="FREE">Free - $0 / month</option>
                   <option value="GOLD">Gold - $100 / month</option>
-                  <option value="PREMIUM">Premium - $300 / month</option>
+                  <option value="PREMIUM">Premium - $250 / month</option>
                 </select>
               </label>
               <div className="rounded-md border border-slate-200 bg-slate-50 p-4 sm:col-span-2">
