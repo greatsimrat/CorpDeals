@@ -1,8 +1,9 @@
 import prisma from './prisma';
+import { buildCountedOfferWhere } from './offer-counting';
 
 const FREE_PLAN_MONTHLY_FEE = 0;
 const GOLD_PLAN_MONTHLY_FEE = 100;
-const PREMIUM_PLAN_MIN_MONTHLY_FEE = 300;
+const PREMIUM_PLAN_MIN_MONTHLY_FEE = 250;
 
 export const ALLOWED_VENDOR_BILLING_ASSOCIATION_STATUSES = [
   'FREE',
@@ -24,17 +25,22 @@ const BILLING_STATUS_MESSAGE_BY_ASSOCIATION: Record<string, string> = {
 export const DEFAULT_PLAN_OFFER_LIMITS = {
   FREE: 50,
   GOLD: 100,
-  PREMIUM: null as number | null,
+  PREMIUM: 250,
   PAY_PER_LEAD: 25,
 } as const;
 
 type BillingPlanRecord = {
   id: string;
   vendorId: string;
+  planConfigId?: string | null;
   planType: 'PAY_PER_LEAD' | 'SUBSCRIPTION';
   pricePerLead?: unknown;
   monthlyFee?: unknown;
   offerLimit?: number | null;
+  maxActiveOffers?: number | null;
+  includedLeadsPerMonth?: number | null;
+  includedLeadsPerCycle?: number | null;
+  overagePricePerLead?: unknown;
   billingCycleDay?: number | null;
   currency?: string | null;
   startsAt?: Date | string | null;
@@ -42,6 +48,20 @@ type BillingPlanRecord = {
   isActive?: boolean;
   createdAt?: Date | string;
   updatedAt?: Date | string;
+  planConfig?: {
+    id: string;
+    code: string;
+    name: string;
+    planType: 'PAY_PER_LEAD' | 'SUBSCRIPTION';
+    pricePerLead?: unknown;
+    monthlyFee?: unknown;
+    includedLeadsPerCycle?: number | null;
+    overagePricePerLead?: unknown;
+    maxActiveOffers?: number | null;
+    overageEnabled?: boolean;
+    currencyCode?: string | null;
+    isActive?: boolean;
+  } | null;
 };
 
 const toDate = (value: Date | string | null | undefined) => {
@@ -57,24 +77,34 @@ const toNumber = (value: unknown) => {
 
 export const getPlanDisplayName = (plan: BillingPlanRecord | null | undefined) => {
   if (!plan) return 'No plan';
-  if (plan.planType === 'PAY_PER_LEAD') return 'Pay per lead';
+  if (plan.planConfig?.name?.trim()) return plan.planConfig.name.trim();
 
-  const monthlyFee = toNumber(plan.monthlyFee) ?? 0;
-  if (monthlyFee <= FREE_PLAN_MONTHLY_FEE) return 'Free';
-  if (monthlyFee >= PREMIUM_PLAN_MIN_MONTHLY_FEE) return 'Premium';
-  if (monthlyFee >= GOLD_PLAN_MONTHLY_FEE) return 'Gold';
+  const resolvedPlanType = plan.planConfig?.planType || plan.planType;
+  const resolvedMonthlyFee = toNumber(plan.planConfig?.monthlyFee) ?? toNumber(plan.monthlyFee) ?? 0;
+  if (resolvedPlanType === 'PAY_PER_LEAD') return 'Pay per lead';
+
+  if (resolvedMonthlyFee <= FREE_PLAN_MONTHLY_FEE) return 'Free';
+  if (resolvedMonthlyFee >= PREMIUM_PLAN_MIN_MONTHLY_FEE) return 'Premium';
+  if (resolvedMonthlyFee >= GOLD_PLAN_MONTHLY_FEE) return 'Gold';
   return 'Gold';
 };
 
 export const getPlanOfferLimit = (plan: BillingPlanRecord | null | undefined) => {
   if (!plan) return null;
-  if (plan.offerLimit === null) return null;
-  if (typeof plan.offerLimit === 'number' && Number.isInteger(plan.offerLimit) && plan.offerLimit >= 0) {
-    return plan.offerLimit;
+  const configuredLimit =
+    (typeof plan.planConfig?.maxActiveOffers === 'number' ? plan.planConfig.maxActiveOffers : null) ??
+    (typeof plan.maxActiveOffers === 'number' ? plan.maxActiveOffers : null) ??
+    (typeof plan.offerLimit === 'number' ? plan.offerLimit : null);
+  if (configuredLimit === null && (plan.planConfig?.maxActiveOffers === null || plan.offerLimit === null)) {
+    return null;
   }
-  if (plan.planType === 'PAY_PER_LEAD') return DEFAULT_PLAN_OFFER_LIMITS.PAY_PER_LEAD;
+  if (configuredLimit !== null && Number.isInteger(configuredLimit) && configuredLimit >= 0) {
+    return configuredLimit;
+  }
+  const resolvedPlanType = plan.planConfig?.planType || plan.planType;
+  if (resolvedPlanType === 'PAY_PER_LEAD') return DEFAULT_PLAN_OFFER_LIMITS.PAY_PER_LEAD;
 
-  const monthlyFee = toNumber(plan.monthlyFee) ?? 0;
+  const monthlyFee = toNumber(plan.planConfig?.monthlyFee) ?? toNumber(plan.monthlyFee) ?? 0;
   if (monthlyFee <= FREE_PLAN_MONTHLY_FEE) return DEFAULT_PLAN_OFFER_LIMITS.FREE;
   if (monthlyFee >= PREMIUM_PLAN_MIN_MONTHLY_FEE) return DEFAULT_PLAN_OFFER_LIMITS.PREMIUM;
   if (monthlyFee >= GOLD_PLAN_MONTHLY_FEE) return DEFAULT_PLAN_OFFER_LIMITS.GOLD;
@@ -187,9 +217,15 @@ export const getVendorBillingState = async (vendorId: string, options?: { exclud
   const [billingProfile, latestPlan, activePlan, managedOfferCount, liveOfferCount] = await Promise.all([
     (prisma as any).vendorBilling.findUnique({
       where: { vendorId },
+      include: {
+        planConfig: true,
+      },
     }),
     (prisma as any).vendorBillingPlan.findFirst({
       where: { vendorId },
+      include: {
+        planConfig: true,
+      },
       orderBy: [{ isActive: 'desc' }, { startsAt: 'desc' }, { updatedAt: 'desc' }],
     }),
     (prisma as any).vendorBillingPlan.findFirst({
@@ -199,32 +235,41 @@ export const getVendorBillingState = async (vendorId: string, options?: { exclud
         startsAt: { lte: now },
         OR: [{ endsAt: null }, { endsAt: { gte: now } }],
       },
+      include: {
+        planConfig: true,
+      },
       orderBy: [{ startsAt: 'desc' }, { updatedAt: 'desc' }],
     }),
     prisma.offer.count({
-      where: {
+      where: buildCountedOfferWhere({
         vendorId,
-        ...(options?.excludeOfferId ? { id: { not: options.excludeOfferId } } : {}),
-        offerState: { not: 'CANCELLED' },
-      } as any,
+        excludeOfferId: options?.excludeOfferId || null,
+      }) as any,
     }),
     prisma.offer.count({
-      where: {
+      where: buildCountedOfferWhere({
         vendorId,
-        ...(options?.excludeOfferId ? { id: { not: options.excludeOfferId } } : {}),
-        offerState: 'APPROVED',
-        active: true,
-      } as any,
+        excludeOfferId: options?.excludeOfferId || null,
+      }) as any,
     }),
   ]);
 
   const effectivePlan = (activePlan || latestPlan) as BillingPlanRecord | null;
+  const fallbackPlanFromBillingProfile = billingProfile?.planConfig
+    ? ({
+        id: String((billingProfile as any).planConfig.id),
+        vendorId,
+        planType: String((billingProfile as any).planConfig.planType) as 'PAY_PER_LEAD' | 'SUBSCRIPTION',
+        planConfig: (billingProfile as any).planConfig,
+      } as BillingPlanRecord)
+    : null;
+  const resolvedPlan = effectivePlan || fallbackPlanFromBillingProfile;
   const associationStatus = String((billingProfile as any)?.associationStatus || '').toUpperCase();
   const hasAllowedAssociationStatus =
     ALLOWED_VENDOR_BILLING_ASSOCIATION_STATUSES.includes(
       associationStatus as AllowedVendorBillingAssociationStatus
     );
-  const offerLimit = getPlanOfferLimit(effectivePlan);
+  const offerLimit = getPlanOfferLimit(resolvedPlan);
   const remainingOfferSlots =
     offerLimit === null ? null : Math.max(offerLimit - managedOfferCount, 0);
   const planStatus = activePlan
@@ -275,7 +320,7 @@ export const getVendorBillingState = async (vendorId: string, options?: { exclud
     latestPlan,
     activePlan,
     planStatus,
-    planDisplayName: getPlanDisplayName(effectivePlan),
+    planDisplayName: getPlanDisplayName(resolvedPlan),
     offerLimit,
     managedOfferCount,
     liveOfferCount,

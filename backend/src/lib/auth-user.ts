@@ -4,6 +4,11 @@ import {
   getLatestVerificationBadge,
   VERIFIED_STATUS,
 } from './verifications';
+import {
+  resolveEffectiveRoleSnapshot,
+  resolveRolePermissions,
+  resolveScopedRoleAssignments,
+} from './rbac';
 
 export const buildAuthUserPayload = async (userId: string) => {
   const user = await prisma.user.findUnique({
@@ -20,6 +25,10 @@ export const buildAuthUserPayload = async (userId: string) => {
   });
 
   if (!user) return null;
+
+  const assignments = await resolveScopedRoleAssignments(prisma, userId);
+  const roleSnapshot = resolveEffectiveRoleSnapshot(user.role, assignments);
+  const permissionCodes = await resolveRolePermissions(prisma, roleSnapshot.roles);
 
   const latestVerification = await getLatestVerificationBadge(userId);
   const isActiveVerification =
@@ -61,7 +70,9 @@ export const buildAuthUserPayload = async (userId: string) => {
     email: user.email,
     loginEmail: user.email,
     name: user.name,
-    role: normalizeRole(user.role),
+    role: roleSnapshot.primaryRole || normalizeRole(user.role),
+    roles: roleSnapshot.roles,
+    permissionCodes,
     provinceCode: user.provinceCode,
     cityName: user.cityName,
     vendor: user.vendor,

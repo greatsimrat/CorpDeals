@@ -793,7 +793,7 @@ export function PlanManagementSection(props: { plans: AdminPlanCard[] }) {
                 View vendors
               </Link>
               <Link
-                to="/admin/vendors"
+                to="/admin/plans"
                 className="inline-flex min-h-10 flex-1 items-center justify-center rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Edit plan
