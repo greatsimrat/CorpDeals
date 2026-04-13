@@ -1619,45 +1619,62 @@ router.get('/vendors', async (req: Request, res: Response): Promise<void> => {
 
     const vendorIds = (vendors || []).map((vendor) => vendor.id);
 
-    const [offerCounts, rawLeadCounts] = await Promise.all([
-      vendorIds.length
-        ? (prisma as any).offer.groupBy({
-            by: ['vendorId'],
-            where: {
-              ...(buildCountedOfferWhere({}) as any),
-              vendorId: { in: vendorIds },
-            },
-            _count: { vendorId: true },
-          })
-        : Promise.resolve([]),
-      // Deduplicate by (userId, offerId): same user submitting to the same offer
-      // is counted only once (earliest submission). Null-userId leads are always counted.
-      vendorIds.length
-        ? (() => {
-            const placeholders = vendorIds.map((_, i) => `$${i + 1}`).join(', ');
-            return prisma.$queryRawUnsafe<Array<{ vendorId: string; count: number }>>(
-              `
-                WITH ranked AS (
-                  SELECT
-                    vendor_id,
-                    ROW_NUMBER() OVER (
-                      PARTITION BY COALESCE(user_id::text, id::text), offer_id
-                      ORDER BY created_at ASC
-                    ) AS rn
-                  FROM leads
-                  WHERE vendor_id IN (${placeholders})
-                    AND status != 'FAILED'
-                )
-                SELECT vendor_id::text AS "vendorId", CAST(COUNT(*) AS INTEGER) AS count
-                FROM ranked
-                WHERE rn = 1
-                GROUP BY vendor_id
-              `,
-              ...vendorIds
-            );
-          })()
-        : Promise.resolve([] as Array<{ vendorId: string; count: number }>),
-    ]);
+    const offerCounts = vendorIds.length
+      ? await (async () => {
+          try {
+            return await (prisma as any).offer.groupBy({
+              by: ['vendorId'],
+              where: {
+                ...(buildCountedOfferWhere({}) as any),
+                vendorId: { in: vendorIds },
+              },
+              _count: { vendorId: true },
+            });
+          } catch (error: any) {
+            const message = String(error?.message || '');
+            const isCompatibilityIssue =
+              message.includes('Unknown argument `offerState`') ||
+              String(error?.code || '') === 'P2022';
+            if (!isCompatibilityIssue) throw error;
+            return (prisma as any).offer.groupBy({
+              by: ['vendorId'],
+              where: {
+                active: true,
+                vendorId: { in: vendorIds },
+              },
+              _count: { vendorId: true },
+            });
+          }
+        })()
+      : [];
+
+    // Deduplicate by (userId, offerId): same user submitting to the same offer
+    // is counted only once (earliest submission). Null-userId leads are always counted.
+    const rawLeadCounts = vendorIds.length
+      ? await (() => {
+          const placeholders = vendorIds.map((_, i) => `$${i + 1}`).join(', ');
+          return prisma.$queryRawUnsafe<Array<{ vendorId: string; count: number }>>(
+            `
+              WITH ranked AS (
+                SELECT
+                  vendor_id,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY COALESCE(user_id::text, id::text), offer_id
+                    ORDER BY created_at ASC
+                  ) AS rn
+                FROM leads
+                WHERE vendor_id IN (${placeholders})
+                  AND status != 'FAILED'
+              )
+              SELECT vendor_id::text AS "vendorId", CAST(COUNT(*) AS INTEGER) AS count
+              FROM ranked
+              WHERE rn = 1
+              GROUP BY vendor_id
+            `,
+            ...vendorIds
+          );
+        })()
+      : ([] as Array<{ vendorId: string; count: number }>);
 
     const offersCountByVendorId = new Map<string, number>();
     for (const row of offerCounts as Array<{ vendorId: string; _count: { vendorId: number } }>) {
