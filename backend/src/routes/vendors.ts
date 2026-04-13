@@ -1,5 +1,4 @@
 import { Router, Request, Response } from 'express';
-import bcrypt from 'bcryptjs';
 import prisma from '../lib/prisma';
 import { authenticateToken, requireAdmin, requireVendorOnly } from '../middleware/auth';
 import { getVendorBillingState } from '../lib/vendor-billing';
@@ -11,110 +10,6 @@ const firstString = (value: unknown): string | undefined => {
   if (Array.isArray(value) && typeof value[0] === 'string') return value[0];
   return undefined;
 };
-
-// Submit vendor application (public)
-router.post('/apply', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const {
-      companyName,
-      contactName,
-      email,
-      phone,
-      website,
-      businessType,
-      description,
-      additionalInfo,
-      password,
-    } = req.body;
-    const normalizedCompanyName = String(companyName || '').trim();
-    const normalizedContactName = String(contactName || '').trim();
-    const normalizedEmail = String(email || '').trim().toLowerCase();
-    const normalizedPassword = String(password || '');
-
-    if (!normalizedCompanyName || !normalizedContactName || !normalizedEmail || !normalizedPassword) {
-      res.status(400).json({
-        error: 'companyName, contactName, email, and password are required',
-      });
-      return;
-    }
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      res.status(400).json({ error: 'A valid email is required' });
-      return;
-    }
-
-    if (normalizedPassword.length < 6) {
-      res.status(400).json({ error: 'Password must be at least 6 characters' });
-      return;
-    }
-
-    // Check if email already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email: normalizedEmail },
-    });
-
-    if (existingUser) {
-      res.status(400).json({ error: 'Email already registered' });
-      return;
-    }
-
-    // Create user and vendor in a transaction
-    const result = await prisma.$transaction(async (tx) => {
-      // Create user with VENDOR role (pending approval)
-      const passwordHash = await bcrypt.hash(normalizedPassword, 10);
-      const user = await tx.user.create({
-        data: {
-          email: normalizedEmail,
-          passwordHash,
-          name: normalizedContactName,
-          role: 'VENDOR',
-        },
-      });
-
-      // Create vendor profile
-      const vendor = await tx.vendor.create({
-        data: {
-          userId: user.id,
-          companyName: normalizedCompanyName,
-          contactName: normalizedContactName,
-          email: normalizedEmail,
-          phone,
-          website,
-          businessType,
-          description,
-          status: 'PENDING',
-        },
-      });
-
-      await tx.user.update({
-        where: { id: user.id },
-        data: { vendorId: vendor.id } as any,
-      });
-
-      // Create vendor request
-      const request = await tx.vendorRequest.create({
-        data: {
-          vendorId: vendor.id,
-          businessType,
-          description,
-          additionalInfo,
-          status: 'PENDING',
-        },
-      });
-
-      return { user, vendor, request };
-    });
-
-    res.status(201).json({
-      message: 'Application submitted successfully',
-      vendorId: result.vendor.id,
-      requestId: result.request.id,
-    });
-  } catch (error) {
-    console.error('Vendor apply error:', error);
-    res.status(500).json({ error: 'Failed to submit application' });
-  }
-});
 
 // Get all vendors (admin only)
 router.get('/', authenticateToken, requireAdmin, async (req: Request, res: Response): Promise<void> => {

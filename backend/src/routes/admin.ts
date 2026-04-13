@@ -22,6 +22,10 @@ import {
   calculateBillingPreviewTotals,
   resolveLeadUsageForCycle,
 } from '../lib/billing-preview';
+import {
+  applyVendorSubscriptionPlan,
+  resolveVendorSubscriptionPlanTier,
+} from '../lib/vendor-subscription-plan';
 
 const router = Router();
 
@@ -53,6 +57,7 @@ const normalizeOptionalQueryValue = (value: unknown): string | undefined => {
 };
 
 const normalizeVendorStatus = (value: string) => value.trim().toUpperCase();
+const normalizeRequestStatus = (value: string) => value.trim().toUpperCase();
 
 const asNumber = (value: unknown): number => {
   const numeric = Number(value);
@@ -149,6 +154,16 @@ const normalizePlanCode = (value: unknown): AdminPlanCode | null => {
     return normalized as AdminPlanCode;
   }
   return null;
+};
+
+type RequestPlanCode = 'FREE' | 'GOLD' | 'PREMIUM';
+const REQUEST_PLAN_CODE_ORDER: RequestPlanCode[] = ['FREE', 'GOLD', 'PREMIUM'];
+
+const normalizeRequestPlanCode = (value: unknown): RequestPlanCode | null => {
+  const normalized = resolveVendorSubscriptionPlanTier(value);
+  if (!normalized) return null;
+  if (!REQUEST_PLAN_CODE_ORDER.includes(normalized as RequestPlanCode)) return null;
+  return normalized as RequestPlanCode;
 };
 
 const ensureAdminDefaultPlans = async (tx: any) => {
@@ -741,9 +756,9 @@ router.get('/vendor-requests', async (req: Request, res: Response): Promise<void
     const status = firstString(req.query.status);
 
     const where: any = {};
-    if (status) where.status = status;
+    if (status && normalizeRequestStatus(status) !== 'ALL') where.status = normalizeRequestStatus(status);
 
-    const requests = await prisma.vendorRequest.findMany({
+    const requests = await (prisma as any).vendorRequest.findMany({
       where,
       include: {
         vendor: {
@@ -756,11 +771,32 @@ router.get('/vendor-requests', async (req: Request, res: Response): Promise<void
         reviewedBy: {
           select: { id: true, email: true, name: true },
         },
+        selectedPlanConfig: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            isActive: true,
+            monthlyFee: true,
+            maxActiveOffers: true,
+            includedLeadsPerCycle: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    res.json(requests);
+    const payload = requests.map((request: any) => {
+      const selectedPlanCode = normalizeRequestPlanCode(request.selectedPlanCode) || 'FREE';
+      const selectedPlanConfig = request.selectedPlanConfig || null;
+      return {
+        ...request,
+        selectedPlanCode,
+        billingStatus: selectedPlanConfig?.isActive ? 'ACTIVE' : 'INACTIVE',
+      };
+    });
+
+    res.json(payload);
   } catch (error) {
     console.error('Get vendor requests error:', error);
     res.status(500).json({ error: 'Failed to get vendor requests' });
@@ -776,7 +812,7 @@ router.get('/vendor-requests/:id', async (req: Request, res: Response): Promise<
       return;
     }
 
-    const request = await prisma.vendorRequest.findUnique({
+    const request = await (prisma as any).vendorRequest.findUnique({
       where: { id },
       include: {
         vendor: {
@@ -789,6 +825,17 @@ router.get('/vendor-requests/:id', async (req: Request, res: Response): Promise<
         reviewedBy: {
           select: { id: true, email: true, name: true },
         },
+        selectedPlanConfig: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            isActive: true,
+            monthlyFee: true,
+            maxActiveOffers: true,
+            includedLeadsPerCycle: true,
+          },
+        },
       },
     });
 
@@ -797,7 +844,11 @@ router.get('/vendor-requests/:id', async (req: Request, res: Response): Promise<
       return;
     }
 
-    res.json(request);
+    res.json({
+      ...request,
+      selectedPlanCode: normalizeRequestPlanCode((request as any).selectedPlanCode) || 'FREE',
+      billingStatus: (request as any).selectedPlanConfig?.isActive ? 'ACTIVE' : 'INACTIVE',
+    });
   } catch (error) {
     console.error('Get vendor request error:', error);
     res.status(500).json({ error: 'Failed to get vendor request' });
@@ -813,68 +864,155 @@ router.patch('/vendor-requests/:id', async (req: Request, res: Response): Promis
       return;
     }
 
-    const { status, reviewNotes } = req.body;
+    const requestedStatus = normalizeRequestStatus(String(req.body?.status || ''));
+    const reviewNotes = firstString(req.body?.reviewNotes) || firstString(req.body?.review_notes) || null;
 
-    if (!['APPROVED', 'REJECTED'].includes(status)) {
+    if (!['APPROVED', 'REJECTED'].includes(requestedStatus)) {
       res.status(400).json({ error: 'Invalid status' });
       return;
     }
 
-    const request = await prisma.vendorRequest.findUnique({
+    const request = await (prisma as any).vendorRequest.findUnique({
       where: { id },
-      include: { vendor: true },
+      include: {
+        vendor: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+                name: true,
+              },
+            },
+          },
+        },
+        selectedPlanConfig: {
+          select: {
+            id: true,
+            code: true,
+            isActive: true,
+          },
+        },
+      },
     });
 
     if (!request) {
       res.status(404).json({ error: 'Vendor request not found' });
       return;
     }
+    if (request.status !== 'PENDING') {
+      res.status(400).json({ error: 'Only pending requests can be reviewed' });
+      return;
+    }
+
+    const selectedPlanCode = normalizeRequestPlanCode(request.selectedPlanCode);
+    if (!selectedPlanCode && requestedStatus === 'APPROVED') {
+      res.status(400).json({ error: 'Request has invalid selected plan' });
+      return;
+    }
+
+    if (requestedStatus === 'APPROVED') {
+      const selectedPlanConfigId = String((request as any).selectedPlanConfigId || '').trim();
+      const activeSelectedPlan = await (prisma as any).billingPlanConfig.findFirst({
+        where: {
+          id: selectedPlanConfigId,
+          code: selectedPlanCode,
+          planType: 'SUBSCRIPTION',
+          isActive: true,
+        },
+        select: {
+          id: true,
+          code: true,
+          isActive: true,
+        },
+      });
+      if (!activeSelectedPlan) {
+        res.status(409).json({
+          error: `${selectedPlanCode} plan is inactive or missing and cannot be assigned`,
+          code: 'VENDOR_REQUEST_PLAN_INACTIVE',
+        });
+        return;
+      }
+    }
 
     // Update request and vendor status in a transaction
     const result = await prisma.$transaction(async (tx) => {
-      const updatedRequest = await tx.vendorRequest.update({
+      const updatedRequest = await (tx as any).vendorRequest.update({
         where: { id },
         data: {
-          status,
+          status: requestedStatus as any,
           reviewNotes,
           reviewedById: req.user!.id,
           reviewedAt: new Date(),
+        },
+        include: {
+          selectedPlanConfig: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              isActive: true,
+            },
+          },
         },
       });
 
       const updatedVendor = await tx.vendor.update({
         where: { id: request.vendorId },
         data: {
-          status: status as 'APPROVED' | 'REJECTED',
+          status: requestedStatus as 'APPROVED' | 'REJECTED',
         },
       });
 
-      if (status === 'APPROVED') {
-        const trialDays = Number(process.env.VENDOR_TRIAL_DAYS || 30);
-        const trialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
-        const existingBilling = await tx.vendorBilling.findUnique({
-          where: { vendorId: request.vendorId },
+      if (requestedStatus === 'APPROVED') {
+        const approvedPlanCode = selectedPlanCode as RequestPlanCode;
+        await applyVendorSubscriptionPlan(tx, {
+          vendorId: request.vendorId,
+          planTier: approvedPlanCode,
+          statusReason: 'vendor-request-approved',
+          associationStatus: approvedPlanCode === 'FREE' ? 'FREE' : 'ACTIVE',
         });
-
-        if (!existingBilling) {
-          await tx.vendorBilling.create({
-            data: {
-              vendorId: request.vendorId,
-              billingMode: 'TRIAL',
-              postTrialMode: 'PAY_PER_LEAD',
-              trialEndsAt,
-            },
-          });
-        } else if (existingBilling.billingMode === 'TRIAL' && !existingBilling.trialEndsAt) {
-          await tx.vendorBilling.update({
-            where: { id: existingBilling.id },
-            data: { trialEndsAt },
-          });
-        }
       }
 
       return { request: updatedRequest, vendor: updatedVendor };
     });
+
+    const frontendBaseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const loginUrl = `${frontendBaseUrl}/vendor/login`;
+
+    if (requestedStatus === 'APPROVED') {
+      const token = createVendorSetPasswordToken({
+        userId: request.vendor.user.id,
+        email: request.vendor.user.email,
+        vendorId: request.vendor.id,
+      });
+      const setPasswordUrl = `${frontendBaseUrl}/vendor/set-password?token=${encodeURIComponent(token)}`;
+      const approvalEmail = await sendVendorApprovalEmail({
+        to: request.vendor.email,
+        businessName: request.vendor.companyName,
+        loginUrl,
+        setPasswordUrl,
+      });
+      if (!approvalEmail.sent) {
+        console.error('Vendor request approval email failed:', {
+          vendorId: request.vendor.id,
+          requestId: request.id,
+          error: approvalEmail.error,
+        });
+      }
+    } else {
+      const rejectionEmail = await sendVendorRejectionEmail({
+        to: request.vendor.email,
+        businessName: request.vendor.companyName,
+      });
+      if (!rejectionEmail.sent) {
+        console.error('Vendor request rejection email failed:', {
+          vendorId: request.vendor.id,
+          requestId: request.id,
+          error: rejectionEmail.error,
+        });
+      }
+    }
 
     res.json(result);
   } catch (error) {
@@ -893,9 +1031,12 @@ router.get('/offers-review', async (req: Request, res: Response): Promise<void> 
         ? statusParam
         : 'SUBMITTED';
 
+    const vendorIdFilter = normalizeOptionalQueryValue(req.query.vendorId);
+
     const offers = await prisma.offer.findMany({
       where: {
         offerState: normalizedStatus as any,
+        ...(vendorIdFilter ? { vendorId: vendorIdFilter } : {}),
       } as any,
       include: {
         vendor: {
@@ -1377,12 +1518,30 @@ router.patch('/users/:id/role', async (req: Request, res: Response): Promise<voi
 // Create vendor directly (admin)
 router.get('/vendors', async (req: Request, res: Response): Promise<void> => {
   try {
-    const status = firstString(req.query.status);
+    const status = normalizeOptionalQueryValue(req.query.status);
+    const search = normalizeOptionalQueryValue(req.query.search);
     const where: any = {};
-    if (status && status.toLowerCase() !== 'all') {
-      where.status = normalizeVendorStatus(status);
-    } else if (!status) {
-      where.status = 'PENDING';
+    if (status) {
+      const normalized = normalizeVendorStatus(status);
+      if (normalized === 'ALL') {
+        // no-op
+      } else if (normalized === 'ACTIVE') {
+        where.status = 'APPROVED';
+      } else if (normalized === 'INACTIVE') {
+        where.status = 'SUSPENDED';
+      } else {
+        where.status = normalized;
+      }
+    } else {
+      where.status = 'APPROVED';
+    }
+    if (search) {
+      where.OR = [
+        { companyName: { contains: search, mode: 'insensitive' } },
+        { contactName: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+        { businessEmail: { contains: search, mode: 'insensitive' } },
+      ];
     }
 
     const vendors = await prisma.vendor.findMany({
@@ -1391,14 +1550,139 @@ router.get('/vendors', async (req: Request, res: Response): Promise<void> => {
         user: {
           select: { id: true, email: true, name: true, role: true },
         },
-        _count: {
-          select: { offers: true, leads: true },
+        billing: {
+          select: {
+            associationStatus: true,
+            planConfig: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                isActive: true,
+              },
+            },
+          },
+        },
+        billingPlans: {
+          where: { isActive: true },
+          orderBy: { startsAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            isActive: true,
+            startsAt: true,
+            endsAt: true,
+            planConfig: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                isActive: true,
+              },
+            },
+          },
+        },
+        requests: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
+            createdAt: true,
+            selectedPlanCode: true,
+            selectedPlanConfig: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+              },
+            },
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    res.json(vendors);
+    const vendorIds = (vendors || []).map((vendor) => vendor.id);
+
+    const [offerCounts, rawLeadCounts] = await Promise.all([
+      vendorIds.length
+        ? (prisma as any).offer.groupBy({
+            by: ['vendorId'],
+            where: {
+              ...(buildCountedOfferWhere({}) as any),
+              vendorId: { in: vendorIds },
+            },
+            _count: { vendorId: true },
+          })
+        : Promise.resolve([]),
+      // Deduplicate by (userId, offerId): same user submitting to the same offer
+      // is counted only once (earliest submission). Null-userId leads are always counted.
+      vendorIds.length
+        ? (() => {
+            const placeholders = vendorIds.map((_, i) => `$${i + 1}`).join(', ');
+            return prisma.$queryRawUnsafe<Array<{ vendorId: string; count: number }>>(
+              `
+                WITH ranked AS (
+                  SELECT
+                    vendor_id,
+                    ROW_NUMBER() OVER (
+                      PARTITION BY COALESCE(user_id::text, id::text), offer_id
+                      ORDER BY created_at ASC
+                    ) AS rn
+                  FROM leads
+                  WHERE vendor_id IN (${placeholders})
+                    AND status != 'FAILED'
+                )
+                SELECT vendor_id::text AS "vendorId", CAST(COUNT(*) AS INTEGER) AS count
+                FROM ranked
+                WHERE rn = 1
+                GROUP BY vendor_id
+              `,
+              ...vendorIds
+            );
+          })()
+        : Promise.resolve([] as Array<{ vendorId: string; count: number }>),
+    ]);
+
+    const offersCountByVendorId = new Map<string, number>();
+    for (const row of offerCounts as Array<{ vendorId: string; _count: { vendorId: number } }>) {
+      offersCountByVendorId.set(String(row.vendorId), Number(row._count?.vendorId || 0));
+    }
+    const leadsCountByVendorId = new Map<string, number>();
+    for (const row of rawLeadCounts as Array<{ vendorId: string; count: number }>) {
+      leadsCountByVendorId.set(String(row.vendorId), Number(row.count || 0));
+    }
+
+    const payload = vendors.map((vendor: any) => {
+      const activePlan = vendor.billingPlans?.[0] || null;
+      const currentPlan =
+        activePlan?.planConfig ||
+        (activePlan?.code
+          ? {
+              id: null,
+              code: String(activePlan.code).toUpperCase(),
+              name: activePlan.name || activePlan.code,
+              isActive: true,
+            }
+          : vendor.billing?.planConfig || null);
+      const latestRequest = vendor.requests?.[0] || null;
+
+      return {
+        ...vendor,
+        currentPlan,
+        billingStatus: vendor.billing?.associationStatus || 'UNKNOWN',
+        metrics: {
+          offersCount: offersCountByVendorId.get(vendor.id) || 0,
+          leadsCount: leadsCountByVendorId.get(vendor.id) || 0,
+        },
+        sourceRequest: latestRequest,
+      };
+    });
+
+    res.json(payload);
   } catch (error) {
     console.error('Get admin vendors error:', error);
     res.status(500).json({ error: 'Failed to load vendors' });
@@ -1413,11 +1697,12 @@ router.patch('/vendors/:id', async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const requestedStatus = String(req.body?.status || req.body?.action || '')
+    const requestedStatusRaw = String(req.body?.status || req.body?.action || '')
       .trim()
       .toUpperCase();
-    if (!['APPROVED', 'REJECTED'].includes(requestedStatus)) {
-      res.status(400).json({ error: 'Invalid status. Use approved or rejected.' });
+    const requestedStatus = requestedStatusRaw || null;
+    if (requestedStatus && !['APPROVED', 'REJECTED', 'SUSPENDED'].includes(requestedStatus)) {
+      res.status(400).json({ error: 'Invalid status. Use approved, rejected, or suspended.' });
       return;
     }
 
@@ -1434,10 +1719,53 @@ router.patch('/vendors/:id', async (req: Request, res: Response): Promise<void> 
       return;
     }
 
+    const updateData: any = {};
+    const setOptionalString = (
+      key:
+        | 'companyName'
+        | 'contactName'
+        | 'email'
+        | 'businessEmail'
+        | 'phone'
+        | 'website'
+        | 'businessType'
+        | 'city'
+        | 'description'
+        | 'notes',
+      options?: { required?: boolean }
+    ) => {
+      if (req.body?.[key] === undefined) return;
+      const value = String(req.body?.[key] || '').trim();
+      if (!value && options?.required) {
+        throw new Error(`FIELD_REQUIRED:${key}`);
+      }
+      updateData[key] = value || null;
+    };
+
+    setOptionalString('companyName', { required: true });
+    setOptionalString('contactName', { required: true });
+    setOptionalString('email', { required: true });
+    setOptionalString('businessEmail');
+    setOptionalString('phone');
+    setOptionalString('website');
+    setOptionalString('businessType');
+    setOptionalString('city');
+    setOptionalString('description');
+    setOptionalString('notes');
+
+    if (requestedStatus) {
+      updateData.status = requestedStatus as any;
+    }
+
+    if (!Object.keys(updateData).length) {
+      res.status(400).json({ error: 'No valid vendor changes supplied' });
+      return;
+    }
+
     const updated = await prisma.$transaction(async (tx) => {
       const vendorRecord = await tx.vendor.update({
         where: { id: vendor.id },
-        data: { status: requestedStatus as any },
+        data: updateData,
       });
 
       await tx.user.update({
@@ -1447,13 +1775,54 @@ router.patch('/vendors/:id', async (req: Request, res: Response): Promise<void> 
         } as any,
       });
 
+      // Only apply a billing plan on a fresh approval (PENDING/REJECTED → APPROVED).
+      // SUSPENDED → APPROVED (reactivation) must not overwrite the existing billing plan.
+      const isNewApproval = (requestedStatus || '').toUpperCase() === 'APPROVED' && vendor.status !== 'APPROVED';
+      if (isNewApproval) {
+        const latestRequest = await (tx as any).vendorRequest.findFirst({
+          where: {
+            vendorId: vendor.id,
+            status: { in: ['PENDING', 'APPROVED'] as any },
+          },
+          include: {
+            selectedPlanConfig: {
+              select: {
+                id: true,
+                code: true,
+                isActive: true,
+              },
+            },
+          },
+          orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+        });
+        const selectedPlanCode =
+          normalizeRequestPlanCode(latestRequest?.selectedPlanCode) || ('FREE' as RequestPlanCode);
+        const hasActiveSelectedPlan = await (tx as any).billingPlanConfig.findFirst({
+          where: {
+            code: selectedPlanCode,
+            planType: 'SUBSCRIPTION',
+            isActive: true,
+          },
+          select: { id: true },
+        });
+        if (!hasActiveSelectedPlan) {
+          throw new Error(`PLAN_CONFIG_INACTIVE:${selectedPlanCode}`);
+        }
+        await applyVendorSubscriptionPlan(tx, {
+          vendorId: vendor.id,
+          planTier: selectedPlanCode,
+          statusReason: 'admin-vendor-approved',
+          associationStatus: selectedPlanCode === 'FREE' ? 'FREE' : 'ACTIVE',
+        });
+      }
+
       return vendorRecord;
     });
 
     const frontendBaseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const loginUrl = `${frontendBaseUrl}/vendor/login`;
 
-    if (requestedStatus === 'APPROVED') {
+    if ((requestedStatus || '').toUpperCase() === 'APPROVED' && vendor.status !== 'APPROVED') {
       const token = createVendorSetPasswordToken({
         userId: vendor.user.id,
         email: vendor.user.email,
@@ -1482,101 +1851,40 @@ router.patch('/vendors/:id', async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const rejectionEmail = await sendVendorRejectionEmail({
-      to: vendor.email,
-      businessName: vendor.companyName,
-    });
-    if (!rejectionEmail.sent) {
-      console.error('Vendor rejection email failed:', {
-        vendorId: vendor.id,
-        error: rejectionEmail.error,
+    if ((requestedStatus || '').toUpperCase() === 'REJECTED' && vendor.status !== 'REJECTED') {
+      const rejectionEmail = await sendVendorRejectionEmail({
+        to: vendor.email,
+        businessName: vendor.companyName,
       });
+      if (!rejectionEmail.sent) {
+        console.error('Vendor rejection email failed:', {
+          vendorId: vendor.id,
+          error: rejectionEmail.error,
+        });
+      }
     }
 
     res.json({
       ok: true,
       vendor: updated,
-      status: requestedStatus,
+      status: requestedStatus || updated.status,
     });
   } catch (error) {
     console.error('Patch admin vendor status error:', error);
-    res.status(500).json({ error: 'Failed to update vendor status' });
-  }
-});
-
-router.post('/vendors', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const {
-      email,
-      password,
-      companyName,
-      contactName,
-      phone,
-      website,
-      businessType,
-      description,
-    } = req.body;
-
-    // Check if email exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-    });
-
-    if (existingUser) {
-      res.status(400).json({ error: 'Email already registered' });
+    if (String((error as Error)?.message || '').startsWith('FIELD_REQUIRED:')) {
+      const field = String((error as Error).message).split(':')[1] || 'field';
+      res.status(400).json({ error: `${field} is required` });
       return;
     }
-
-    const bcrypt = await import('bcryptjs');
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    const result = await prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          email,
-          passwordHash,
-          name: contactName,
-          role: 'VENDOR',
-        },
+    if (String((error as Error)?.message || '').startsWith('PLAN_CONFIG_INACTIVE:')) {
+      const code = String((error as Error).message).split(':')[1] || 'UNKNOWN';
+      res.status(409).json({
+        error: `${code} plan is inactive and cannot be assigned`,
+        code,
       });
-
-      const vendor = await tx.vendor.create({
-        data: {
-          userId: user.id,
-          companyName,
-          contactName,
-          email,
-          phone,
-          website,
-          businessType,
-          description,
-          status: 'APPROVED', // Pre-approved when created by admin
-        },
-      });
-
-      await tx.user.update({
-        where: { id: user.id },
-        data: { vendorId: vendor.id } as any,
-      });
-
-      const trialDays = Number(process.env.VENDOR_TRIAL_DAYS || 30);
-      const trialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
-      await tx.vendorBilling.create({
-        data: {
-          vendorId: vendor.id,
-          billingMode: 'TRIAL',
-          postTrialMode: 'PAY_PER_LEAD',
-          trialEndsAt,
-        },
-      });
-
-      return { user, vendor };
-    });
-
-    res.status(201).json(result.vendor);
-  } catch (error) {
-    console.error('Create vendor error:', error);
-    res.status(500).json({ error: 'Failed to create vendor' });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to update vendor status' });
   }
 });
 

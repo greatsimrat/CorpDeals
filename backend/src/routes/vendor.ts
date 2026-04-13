@@ -12,6 +12,7 @@ import { verifyVendorSetPasswordToken } from '../lib/vendor-password';
 import { DEFAULT_USER_ROLE } from '../lib/roles';
 import {
   normalizePhone,
+  VENDOR_REQUEST_PLAN_CODES,
   vendorApplicationSchema,
 } from '../lib/vendor-application';
 import { resolveCoverageInput } from '../lib/offer-coverage';
@@ -344,6 +345,7 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
       notes: req.body?.notes || req.body?.description || req.body?.additionalInfo,
       jobTitle: req.body?.jobTitle || req.body?.job_title,
       targetCompanies: req.body?.targetCompanies || req.body?.target_companies,
+      selectedPlan: req.body?.selectedPlan || req.body?.selected_plan || 'FREE',
     });
 
     if (!parsed.success) {
@@ -372,7 +374,13 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
       notes,
       jobTitle,
       targetCompanies,
+      selectedPlan,
     } = parsed.data;
+    const selectedPlanTier = resolveVendorSubscriptionPlanTier(selectedPlan);
+    if (!selectedPlanTier || !VENDOR_REQUEST_PLAN_CODES.includes(selectedPlanTier as any)) {
+      res.status(400).json({ error: 'Invalid billing plan selection' });
+      return;
+    }
 
     const resolvedCategory = category === 'Other' ? categoryOther.trim() : category;
 
@@ -403,11 +411,14 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
 
     if (!req.user?.id && existingUser) {
       if (existingUser.vendor) {
-        const statusLabel =
-          existingUser.vendor.status === 'APPROVED'
-            ? 'already has an approved vendor workspace'
-            : 'already has a vendor application in progress';
-        res.status(409).json({ error: `This email ${statusLabel}. Sign in to continue.` });
+        const existingVendorStatus = existingUser.vendor.status;
+        if (existingVendorStatus === 'APPROVED') {
+          res.status(409).json({ error: 'This email already has an approved vendor workspace. Sign in to continue.' });
+        } else if (existingVendorStatus === 'REJECTED') {
+          res.status(409).json({ error: 'This email has a previous application that was not approved. Sign in to re-apply.' });
+        } else {
+          res.status(409).json({ error: 'This email already has a vendor application in progress. Sign in to continue.' });
+        }
         return;
       }
 
@@ -436,21 +447,34 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
       : existingUser;
 
     if (applicantUser?.vendor) {
-      const statusLabel =
-        applicantUser.vendor.status === 'APPROVED'
-          ? 'You already have an approved vendor workspace'
-          : 'Your vendor application is already under review';
-      res.status(409).json({ error: statusLabel });
-      return;
+      const { status } = applicantUser.vendor;
+      if (status === 'APPROVED') {
+        res.status(409).json({ error: 'You already have an approved vendor workspace' });
+        return;
+      }
+      if (status === 'PENDING') {
+        res.status(409).json({ error: 'Your vendor application is already under review' });
+        return;
+      }
+      if (status === 'SUSPENDED') {
+        res.status(409).json({ error: 'Your vendor account has been suspended. Contact support to restore access.' });
+        return;
+      }
+      // status === 'REJECTED': allow re-application below
     }
 
     const duplicateVendorByEmail = await prisma.vendor.findFirst({
       where: {
-        OR: [
-          { email: contactEmail },
-          { email: businessEmail },
-          { businessEmail: contactEmail },
-          { businessEmail },
+        AND: [
+          {
+            OR: [
+              { email: contactEmail },
+              { email: businessEmail },
+              { businessEmail: contactEmail },
+              { businessEmail },
+            ],
+          },
+          ...(applicantUser?.vendor ? [{ id: { not: applicantUser.vendor.id } }] : []),
         ],
       },
       select: {
@@ -479,7 +503,7 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
         },
       });
       const duplicatePhone = vendorPhones.find(
-        (vendor) => normalizePhone(vendor.phone || '') === phone
+        (vendor) => normalizePhone(vendor.phone || '') === phone && vendor.id !== applicantUser?.vendor?.id
       );
       if (duplicatePhone) {
         res.status(409).json({
@@ -490,11 +514,33 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
     }
 
     const additionalInfo = [
+      `Selected plan: ${selectedPlanTier}`,
       targetCompanies ? `Target companies: ${targetCompanies}` : null,
       notes ? `Additional notes: ${notes}` : null,
     ]
       .filter(Boolean)
       .join('\n');
+
+    const selectedPlanConfig = await (prisma as any).billingPlanConfig.findFirst({
+      where: {
+        code: selectedPlanTier,
+        planType: 'SUBSCRIPTION',
+        isActive: true,
+      },
+      select: {
+        id: true,
+        code: true,
+      },
+    });
+    if (!selectedPlanConfig) {
+      res.status(409).json({
+        error: `${selectedPlanTier} plan is currently unavailable`,
+        code: 'VENDOR_PLAN_UNAVAILABLE',
+      });
+      return;
+    }
+
+    const isReapply = applicantUser?.vendor !== undefined && applicantUser.vendor !== null;
 
     const created = await prisma.$transaction(async (tx) => {
       const user =
@@ -508,33 +554,54 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
           } as any,
         }));
 
-      const vendor = await tx.vendor.create({
-        data: {
-          userId: user.id,
-          companyName: businessName,
-          contactName,
-          email: contactEmail,
-          businessEmail,
-          phone: phone || null,
-          website: website || null,
-          businessType: resolvedCategory || null,
-          city: city || null,
-          notes: notes || null,
-          description: null,
-          status: 'PENDING',
-        } as any,
-      });
+      let vendor: any;
+      if (isReapply && applicantUser?.vendor) {
+        vendor = await tx.vendor.update({
+          where: { id: applicantUser.vendor.id },
+          data: {
+            companyName: businessName,
+            contactName,
+            email: contactEmail,
+            businessEmail,
+            phone: phone || null,
+            website: website || null,
+            businessType: resolvedCategory || null,
+            city: city || null,
+            notes: notes || null,
+            status: 'PENDING',
+          } as any,
+        });
+      } else {
+        vendor = await tx.vendor.create({
+          data: {
+            userId: user.id,
+            companyName: businessName,
+            contactName,
+            email: contactEmail,
+            businessEmail,
+            phone: phone || null,
+            website: website || null,
+            businessType: resolvedCategory || null,
+            city: city || null,
+            notes: notes || null,
+            description: null,
+            status: 'PENDING',
+          } as any,
+        });
 
-      await tx.user.update({
-        where: { id: user.id },
-        data: {
-          vendorId: vendor.id,
-        } as any,
-      });
+        await tx.user.update({
+          where: { id: user.id },
+          data: {
+            vendorId: vendor.id,
+          } as any,
+        });
+      }
 
       const request = await tx.vendorRequest.create({
         data: {
           vendorId: vendor.id,
+          selectedPlanConfigId: selectedPlanConfig.id,
+          selectedPlanCode: selectedPlanTier,
           businessType: resolvedCategory || null,
           categoryOther: category === 'Other' ? categoryOther || null : null,
           description: null,
@@ -559,6 +626,7 @@ router.post('/apply', authenticateTokenOptional, async (req: Request, res: Respo
       jobTitle: jobTitle || null,
       notes:
         [
+          `Selected plan: ${selectedPlanTier}`,
           targetCompanies ? `Target companies: ${targetCompanies}` : null,
           notes ? `Notes: ${notes}` : null,
         ]

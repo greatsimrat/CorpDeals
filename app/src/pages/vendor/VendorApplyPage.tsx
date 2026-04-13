@@ -17,6 +17,7 @@ type FormState = {
   phone: string;
   jobTitle: string;
   notes: string;
+  selectedPlan: 'FREE' | 'GOLD' | 'PREMIUM';
 };
 
 type FieldName = keyof FormState;
@@ -32,6 +33,7 @@ const initialState: FormState = {
   phone: '',
   jobTitle: '',
   notes: '',
+  selectedPlan: 'FREE',
 };
 
 const highlightCards = [
@@ -41,6 +43,16 @@ const highlightCards = [
 ] as const;
 
 const categoryOptions = ['Telecom', 'Fitness & Wellness', 'Education & Tutoring', 'Travel', 'Finance & Insurance', 'Automotive', 'Food & Beverage', 'Family & Kids', 'Local Services', 'Other'];
+const planOptions: Array<{
+  code: 'FREE' | 'GOLD' | 'PREMIUM';
+  label: string;
+  monthly: string;
+  details: string;
+}> = [
+  { code: 'FREE', label: 'Free', monthly: '$0 CAD / month', details: '50 active offers, 10 free leads' },
+  { code: 'GOLD', label: 'Gold', monthly: '$100 CAD / month', details: '100 active offers, 20 free leads' },
+  { code: 'PREMIUM', label: 'Premium', monthly: '$250 CAD / month', details: '250 active offers, 50 free leads' },
+];
 const personalEmailDomains = new Set(['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'live.com', 'icloud.com', 'aol.com', 'proton.me', 'protonmail.com', 'pm.me', 'gmx.com']);
 
 const normalizePhone = (value: string) => {
@@ -93,6 +105,9 @@ const validateForm = (form: FormState) => {
   else if (!/^\+?\d{10,15}$/.test(phone)) nextErrors.phone = 'Enter a valid phone number';
 
   if (form.notes.trim().length > 1000) nextErrors.notes = 'Additional notes must be 1000 characters or less';
+  if (!['FREE', 'GOLD', 'PREMIUM'].includes(form.selectedPlan)) {
+    nextErrors.selectedPlan = 'Select a valid plan';
+  }
 
   return nextErrors;
 };
@@ -169,6 +184,7 @@ export default function VendorApplyPage() {
         phone: form.phone,
         jobTitle: form.jobTitle,
         notes: form.notes,
+        selectedPlan: form.selectedPlan,
       });
       setSuccessMessage(result.message || 'Thanks. We have your company details and will follow up if there is a fit.');
       setRequestId(result.requestId || '');
@@ -353,7 +369,48 @@ export default function VendorApplyPage() {
                     </div>
 
                     <div className="rounded-[1.5rem] bg-slate-50 p-5">
-                      <SectionHeading number="2" title="Contact details" />
+                      <SectionHeading number="2" title="Select plan" />
+                      <div className="mt-4 space-y-3">
+                        <p className="text-sm text-slate-600">
+                          Every vendor request must include a billing plan. You can change this later from vendor billing.
+                        </p>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                          {planOptions.map((plan) => {
+                            const selected = form.selectedPlan === plan.code;
+                            return (
+                              <label
+                                key={plan.code}
+                                className={`cursor-pointer rounded-2xl border p-4 transition ${
+                                  selected
+                                    ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-100'
+                                    : 'border-slate-200 bg-white hover:border-slate-300'
+                                }`}
+                              >
+                                <input
+                                  type="radio"
+                                  name="selectedPlan"
+                                  value={plan.code}
+                                  checked={selected}
+                                  onChange={onChange}
+                                  className="sr-only"
+                                />
+                                <p className="text-sm font-semibold text-slate-900">{plan.label}</p>
+                                <p className="mt-1 text-sm text-slate-700">{plan.monthly}</p>
+                                <p className="mt-2 text-xs text-slate-500">{plan.details}</p>
+                              </label>
+                            );
+                          })}
+                        </div>
+                        {fieldErrors.selectedPlan ? (
+                          <p id="selectedPlan-error" className="text-xs text-red-600">
+                            {fieldErrors.selectedPlan}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="rounded-[1.5rem] bg-slate-50 p-5">
+                      <SectionHeading number="3" title="Contact details" />
                       <div className="mt-4 space-y-4">
                         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                           <label htmlFor="contactName" className="block text-sm font-medium text-slate-700">
@@ -389,7 +446,7 @@ export default function VendorApplyPage() {
                     </div>
 
                     <div className="rounded-[1.5rem] bg-slate-50 p-5">
-                      <SectionHeading number="3" title="Additional context" />
+                      <SectionHeading number="4" title="Additional context" />
                       <div className="mt-4 space-y-4">
                         <label htmlFor="notes" className="block text-sm font-medium text-slate-700">
                           Additional context <span className="font-normal text-slate-500">(optional)</span>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import api from '../../services/api';
 import { getBillingErrorMessage, getBillingReasonMessage } from '../../lib/billing-access';
 
@@ -48,6 +48,9 @@ type BillingBlockedOfferRow = {
 };
 
 export default function OffersReviewPage() {
+  const [searchParams] = useSearchParams();
+  const vendorIdFilter = searchParams.get('vendorId') || undefined;
+
   const [offers, setOffers] = useState<OfferReviewRow[]>([]);
   const [billingBlockedOffers, setBillingBlockedOffers] = useState<BillingBlockedOfferRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -63,7 +66,7 @@ export default function OffersReviewPage() {
       setIsLoading(true);
       setError('');
       const [data, blockedData] = await Promise.all([
-        api.getAdminOffersReview({ status: 'SUBMITTED' }),
+        api.getAdminOffersReview({ status: 'SUBMITTED', vendorId: vendorIdFilter }),
         api.getAdminBillingBlockedOffers({
           limit: 250,
           statuses: ['SUBMITTED', 'APPROVED', 'LIVE', 'PAUSED'],
@@ -80,7 +83,7 @@ export default function OffersReviewPage() {
 
   useEffect(() => {
     loadOffers();
-  }, []);
+  }, [vendorIdFilter]);
 
   const blockedOfferById = useMemo(
     () =>

@@ -283,6 +283,8 @@ model Vendor {
 model VendorRequest {
   id              String        @id @default(uuid())
   vendorId        String        @map("vendor_id")
+  selectedPlanConfigId String   @map("selected_plan_config_id")
+  selectedPlanCode String       @default("FREE") @map("selected_plan_code")
   businessType    String?       @map("business_type")
   categoryOther   String?       @map("category_other")
   description     String?
@@ -296,8 +298,11 @@ model VendorRequest {
   updatedAt       DateTime      @updatedAt @map("updated_at")
 
   vendor          Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  selectedPlanConfig BillingPlanConfig @relation(fields: [selectedPlanConfigId], references: [id], onDelete: Restrict)
   reviewedBy      User?         @relation("ReviewedBy", fields: [reviewedById], references: [id])
 
+  @@index([selectedPlanCode])
+  @@index([selectedPlanConfigId])
   @@map("vendor_requests")
 }
 
@@ -677,6 +682,7 @@ model BillingPlanConfig {
 
   vendorBillingPlans   VendorBillingPlan[]
   vendorBillings       VendorBilling[]
+  vendorRequests       VendorRequest[]
 
   @@index([isActive, planType])
   @@map("billing_plan_configs")

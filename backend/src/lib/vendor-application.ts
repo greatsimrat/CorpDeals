@@ -27,6 +27,8 @@ export const VENDOR_CATEGORIES = [
   'Other',
 ] as const;
 
+export const VENDOR_REQUEST_PLAN_CODES = ['FREE', 'GOLD', 'PREMIUM'] as const;
+
 export const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
 export const normalizePhone = (value: string) => {
@@ -101,6 +103,9 @@ export const vendorApplicationSchema = z
       .max(200, 'Target companies must be 200 characters or less')
       .optional()
       .transform((value) => value || ''),
+    selectedPlan: z.enum(VENDOR_REQUEST_PLAN_CODES, {
+      errorMap: () => ({ message: 'Select a valid plan' }),
+    }),
   })
   .superRefine((data, ctx) => {
     if (data.category === 'Other' && !data.categoryOther.trim()) {
