@@ -84,6 +84,12 @@ const billingBadgeClass = (value: string) => {
 };
 
 export default function VendorsPage() {
+  const [summary, setSummary] = useState({
+    total: 0,
+    active: 0,
+    suspended: 0,
+    rejected: 0,
+  });
   const [vendors, setVendors] = useState<VendorRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -100,10 +106,26 @@ export default function VendorsPage() {
     try {
       setIsLoading(true);
       setError('');
-      const data = await api.getAdminVendors({
-        status: statusFilter === 'ALL' ? 'all' : statusFilter,
-      });
-      setVendors(data as VendorRow[]);
+      const [filteredData, allData] = await Promise.all([
+        api.getAdminVendors({
+          status: statusFilter === 'ALL' ? 'all' : statusFilter,
+        }),
+        api.getAdminVendors({ status: 'all' }),
+      ]);
+      setVendors(filteredData as VendorRow[]);
+      const totals = {
+        total: 0,
+        active: 0,
+        suspended: 0,
+        rejected: 0,
+      };
+      for (const vendor of allData as VendorRow[]) {
+        totals.total += 1;
+        if (vendor.status === 'APPROVED') totals.active += 1;
+        else if (vendor.status === 'SUSPENDED') totals.suspended += 1;
+        else if (vendor.status === 'REJECTED') totals.rejected += 1;
+      }
+      setSummary(totals);
     } catch (err: any) {
       setError(err.message || 'Failed to load vendors');
     } finally {
@@ -133,21 +155,6 @@ export default function VendorsPage() {
         .includes(query)
     );
   }, [vendors, searchQuery]);
-
-  const summary = useMemo(() => {
-    const totals = {
-      total: vendors.length,
-      active: 0,
-      suspended: 0,
-      rejected: 0,
-    };
-    for (const vendor of vendors) {
-      if (vendor.status === 'APPROVED') totals.active += 1;
-      else if (vendor.status === 'SUSPENDED') totals.suspended += 1;
-      else if (vendor.status === 'REJECTED') totals.rejected += 1;
-    }
-    return totals;
-  }, [vendors]);
 
   const openEdit = (vendor: VendorRow) => {
     setEditVendor(vendor);

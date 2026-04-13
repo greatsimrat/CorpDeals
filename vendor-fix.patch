@@ -1,0 +1,134 @@
+diff --git a/backend/src/routes/admin.ts b/backend/src/routes/admin.ts
+index eabc6545609d1f4885d2bfbba54ce4a40e05d4f3..eed902c8ad197cc6aa9d4a9ea4ea3a362a096622 100644
+--- a/backend/src/routes/admin.ts
++++ b/backend/src/routes/admin.ts
+@@ -623,116 +623,123 @@ router.get('/billing-preview', async (req: Request, res: Response): Promise<void
+ 
+     res.json({
+       gstPercent: BILLING_GST_RATE * 100,
+       rows: vendorRows,
+       totals: {
+         vendors: totals.vendors,
+         paidLeads: totals.paidLeads,
+         monthlySubscriptions: Math.round(totals.monthlySubscriptions * 100) / 100,
+         paidLeadCharges: Math.round(totals.paidLeadCharges * 100) / 100,
+         gst: Math.round(totals.gst * 100) / 100,
+         estimatedTotal: Math.round(totals.estimatedTotal * 100) / 100,
+       },
+     });
+   } catch (error) {
+     console.error('GET /api/admin/billing-preview error:', error);
+     res.status(500).json({ error: 'Failed to load billing preview' });
+   }
+ });
+ 
+ // Dashboard stats
+ router.get('/stats', async (req: Request, res: Response): Promise<void> => {
+   try {
+     const [
+       totalUsers,
+       totalVendors,
+-      pendingVendors,
+-      approvedVendors,
++      vendorStatusRows,
+       totalCompanies,
+       totalOffers,
+       activeOffers,
+       totalLeads,
+       pendingRequests,
+       pendingCompanyRequests,
+       leadSummaryRows,
+       dailyLeadRows,
+       monthlyLeadRows,
+       yearlyLeadRows,
+     ] = await Promise.all([
+       prisma.user.count(),
+       prisma.vendor.count(),
+-      prisma.vendor.count({ where: { status: 'PENDING' } }),
+-      prisma.vendor.count({ where: { status: 'APPROVED' } }),
++      prisma.$queryRaw<Array<{ status: string; count: number }>>`
++        SELECT LOWER("status"::text) AS "status", COUNT(*)::int AS "count"
++        FROM "vendors"
++        GROUP BY 1
++      `,
+       prisma.company.count(),
+       prisma.offer.count(),
+       countActiveApprovedOffers(),
+       prisma.lead.count(),
+       prisma.vendorRequest.count({ where: { status: 'PENDING' } }),
+       prisma.companyRequest.count({ where: { status: 'PENDING' } }),
+       prisma.$queryRaw<LeadSummaryRow[]>`
+         SELECT
+           COUNT(*) FILTER (WHERE "created_at" >= DATE_TRUNC('day', NOW()))::int AS "today",
+           COUNT(*) FILTER (WHERE "created_at" >= DATE_TRUNC('month', NOW()))::int AS "thisMonth",
+           COUNT(*) FILTER (WHERE "created_at" >= DATE_TRUNC('year', NOW()))::int AS "thisYear"
+         FROM "leads"
+       `,
+       prisma.$queryRaw<LeadBucketRow[]>`
+         SELECT
+           TO_CHAR(DATE_TRUNC('day', "created_at"), 'YYYY-MM-DD') AS "bucket",
+           COUNT(*)::int AS "count"
+         FROM "leads"
+         WHERE "created_at" >= DATE_TRUNC('day', NOW()) - INTERVAL '29 days'
+         GROUP BY 1
+         ORDER BY 1 ASC
+       `,
+       prisma.$queryRaw<LeadBucketRow[]>`
+         SELECT
+           TO_CHAR(DATE_TRUNC('month', "created_at"), 'YYYY-MM') AS "bucket",
+           COUNT(*)::int AS "count"
+         FROM "leads"
+         WHERE "created_at" >= DATE_TRUNC('month', NOW()) - INTERVAL '11 months'
+         GROUP BY 1
+         ORDER BY 1 ASC
+       `,
+       prisma.$queryRaw<LeadBucketRow[]>`
+         SELECT
+           TO_CHAR(DATE_TRUNC('year', "created_at"), 'YYYY') AS "bucket",
+           COUNT(*)::int AS "count"
+         FROM "leads"
+         GROUP BY 1
+         ORDER BY 1 ASC
+       `,
+     ]);
+ 
+     const leadSummary = leadSummaryRows[0] || { today: 0, thisMonth: 0, thisYear: 0 };
++    const vendorCountsByStatus = new Map<string, number>();
++    for (const row of vendorStatusRows || []) {
++      vendorCountsByStatus.set(String(row.status || '').toLowerCase(), Number(row.count || 0));
++    }
+ 
+     res.json({
+       users: totalUsers,
+       vendors: {
+         total: totalVendors,
+-        pending: pendingVendors,
+-        approved: approvedVendors,
++        active: vendorCountsByStatus.get('active') || 0,
++        suspended: vendorCountsByStatus.get('suspended') || 0,
++        rejected: vendorCountsByStatus.get('rejected') || 0,
+       },
+       companies: totalCompanies,
+       offers: {
+         total: totalOffers,
+         active: activeOffers,
+       },
+       leads: totalLeads,
+       pendingCompanyRequests,
+       leadSubmissions: {
+         today: leadSummary.today,
+         thisMonth: leadSummary.thisMonth,
+         thisYear: leadSummary.thisYear,
+         daily: dailyLeadRows,
+         monthly: monthlyLeadRows,
+         yearly: yearlyLeadRows,
+       },
+       pendingRequests,
+     });
+   } catch (error) {
+     console.error('Get admin stats error:', error);
+     res.status(500).json({ error: 'Failed to get stats' });
+   }
+ });
+ 
+ // Get all vendor requests

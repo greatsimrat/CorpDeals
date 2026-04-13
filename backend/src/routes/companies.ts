@@ -27,6 +27,20 @@ const extractEmailDomain = (value: string) => {
 };
 const normalizeSearchQuery = (query: Request['query']) =>
   (asString(query.q) || asString(query.query) || asString(query.search)).trim();
+const normalizePrimarySearchQuery = (query: Request['query']) =>
+  (asString(query.q) || asString(query.query)).trim();
+const normalizeNameSearchQuery = (query: Request['query']) => asString(query.search).trim();
+const normalizeStartsWith = (query: Request['query']) => {
+  const value = asString(query.startsWith).trim();
+  if (!value) return '';
+  const first = value.charAt(0);
+  return /^[a-z]$/i.test(first) ? first : '';
+};
+const normalizeLimit = (query: Request['query'], fallback = 0, max = 100) => {
+  const raw = Number(asString(query.limit).trim());
+  if (!Number.isInteger(raw) || raw <= 0) return fallback;
+  return Math.min(raw, max);
+};
 const SEARCH_STOPWORDS = new Set([
   'and',
   'at',
@@ -259,19 +273,39 @@ const findPotentialDuplicateCompany = async (
 // Get all companies (public)
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
-    const q = normalizeSearchQuery(req.query);
+    const q = normalizePrimarySearchQuery(req.query);
+    const search = normalizeNameSearchQuery(req.query);
+    const startsWith = normalizeStartsWith(req.query);
+    const limit = normalizeLimit(req.query, 0, 200);
     const verified = asString(req.query.verified);
 
     const where: any = {};
+    const and: any[] = [];
+
     if (q) {
-      where.OR = [
-        { name: { contains: q, mode: 'insensitive' } },
-        { slug: { contains: q, mode: 'insensitive' } },
-        { domain: { contains: q, mode: 'insensitive' } },
-      ];
+      and.push({
+        OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          { slug: { contains: q, mode: 'insensitive' } },
+          { domain: { contains: q, mode: 'insensitive' } },
+        ],
+      });
+    }
+    if (search) {
+      and.push({
+        name: { contains: search, mode: 'insensitive' },
+      });
+    }
+    if (startsWith) {
+      and.push({
+        name: { startsWith, mode: 'insensitive' },
+      });
     }
     if (verified) {
       where.verified = verified === 'true';
+    }
+    if (and.length > 0) {
+      where.AND = and;
     }
 
     const companies = await prisma.company.findMany({
@@ -286,15 +320,68 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         _count: { select: { offers: true, hrContacts: true } },
       },
       orderBy: { name: 'asc' },
+      ...(limit > 0 ? { take: Math.max(limit * 3, limit) } : {}),
     });
 
-    res.json({ companies: dedupeCompanies(companies).map(toPublicCompany) });
+    const dedupedCompanies = dedupeCompanies(companies);
+    const limitedCompanies = limit > 0 ? dedupedCompanies.slice(0, limit) : dedupedCompanies;
+
+    res.json({ companies: limitedCompanies.map(toPublicCompany) });
   } catch (error) {
     console.error('Get companies error:', {
       query: req.query,
       error,
     });
     res.status(500).json({ error: 'Failed to get companies' });
+  }
+});
+
+// Lightweight company suggestions for typeahead/autocomplete
+router.get('/suggestions', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const query = (asString(req.query.q) || asString(req.query.search)).trim();
+    const startsWith = normalizeStartsWith(req.query);
+    const limit = normalizeLimit(req.query, 8, 25);
+
+    const where: any = {};
+    const and: any[] = [];
+
+    if (query) {
+      and.push({
+        name: { contains: query, mode: 'insensitive' },
+      });
+    }
+    if (startsWith) {
+      and.push({
+        name: { startsWith, mode: 'insensitive' },
+      });
+    }
+    if (and.length > 0) {
+      where.AND = and;
+    }
+
+    const companies = await prisma.company.findMany({
+      where,
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        domain: true,
+        logo: true,
+        verified: true,
+      },
+      orderBy: { name: 'asc' },
+      take: Math.max(limit * 3, limit),
+    });
+
+    const suggestions = dedupeCompanies(companies).slice(0, limit).map(toPublicCompany);
+    res.json({ companies: suggestions });
+  } catch (error) {
+    console.error('Get company suggestions error:', {
+      query: req.query,
+      error,
+    });
+    res.status(500).json({ error: 'Failed to get company suggestions' });
   }
 });
 

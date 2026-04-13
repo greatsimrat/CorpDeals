@@ -1525,6 +1525,7 @@ router.patch('/users/:id/role', async (req: Request, res: Response): Promise<voi
 // Create vendor directly (admin)
 router.get('/vendors', async (req: Request, res: Response): Promise<void> => {
   try {
+    const now = new Date();
     const status = normalizeOptionalQueryValue(req.query.status);
     const search = normalizeOptionalQueryValue(req.query.search);
     const where: any = {};
@@ -1571,8 +1572,12 @@ router.get('/vendors', async (req: Request, res: Response): Promise<void> => {
           },
         },
         billingPlans: {
-          where: { isActive: true },
-          orderBy: { startsAt: 'desc' },
+          where: {
+            isActive: true,
+            startsAt: { lte: now },
+            OR: [{ endsAt: null }, { endsAt: { gte: now } }],
+          },
+          orderBy: [{ startsAt: 'desc' }, { updatedAt: 'desc' }],
           take: 1,
           select: {
             id: true,
@@ -1674,11 +1679,20 @@ router.get('/vendors', async (req: Request, res: Response): Promise<void> => {
               name: activePlan.name || activePlan.code,
               isActive: true,
             }
-          : vendor.billing?.planConfig || null);
+          : null);
       const latestRequest = vendor.requests?.[0] || null;
+      const normalizedContactName = String(vendor.contactName || vendor.user?.name || '').trim();
+      const normalizedBusinessEmail = String(vendor.businessEmail || '').trim();
+      const normalizedEmail = String(vendor.email || vendor.user?.email || '').trim();
+      const normalizedPhone = String(vendor.phone || '').trim();
 
       return {
         ...vendor,
+        companyName: String(vendor.companyName || '').trim(),
+        contactName: normalizedContactName || '-',
+        businessEmail: normalizedBusinessEmail || null,
+        email: normalizedEmail,
+        phone: normalizedPhone || null,
         currentPlan,
         billingStatus: vendor.billing?.associationStatus || 'UNKNOWN',
         metrics: {

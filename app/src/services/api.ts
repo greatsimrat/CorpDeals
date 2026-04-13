@@ -558,14 +558,49 @@ class ApiService {
   }
 
   // Companies
-  async getCompanies(params?: { q?: string; query?: string; search?: string; verified?: string }) {
+  async getCompanies(params?: {
+    q?: string;
+    query?: string;
+    search?: string;
+    verified?: string;
+    startsWith?: string;
+    limit?: number;
+  }) {
     const searchParams = new URLSearchParams();
     const q = params?.q || params?.query || params?.search;
     if (q) searchParams.set('q', q);
+    if (params?.search) searchParams.set('search', params.search);
     if (params?.verified) searchParams.set('verified', params.verified);
+    if (params?.startsWith) searchParams.set('startsWith', params.startsWith);
+    if (params?.limit && Number.isFinite(params.limit)) {
+      searchParams.set('limit', String(params.limit));
+    }
 
     const query = searchParams.toString();
     const data = await this.request<any>(`/companies${query ? `?${query}` : ''}`);
+    const companies = Array.isArray(data) ? data : data?.companies || [];
+    return companies.map((company: any) => ({
+      ...company,
+      domain: company.domain ?? company.domains?.[0] ?? null,
+      domains: Array.isArray(company.domains)
+        ? company.domains
+        : company.domain
+        ? [company.domain]
+        : [],
+    }));
+  }
+
+  async getCompanySuggestions(params: { q?: string; search?: string; startsWith?: string; limit?: number }) {
+    const searchParams = new URLSearchParams();
+    const q = params?.q || params?.search || '';
+    if (q) searchParams.set('q', q);
+    if (params?.startsWith) searchParams.set('startsWith', params.startsWith);
+    if (params?.limit && Number.isFinite(params.limit)) {
+      searchParams.set('limit', String(params.limit));
+    }
+
+    const query = searchParams.toString();
+    const data = await this.request<any>(`/companies/suggestions${query ? `?${query}` : ''}`);
     const companies = Array.isArray(data) ? data : data?.companies || [];
     return companies.map((company: any) => ({
       ...company,
