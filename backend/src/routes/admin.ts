@@ -1526,12 +1526,13 @@ router.patch('/users/:id/role', async (req: Request, res: Response): Promise<voi
 router.get('/vendors', async (req: Request, res: Response): Promise<void> => {
   try {
     const now = new Date();
-    const status = normalizeOptionalQueryValue(req.query.status);
+    const statusRaw = firstString(req.query.status);
+    const status = statusRaw ? statusRaw.trim() : '';
     const search = normalizeOptionalQueryValue(req.query.search);
     const where: any = {};
     if (status) {
       const normalized = normalizeVendorStatus(status);
-      if (normalized === 'ALL') {
+      if (['ALL', 'UNDEFINED', 'NULL'].includes(normalized)) {
         // no-op
       } else if (normalized === 'ACTIVE') {
         where.status = 'APPROVED';
