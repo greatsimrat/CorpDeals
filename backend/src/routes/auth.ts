@@ -135,4 +135,98 @@ router.get('/me', authenticateToken, async (req: Request, res: Response): Promis
   }
 });
 
+// Update current user profile
+router.patch('/me', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const nameInput = req.body?.name;
+    const emailInput = req.body?.email;
+
+    const data: Record<string, unknown> = {};
+
+    if (nameInput !== undefined) {
+      data.name = String(nameInput || '').trim() || null;
+    }
+
+    if (emailInput !== undefined) {
+      const nextEmail = String(emailInput || '').trim().toLowerCase();
+      if (!nextEmail) {
+        res.status(400).json({ error: 'Email is required' });
+        return;
+      }
+      data.email = nextEmail;
+    }
+
+    if (!Object.keys(data).length) {
+      res.status(400).json({ error: 'No updatable fields provided' });
+      return;
+    }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: data as any,
+    });
+
+    const userPayload = await buildAuthUserPayload(userId);
+    if (!userPayload) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    res.json(userPayload);
+  } catch (error: any) {
+    if (error?.code === 'P2002') {
+      res.status(409).json({ error: 'Email already in use' });
+      return;
+    }
+    console.error('Patch me error:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// Change current user password
+router.post('/change-password', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const currentPassword = String(req.body?.currentPassword || '');
+    const newPassword = String(req.body?.newPassword || '');
+
+    if (!currentPassword || !newPassword) {
+      res.status(400).json({ error: 'Current password and new password are required' });
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      res.status(400).json({ error: 'New password must be at least 8 characters' });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: { id: true, passwordHash: true },
+    });
+
+    if (!user || !user.passwordHash) {
+      res.status(400).json({ error: 'Password is not set for this account' });
+      return;
+    }
+
+    const isValidCurrentPassword = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isValidCurrentPassword) {
+      res.status(401).json({ error: 'Current password is incorrect' });
+      return;
+    }
+
+    const nextPasswordHash = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: nextPasswordHash },
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({ error: 'Failed to change password' });
+  }
+});
+
 export default router;

@@ -60,6 +60,7 @@ import PolicyTypesPage from './pages/PolicyTypesPage';
 import PricingPage from './pages/PricingPage';
 import LegalPage from './pages/LegalPage';
 import ContactPage from './pages/ContactPage';
+import ProfileSettingsPage from './pages/ProfileSettingsPage';
 
 function LegacyCompanyRedirect() {
   const { companyId } = useParams<{ companyId: string }>();
@@ -113,6 +114,14 @@ function App() {
                   element={
                     <ProtectedRoute allowedRoles={['USER']}>
                       <MyApplicationsPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/settings"
+                  element={
+                    <ProtectedRoute allowedRoles={['USER', 'VENDOR', 'FINANCE', 'SALES', 'ADMIN']}>
+                      <ProfileSettingsPage />
                     </ProtectedRoute>
                   }
                 />
@@ -191,6 +200,7 @@ function App() {
                   <Route path="invoices/:invoiceId" element={<AdminInvoiceDetailPage />} />
                   <Route path="categories" element={<AdminCategoriesPage />} />
                   <Route path="users" element={<UsersPage />} />
+                  <Route path="settings" element={<ProfileSettingsPage />} />
                 </Route>
 
                 {/* Finance Routes */}

@@ -42,6 +42,7 @@ const navItems: Array<{
   { path: '/admin/billing-preview', label: 'Billing Preview', icon: Calculator, exact: true, roles: ['ADMIN'] },
   { path: '/admin/invoices', label: 'Invoices', icon: Wallet, roles: ['ADMIN'] },
   { path: '/admin/users', label: 'Users', icon: UserCircle, roles: ['ADMIN'] },
+  { path: '/admin/settings', label: 'Settings', icon: UserCircle, roles: ['ADMIN'] },
   { path: '/finance', label: 'Finance', icon: Wallet, roles: ['ADMIN', 'FINANCE'] },
 ];
 
