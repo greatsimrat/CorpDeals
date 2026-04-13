@@ -124,6 +124,20 @@ class ApiService {
     return this.request<any>('/auth/me');
   }
 
+  async updateMyProfile(data: { name?: string | null; email?: string }) {
+    return this.request<any>('/auth/me', {
+      method: 'PATCH',
+      body: data,
+    });
+  }
+
+  async changeMyPassword(data: { currentPassword: string; newPassword: string }) {
+    return this.request<{ ok: boolean }>('/auth/change-password', {
+      method: 'POST',
+      body: data,
+    });
+  }
+
   async getMe() {
     return this.request<{
       logged_in?: boolean;
