@@ -139,8 +139,12 @@ export default function VendorsPage() {
 
   const filteredVendors = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return vendors;
-    return vendors.filter((vendor) =>
+    const statusScopedVendors =
+      statusFilter === 'APPROVED'
+        ? vendors.filter((vendor) => vendor.status === 'APPROVED')
+        : vendors;
+    if (!query) return statusScopedVendors;
+    return statusScopedVendors.filter((vendor) =>
       [
         vendor.companyName,
         vendor.contactName,
@@ -154,7 +158,7 @@ export default function VendorsPage() {
         .toLowerCase()
         .includes(query)
     );
-  }, [vendors, searchQuery]);
+  }, [vendors, searchQuery, statusFilter]);
 
   const openEdit = (vendor: VendorRow) => {
     setEditVendor(vendor);
