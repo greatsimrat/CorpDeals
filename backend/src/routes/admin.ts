@@ -660,8 +660,7 @@ router.get('/stats', async (req: Request, res: Response): Promise<void> => {
     const [
       totalUsers,
       totalVendors,
-      pendingVendors,
-      approvedVendors,
+      vendorStatusRows,
       totalCompanies,
       totalOffers,
       activeOffers,
@@ -675,8 +674,11 @@ router.get('/stats', async (req: Request, res: Response): Promise<void> => {
     ] = await Promise.all([
       prisma.user.count(),
       prisma.vendor.count(),
-      prisma.vendor.count({ where: { status: 'PENDING' } }),
-      prisma.vendor.count({ where: { status: 'APPROVED' } }),
+      prisma.$queryRaw<Array<{ status: string; count: number }>>`
+        SELECT LOWER("status"::text) AS "status", COUNT(*)::int AS "count"
+        FROM "vendors"
+        GROUP BY 1
+      `,
       prisma.company.count(),
       prisma.offer.count(),
       countActiveApprovedOffers(),
@@ -719,13 +721,18 @@ router.get('/stats', async (req: Request, res: Response): Promise<void> => {
     ]);
 
     const leadSummary = leadSummaryRows[0] || { today: 0, thisMonth: 0, thisYear: 0 };
+    const vendorCountsByStatus = new Map<string, number>();
+    for (const row of vendorStatusRows || []) {
+      vendorCountsByStatus.set(String(row.status || '').toLowerCase(), Number(row.count || 0));
+    }
 
     res.json({
       users: totalUsers,
       vendors: {
         total: totalVendors,
-        pending: pendingVendors,
-        approved: approvedVendors,
+        active: vendorCountsByStatus.get('active') || 0,
+        suspended: vendorCountsByStatus.get('suspended') || 0,
+        rejected: vendorCountsByStatus.get('rejected') || 0,
       },
       companies: totalCompanies,
       offers: {
