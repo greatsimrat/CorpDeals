@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e ':*)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:Amritsar%4065@localhost:5432/corpdeals?schema=public\" npx prisma migrate resolve --rolled-back 20260412000000_vendor_request_selected_plan)"
+    ]
+  }
+}

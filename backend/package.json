@@ -21,6 +21,7 @@
     "db:billing:audit-offers": "tsx src/scripts/audit-offer-billing-compliance.ts",
     "db:billing:revalidate-live-offers": "tsx src/scripts/revalidate-live-offers-billing.ts",
     "db:offers:sync-state": "tsx src/scripts/sync-offer-state-live-status.ts",
+    "db:vendors:refresh-admin-demo": "tsx src/scripts/refresh-vendor-admin-demo-data.ts",
     "test:billing": "tsx --test src/lib/vendor-billing-access.test.ts src/lib/vendor-offer-enforcement.test.ts src/lib/offer-counting.test.ts src/lib/billing-preview.test.ts src/lib/lead-dedup.test.ts src/lib/vendor-subscription-plan.test.ts",
     "test:categories": "tsx --test src/lib/category-management.test.ts src/middleware/auth-role-guards.test.ts",
     "db:prepare:uat": "bash scripts/prepare-uat-demo.sh",

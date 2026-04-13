@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search,
   Plus,
@@ -39,15 +39,21 @@ interface Company {
 }
 
 export default function CompaniesPage() {
+  const LETTER_FILTERS = useMemo(() => ['All', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')], []);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeLetter, setActiveLetter] = useState('All');
+  const [suggestions, setSuggestions] = useState<Company[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isSuggestionsLoading, setIsSuggestionsLoading] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showHRModal, setShowHRModal] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [hrContacts, setHRContacts] = useState<HRContact[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement | null>(null);
   
   const [companyForm, setCompanyForm] = useState({
     name: '',
@@ -69,13 +75,62 @@ export default function CompaniesPage() {
   });
 
   useEffect(() => {
-    loadCompanies();
+    const timeoutId = window.setTimeout(() => {
+      loadCompanies(searchQuery, activeLetter);
+    }, 250);
+    return () => window.clearTimeout(timeoutId);
+  }, [searchQuery, activeLetter]);
+
+  useEffect(() => {
+    if (!showSuggestions) {
+      setIsSuggestionsLoading(false);
+      return;
+    }
+    const query = searchQuery.trim();
+    if (!query) {
+      setSuggestions([]);
+      setIsSuggestionsLoading(false);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        setIsSuggestionsLoading(true);
+        const data = await api.getCompanySuggestions({
+          q: query,
+          startsWith: activeLetter !== 'All' ? activeLetter : undefined,
+          limit: 8,
+        });
+        setSuggestions(data as Company[]);
+      } catch {
+        setSuggestions([]);
+      } finally {
+        setIsSuggestionsLoading(false);
+      }
+    }, 250);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [searchQuery, activeLetter, showSuggestions]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!searchContainerRef.current) return;
+      const target = event.target as Node;
+      if (!searchContainerRef.current.contains(target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const loadCompanies = async () => {
+  const loadCompanies = async (query = '', letter = 'All') => {
     try {
       setIsLoading(true);
-      const data = await api.getCompanies();
+      const data = await api.getCompanies({
+        search: query.trim() || undefined,
+        startsWith: letter !== 'All' ? letter : undefined,
+      });
       setCompanies(data);
     } catch (err: any) {
       setError(err.message || 'Failed to load companies');
@@ -156,11 +211,11 @@ export default function CompaniesPage() {
     await loadHRContacts(company.id);
     setShowHRModal(true);
   };
-
-  const filteredCompanies = companies.filter(c =>
-    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (c.domain && c.domain.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  
+  const handleSuggestionSelect = (company: Company) => {
+    setSearchQuery(company.name);
+    setShowSuggestions(false);
+  };
 
   if (isLoading) {
     return (
@@ -193,23 +248,71 @@ export default function CompaniesPage() {
         </div>
       )}
 
-      {/* Search */}
+      {/* Search + Filters */}
       <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          {LETTER_FILTERS.map((letter) => {
+            const isActive = activeLetter === letter;
+            return (
+              <button
+                key={letter}
+                type="button"
+                onClick={() => setActiveLetter(letter)}
+                className={`px-2.5 py-1.5 text-xs font-semibold rounded-md border transition-colors ${
+                  isActive
+                    ? 'bg-blue-600 border-blue-600 text-white'
+                    : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                {letter}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="relative" ref={searchContainerRef}>
+          <Search className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onFocus={() => setShowSuggestions(true)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setShowSuggestions(true);
+            }}
             placeholder="Search companies..."
             className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
           />
+          {showSuggestions && searchQuery.trim() ? (
+            <div className="absolute z-20 mt-2 w-full rounded-lg border border-slate-200 bg-white shadow-lg overflow-hidden">
+              {isSuggestionsLoading ? (
+                <div className="px-4 py-3 text-sm text-slate-500">Loading suggestions...</div>
+              ) : suggestions.length === 0 ? (
+                <div className="px-4 py-3 text-sm text-slate-500">No matching companies found.</div>
+              ) : (
+                suggestions.map((company) => (
+                  <button
+                    key={company.id}
+                    type="button"
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      handleSuggestionSelect(company);
+                    }}
+                    className="w-full px-4 py-2.5 text-left hover:bg-slate-50 border-b border-slate-100 last:border-b-0"
+                  >
+                    <p className="text-sm font-medium text-slate-900">{company.name}</p>
+                    {company.domain ? <p className="text-xs text-slate-500">{company.domain}</p> : null}
+                  </button>
+                ))
+              )}
+            </div>
+          ) : null}
         </div>
       </div>
 
       {/* Companies Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredCompanies.map((company) => (
+        {companies.map((company) => (
           <div key={company.id} className="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-md transition-shadow">
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-3">

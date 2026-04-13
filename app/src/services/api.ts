@@ -226,6 +226,7 @@ class ApiService {
     additionalInfo?: string;
     password?: string;
     confirmPassword?: string;
+    selectedPlan?: 'FREE' | 'GOLD' | 'PREMIUM';
   }) {
     const payload = {
       businessName: data.businessName || data.companyName || '',
@@ -234,13 +235,14 @@ class ApiService {
       businessEmail: data.businessEmail || '',
       phone: data.phone,
       website: data.website,
-        category: data.category || data.businessType,
-        categoryOther: data.categoryOther,
-        city: data.city,
-        jobTitle: data.jobTitle,
-        targetCompanies: data.targetCompanies,
-        notes: data.notes || data.description || data.additionalInfo,
-      };
+      category: data.category || data.businessType,
+      categoryOther: data.categoryOther,
+      city: data.city,
+      jobTitle: data.jobTitle,
+      targetCompanies: data.targetCompanies,
+      notes: data.notes || data.description || data.additionalInfo,
+      selectedPlan: data.selectedPlan || 'FREE',
+    };
     return this.request<{ ok: boolean; message: string; vendorId: string; requestId?: string }>('/vendor/apply', {
       method: 'POST',
       body: payload,
@@ -556,14 +558,49 @@ class ApiService {
   }
 
   // Companies
-  async getCompanies(params?: { q?: string; query?: string; search?: string; verified?: string }) {
+  async getCompanies(params?: {
+    q?: string;
+    query?: string;
+    search?: string;
+    verified?: string;
+    startsWith?: string;
+    limit?: number;
+  }) {
     const searchParams = new URLSearchParams();
     const q = params?.q || params?.query || params?.search;
     if (q) searchParams.set('q', q);
+    if (params?.search) searchParams.set('search', params.search);
     if (params?.verified) searchParams.set('verified', params.verified);
+    if (params?.startsWith) searchParams.set('startsWith', params.startsWith);
+    if (params?.limit && Number.isFinite(params.limit)) {
+      searchParams.set('limit', String(params.limit));
+    }
 
     const query = searchParams.toString();
     const data = await this.request<any>(`/companies${query ? `?${query}` : ''}`);
+    const companies = Array.isArray(data) ? data : data?.companies || [];
+    return companies.map((company: any) => ({
+      ...company,
+      domain: company.domain ?? company.domains?.[0] ?? null,
+      domains: Array.isArray(company.domains)
+        ? company.domains
+        : company.domain
+        ? [company.domain]
+        : [],
+    }));
+  }
+
+  async getCompanySuggestions(params: { q?: string; search?: string; startsWith?: string; limit?: number }) {
+    const searchParams = new URLSearchParams();
+    const q = params?.q || params?.search || '';
+    if (q) searchParams.set('q', q);
+    if (params?.startsWith) searchParams.set('startsWith', params.startsWith);
+    if (params?.limit && Number.isFinite(params.limit)) {
+      searchParams.set('limit', String(params.limit));
+    }
+
+    const query = searchParams.toString();
+    const data = await this.request<any>(`/companies/suggestions${query ? `?${query}` : ''}`);
     const companies = Array.isArray(data) ? data : data?.companies || [];
     return companies.map((company: any) => ({
       ...company,
@@ -921,7 +958,7 @@ class ApiService {
     return this.request<any[]>(`/admin/vendor-requests${query}`);
   }
 
-  async getAdminVendors(params?: { status?: string }) {
+  async getAdminVendors(params?: { status?: string; search?: string }) {
     const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
     return this.request<any[]>(`/admin/vendors${query}`);
   }
@@ -941,15 +978,30 @@ class ApiService {
     return this.request<any>(`/admin/vendors/${encodeURIComponent(vendorId)}/billing-eligibility`);
   }
 
-  async reviewAdminVendor(id: string, status: 'APPROVED' | 'REJECTED') {
+  async updateAdminVendor(
+    id: string,
+    data: {
+      status?: 'APPROVED' | 'REJECTED' | 'SUSPENDED';
+      companyName?: string;
+      contactName?: string;
+      email?: string;
+      businessEmail?: string;
+      phone?: string;
+      website?: string;
+      businessType?: string;
+      city?: string;
+      description?: string;
+      notes?: string;
+    }
+  ) {
     return this.request<any>(`/admin/vendors/${encodeURIComponent(id)}`, {
       method: 'PATCH',
-      body: { status },
+      body: data,
     });
   }
 
-  async getAdminOffersReview(params?: { status?: string }) {
-    const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
+  async getAdminOffersReview(params?: { status?: string; vendorId?: string }) {
+    const query = this.buildQuery(params as Record<string, unknown> | undefined);
     return this.request<any[]>(`/admin/offers-review${query}`);
   }
 
