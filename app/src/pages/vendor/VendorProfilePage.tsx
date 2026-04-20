@@ -275,7 +275,6 @@ export default function VendorProfilePage() {
               className="mt-1 block min-h-[96px] w-full rounded-md border border-slate-300 px-3 py-2"
             />
           </label>
-          </div>
         </div>
       </div>
 
@@ -360,5 +359,6 @@ export default function VendorProfilePage() {
           </label>
         </div>
       </div>
+    </div>
   );
 }
